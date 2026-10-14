@@ -427,3 +427,32 @@ footer { max-width: 1180px; margin: 0 auto; padding: 0 16px 30px; color: var(--d
   .modal-bg { padding: 0; place-items: end stretch; }
   .modal { width: 100%; max-height: 92vh; border-radius: 18px 18px 0 0; }
 }
+
+/* ---------- Tour and What's new ---------- */
+.modal.tour { width: min(560px, 100%); }
+.tour-top { display: flex; gap: 14px; align-items: center; margin-bottom: 14px; }
+.tour-top h3 { margin: 4px 0 0; font: 700 26px/1.05 var(--display); text-transform: uppercase; letter-spacing: .02em; }
+.tour-icon { flex: none; width: 54px; height: 54px; border-radius: 14px; display: grid; place-items: center; font-size: 28px; background: linear-gradient(135deg, var(--red), var(--blue)); box-shadow: 0 8px 22px rgba(0, 0, 0, .35); }
+.tour-body { color: #dbe4f7; font-size: 15px; min-height: 190px; }
+.tour-body p { margin: 0 0 12px; }
+.tour-slots { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.tour-slot { --sc: var(--slot-PTS); border-radius: 12px; padding: 10px 12px; background: #0a1630; border: 1px solid var(--line); border-left: 4px solid var(--sc); display: grid; gap: 2px; }
+.tour-slot[data-slot="REB"] { --sc: var(--slot-REB); }
+.tour-slot[data-slot="AST"] { --sc: var(--slot-AST); }
+.tour-slot[data-slot="WIN"] { --sc: var(--slot-WIN); }
+.tour-slot b { font: 700 16px/1.1 var(--display); text-transform: uppercase; letter-spacing: .04em; }
+.tour-slot span { font-size: 13px; color: var(--muted); }
+.tour-bars { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+.tour-list { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
+.tour-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.tour-dots { display: flex; gap: 6px; }
+.tour-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); }
+.tour-dots i.on { background: var(--red-hot); width: 22px; border-radius: 6px; }
+.update { padding: 0 0 14px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+.update h4 { margin: 4px 0 8px; font: 700 18px/1.1 var(--display); text-transform: uppercase; letter-spacing: .03em; }
+.update ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; color: #dbe4f7; font-size: 14px; }
+footer .link { font-size: 12px; }
+@media (max-width: 600px) {
+  .tour-slots { grid-template-columns: 1fr; }
+  .tour-body { min-height: 0; }
+}
