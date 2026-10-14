@@ -194,3 +194,33 @@ test('hindsight: assignment is optimal, perfect week uses three different player
   assert.equal(new Set([w1.PTS.pid, w1.REB.pid, w1.AST.pid]).size, 3);
   assert.equal(pp.people[0].id, 'a'); // a got 90 + 110 = 200 points, the perfect total
 });
+
+test('season awards: category titles, fun and shame awards, decided at season end', async () => {
+  const { seasonAwards } = await import('../src/awards.js');
+  const DEN = 1610612743, BOS = 1610612738;
+  const weeks = [wk(1), wk(2)];
+  const totals = {
+    1: { final: true, p: { 1: [3, 90, 30, 25], 2: [3, 60, 20, 10], 3: [0, 0, 0, 0] }, t: { DEN: [3, 3], BOS: [3, 1] } },
+    2: { final: true, p: { 4: [3, 80, 12, 9], 5: [3, 70, 11, 8] }, t: { DEN: [3, 2], BOS: [3, 2] } },
+  };
+  const picks = [
+    pick('a', 1, 'PTS', 1), pick('a', 1, 'WIN', DEN), pick('b', 1, 'PTS', 2), pick('b', 1, 'WIN', BOS, { auto: true }),
+    pick('a', 2, 'PTS', 4), pick('b', 2, 'PTS', 5), pick('b', 2, 'REB', 3),
+  ];
+  const L = computeLeague({ weeks, totals, picks, profiles, now: NOW });
+  const A = seasonAwards(L, id => `#${id}`);
+  const t = Object.fromEntries(A.titles.map(x => [x.key, x]));
+  assert.equal(t['cat-PTS'].leader.id, 'a'); // 90 + 80 = 170 vs 130
+  assert.equal(t['cat-PTS'].leader.v, 170);
+  assert.equal(t['cat-WIN'].leader.id, 'a');
+  assert.equal(t['cat-PTS'].decided, true); // every week final
+  const fame = Object.fromEntries(A.fame.map(x => [x.key, x]));
+  assert.equal(fame['weeks-won'].leader.id, 'a');
+  assert.match(fame.heater.leaderText, /#1: 90 PTS in week 1/);
+  const shame = Object.fromEntries(A.shame.map(x => [x.key, x]));
+  assert.equal(shame.asleep.leader.id, 'b');
+  assert.equal(shame.fumble.leader.id, 'b'); // player 3 never played
+  assert.equal(A.champion.leader.id, 'a');
+  // Nobody qualifies for awards with a zero count.
+  assert.equal(fame.insurance.leader, null);
+});

@@ -328,7 +328,7 @@ label.field { display: grid; gap: 6px; font-size: 12.5px; color: var(--muted); f
 .res.W { color: var(--green); } .res.L { color: var(--red-hot); } .res.T { color: var(--muted); }
 
 /* ---------- Trophies ---------- */
-.trophies { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.trophies { display: grid; grid-template-columns: repeat(auto-fill, minmax(205px, 1fr)); gap: 14px; }
 .trophy { position: relative; border-radius: 16px; padding: 18px; background: linear-gradient(160deg, #18264a, #0b1731); border: 1px solid var(--line-2); overflow: hidden; }
 .trophy.won { border-color: rgba(242, 193, 78, .55); background: linear-gradient(160deg, #3a2c08, #0f1a33 70%); }
 .trophy .ic { font-size: 34px; }
@@ -456,3 +456,33 @@ footer .link { font-size: 12px; }
   .tour-slots { grid-template-columns: 1fr; }
   .tour-body { min-height: 0; }
 }
+
+/* ---------- Trophy room ---------- */
+.spotlight {
+  position: relative; overflow: hidden; text-align: center; max-width: 720px; width: 100%; justify-self: center;
+  padding: 30px 22px 26px; border-radius: 22px;
+  background: radial-gradient(120% 90% at 50% 0%, rgba(242, 193, 78, .28), transparent 60%), linear-gradient(180deg, #1b2a52, #0b1731);
+  border: 1px solid rgba(242, 193, 78, .45); box-shadow: 0 20px 60px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .06);
+}
+.spotlight.won { background: radial-gradient(120% 90% at 50% 0%, rgba(242, 193, 78, .45), transparent 65%), linear-gradient(180deg, #3a2c08, #0f1a33 75%); }
+.spotlight h1 { margin: 6px 0 8px; font: 700 clamp(34px, 6vw, 52px)/1 var(--display); text-transform: uppercase; letter-spacing: .02em; }
+.spot-icon { font-size: 64px; line-height: 1; filter: drop-shadow(0 8px 18px rgba(242, 193, 78, .45)); }
+.spot-how { color: #dbe4f7; max-width: 480px; margin: 0 auto 16px; }
+.spot-winner { display: inline-flex; align-items: center; gap: 12px; margin: 6px 0 4px; }
+.spot-winner b { font: 700 30px/1 var(--display); text-transform: uppercase; }
+.spotlight p { color: #dbe4f7; }
+.podium { display: grid; grid-template-columns: 1fr 1.15fr 1fr; align-items: end; gap: 10px; max-width: 460px; margin: 6px auto 0; }
+.podium-spot { display: grid; justify-items: center; gap: 6px; padding: 12px 8px; border-radius: 12px 12px 0 0; background: rgba(255, 255, 255, .05); border: 1px solid var(--line); border-bottom: 0; }
+.podium-spot b { font-size: 13.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.podium-spot span { font: 700 20px/1 var(--display); font-variant-numeric: tabular-nums; }
+.podium-spot.p1 { order: 2; padding-top: 22px; background: linear-gradient(180deg, rgba(242, 193, 78, .25), rgba(242, 193, 78, .05)); border-color: rgba(242, 193, 78, .5); }
+.podium-spot.p1 span { color: var(--gold); }
+.podium-spot.p2 { order: 1; padding-top: 16px; }
+.podium-spot.p3 { order: 3; }
+.you-line { margin-top: 10px; font-size: 12.5px; color: #a9c4ff; }
+.trophy .winner-line { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.trophy .winner-line b { font-size: 15px; }
+.trophy .detail { margin: 6px 0 10px; color: #dbe4f7; }
+.trophy .leader-tag { font: 600 10.5px/1 var(--body); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.trophy-group.shame .trophy { background: linear-gradient(160deg, #2a1420, #0b1731); border-color: rgba(239, 43, 77, .3); }
+.trophy-group.shame .trophy.won { border-color: rgba(239, 43, 77, .6); }

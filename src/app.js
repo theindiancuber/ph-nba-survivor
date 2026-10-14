@@ -5,6 +5,7 @@ import { SupabaseBackend, DemoBackend } from './backend.js';
 import { downloadCertificate } from './certificate.js';
 import { funStats, perfectPlay } from './stats.js';
 import { UPDATES, LATEST_UPDATE } from './updates.js';
+import { seasonAwards } from './awards.js';
 
 const SLOTS = LEAGUE.slots;
 const INFO = LEAGUE.slotInfo;
@@ -748,25 +749,42 @@ function viewRivals() {
 // ---------- Trophies ----------
 
 function viewTrophies() {
-  const L = S.league;
-  const champs = L.champions;
-  const won = champs.map((c, i) => `<div class="trophy won"><div class="ic">${c.title.startsWith('Season') ? '🏆' : c.title.startsWith('Survivor') ? '🥊' : '👑'}</div>
-    <h4>${esc(c.title)}</h4><div class="leader">${esc(c.user.name)}</div><p>${esc(c.detail)}</p>
-    <button class="btn gold small" data-act="cert" data-i="${i}">Download certificate</button></div>`).join('');
-  const leader = L.standings[0];
-  const races = [];
-  if (!champs.some(c => c.title === 'Season Champion')) races.push(`<div class="trophy"><div class="ic">🏆</div><h4>Season Champion</h4><p>Most points after dropped weeks. Decided after Week ${L.weeks.length}.</p><div class="leader">${leader && lockedWeeks().length ? `Leader: ${esc(leader.name)} · ${fmt(leader.counted)}` : 'No leader yet'}</div></div>`);
-  if (!L.survivor.winner) races.push(`<div class="trophy"><div class="ic">🥊</div><h4>Survivor Belt</h4><p>Last person with a life left.</p><div class="leader">${L.survivor.order.length ? `${L.survivor.alive} still alive` : 'Starts at the Week 1 lock'}</div></div>`);
-  for (const m of L.months.filter(m => !m.winner)) {
-    const lead = m.ranked[0];
-    races.push(`<div class="trophy"><div class="ic">👑</div><h4>Monthly Crown · ${esc(m.label)}</h4><p>Most points in weeks ${m.weeks[0]}–${m.weeks[m.weeks.length - 1]}.</p><div class="leader">${lead ? `Leader: ${esc(lead.name)} · ${fmt(lead.monthly[m.key])}` : 'Not started'}</div></div>`);
-  }
-  races.push(`<div class="trophy"><div class="ic">🔥</div><h4>Playoff Burn</h4><p>A separate mini-game with a fresh burn list, one pick per category each playoff round. Opens in April.</p><div class="leader">Coming soon</div></div>`);
+  const A = seasonAwards(S.league, pname);
+  S.awards = A;
+  const c = A.champion;
+  const won = c.decided && c.leader;
+  const podium = c.ranked.slice(0, 3).map((x, i) => `<div class="podium-spot p${i + 1}">${avatar(x.id)}<b>${esc(userName(x.id))}</b><span>${fmt(x.v)}</span></div>`).join('');
+  const meIdx = c.ranked.findIndex(x => x.id === myId());
+  const section = (title, sub, cards, cls = '') => cards.length ? `<section class="trophy-group ${cls}"><div class="panel-title"><h2>${title}</h2><span class="muted">${sub}</span></div><div class="trophies">${cards.join('')}</div></section>` : '';
   return `<div class="grid">
-    <section class="hero"><span class="badge gold">Bragging rights</span><h1>Trophy room</h1><div class="sub">No money, ever. Every champion gets a certificate, signed by the commissioner.</div></section>
-    ${won ? `<section><div class="panel-title"><h2>Champions</h2></div><div class="trophies">${won}</div></section>` : ''}
-    <section><div class="panel-title"><h2>Up for grabs</h2></div><div class="trophies">${races.join('')}</div></section>
+    <section class="spotlight ${won ? 'won' : ''}">
+      <div class="spot-icon">🏆</div>
+      <div class="kicker" style="color:#ffe39a">${LEAGUE.season} · ${won ? 'Champion' : 'The big one'}</div>
+      <h1>Season Champion</h1>
+      ${won ? `<div class="spot-winner">${avatar(c.leader.id, 'lg')}<b>${esc(userName(c.leader.id))}</b></div><p>${esc(c.leaderText)}</p>
+        <button class="btn gold" data-act="cert" data-key="champion">Download certificate</button>`
+      : `<p class="spot-how">${esc(c.how)}</p>${podium ? `<div class="podium">${podium}</div>` : '<p class="muted">The race starts when Week 1 locks.</p>'}
+        ${meIdx > 2 ? `<div class="you-line">You: ${fmt(c.ranked[meIdx].v)} · #${meIdx + 1}</div>` : ''}`}
+    </section>
+    ${section('Title belts', 'Season-long, decided after the final week (the Belt goes when the last life does)', A.titles.map(awardCard))}
+    ${section('Monthly Crowns', 'Most points in each month', A.monthly.map(awardCard))}
+    ${section('Hall of Fame', 'The fun stuff, decided at the end of the season', A.fame.map(awardCard))}
+    ${section('Hall of Shame', 'All in good fun. Yes, these come with certificates too', A.shame.map(awardCard), 'shame')}
+    ${section('Coming in April', 'Playoffs', [`<div class="trophy"><div class="ic">🔥</div><h4>Playoff Burn</h4><p>A separate mini-game with a fresh burn list, one pick per category each playoff round.</p><div class="leader dim">Coming soon</div></div>`])}
   </div>`;
+}
+
+function awardCard(a) {
+  const won = a.decided && a.leader;
+  const meIdx = a.ranked.findIndex(x => x.id === myId());
+  const you = !won && meIdx >= 0 && a.leader?.id !== myId() ? `<div class="you-line">You: ${esc(a.format(a.ranked[meIdx]))} · #${meIdx + 1}</div>` : '';
+  const body = won
+    ? `<div class="winner-line">${avatar(a.leader.id)}<b>${esc(userName(a.leader.id))}</b></div><p class="detail">${esc(a.leaderText)}</p>
+       <button class="btn gold small" data-act="cert" data-key="${a.key}">Download certificate</button>`
+    : a.leader
+      ? `<div class="leader-tag">${a.decided ? 'Winner' : 'Leader'}</div><div class="winner-line">${avatar(a.leader.id)}<b>${esc(userName(a.leader.id))}</b>${a.leader.id === myId() ? '<span class="tag blue">You</span>' : ''}</div><p class="detail">${esc(a.leaderText)}</p>${you}`
+      : `<div class="leader dim">${esc(a.status || 'No leader yet')}</div>`;
+  return `<div class="trophy ${won ? 'won' : ''}"><div class="ic">${a.icon}</div><h4>${esc(a.title)}</h4><p>${esc(a.how)}</p>${body}</div>`;
 }
 
 // ---------- Commissioner ----------
@@ -987,7 +1005,7 @@ function viewRules() {
       <div class="panel rule"><h3>🃏 Jokers</h3><ul><li><b>Double Down</b>: double the rank points from one slot, once a season.</li><li><b>Un-burn</b>: get one burned player back in one category, once a season.</li></ul></div>
       <div class="panel rule"><h3>🤖 Autopilot</h3><p>Forgot to pick? At the lock, Autopilot fills empty slots with your best unburned projected week (season average × games). It never leaves you at zero, but it spends your best players first.</p></div>
       <div class="panel rule"><h3>🥊 Rivals</h3><p>Name one coworker as your rival and track your weekly head-to-head record. You can change your rival any time.</p></div>
-      <div class="panel rule"><h3>🏆 Titles</h3><ul><li>Season Champion</li><li>Survivor Belt</li><li>Monthly Crowns: Nov, Dec, Jan, Feb, Mar/Apr</li><li>Playoff Burn (April–June)</li></ul><p>Bragging rights and a downloadable certificate.</p></div>
+      <div class="panel rule"><h3>🏆 Titles and awards</h3><ul><li><b>Season Champion</b></li><li><b>Title belts:</b> Survivor Belt, plus Scoring, Rebounding, Assists and Dub Champions (most of each from your picks over the season)</li><li><b>Monthly Crowns:</b> Nov, Dec, Jan, Feb, Mar/Apr</li><li><b>Hall of Fame</b> and <b>Hall of Shame:</b> fun season awards</li><li><b>Playoff Burn</b> (April–June)</li></ul><p>Every award comes with a downloadable certificate. The Trophies tab shows who's leading each race and where you stand.</p></div>
     </div>
   </div>`;
 }
@@ -1177,8 +1195,10 @@ const ACTIONS = {
   'results-week': el => { S.resultsWeek = +el.dataset.week; render(); },
   month: el => { S.month = el.dataset.key; render(); },
   cert: async el => {
-    const c = S.league.champions[+el.dataset.i];
-    await downloadCertificate({ title: c.title, name: c.user.name, detail: c.detail, date: new Date(now()).toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' }) });
+    const A = S.awards || seasonAwards(S.league, pname);
+    const a = [A.champion, ...A.titles, ...A.monthly, ...A.fame, ...A.shame].find(x => x.key === el.dataset.key);
+    if (!a?.leader) return;
+    await downloadCertificate({ title: a.title, name: userName(a.leader.id), detail: a.leaderText, kind: a.kind, date: new Date(now()).toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' }) });
   },
   'auth-mode': el => { S.authMode = el.dataset.mode; render(); },
   'profile-open': () => openProfile(),

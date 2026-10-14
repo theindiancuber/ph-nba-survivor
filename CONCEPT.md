@@ -88,14 +88,16 @@ The bars don't move, but your options shrink. In October you clear 50 points wit
 
 ## 6. Titles and certificates
 
-There's no money, just bragging rights and a **downloadable certificate** for every champion. The app generates the certificate (PNG/PDF), signed by the commissioner. It shows the winner's name, the title, the season, and a few lines from their run: final points, best week, and their signature pick (e.g. *"Burned Wemby on Glass in a 4-game week: 61 rebounds"*).
+There's no money, just bragging rights and a **downloadable certificate** for every award, signed by the commissioner. Champion titles, Hall of Fame awards and Hall of Shame awards each get their own certificate wording and seal. The Trophies tab shows the current leader of every race and where you stand.
 
-| Title | How it's won | When |
+| Group | Awards | When |
 |---|---|---|
-| 🏆 **Season Champion** | Most points across the season, after dropping your 3 worst weeks | After week 23 (April) |
-| 🥊 **Survivor Belt** | Last person with a life left | Whenever the last one goes out |
-| 📅 **Monthly Crown** ×5 | Most points in Nov, Dec, Jan, Feb, Mar/Apr | End of each month |
-| 🔥 **Playoff Burn Champion** | Winner of the playoff mini-game (below) | After the Finals |
+| 🏆 **Season Champion** | Most points after dropped weeks | After week 23 |
+| **Title belts** | 🥊 Survivor Belt (last life standing); 🏀 Scoring, 🧱 Rebounding, 🎯 Assists and 🏆 Dub Champions (most of each from your picks) | End of season (the Belt when the last life goes) |
+| 👑 **Monthly Crowns** ×5 | Most points in Nov, Dec, Jan, Feb, Mar/Apr | End of each month |
+| **Hall of Fame** | Week Winner, Category Killer, Heater of the Year, Iron Man, Galaxy Brain, Mr. Consistent, Most Improved, Insurance Agent, Joker Smoker, Rival Slayer | End of season |
+| **Hall of Shame** | Fumble King, Asleep at the Wheel, Ice Cold, Chalk Merchant | End of season |
+| 🔥 **Playoff Burn Champion** | Winner of the playoff mini-game | After the Finals |
 
 ---
 
