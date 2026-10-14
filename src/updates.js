@@ -4,6 +4,17 @@
 
 export const UPDATES = [
   {
+    id: 4,
+    date: '2026-10-14',
+    title: 'The card table levels up',
+    items: [
+      'A new dashboard on the Cards tab shows your hand, whether your weekly play is ready, your traps and your collection.',
+      'The Card Dex: collect all 17 cards. Tap any card to see what it does, when to play it and a tip, and play or gift it from there.',
+      '10 achievements to unlock, from Pack Rat to Card Master.',
+      'A shorter "How cards work" guide.',
+    ],
+  },
+  {
     id: 3,
     date: '2026-10-14',
     title: 'Joker cards are here',
