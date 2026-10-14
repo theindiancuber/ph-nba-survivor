@@ -75,7 +75,9 @@ export function parseBox(json, sched) {
 // Builds weeks, players and weekly totals from the schedule and cached box scores.
 export function buildData({ schedule, boxes, now = Date.now() }) {
   const weeks = buildWeeks().map(w => {
-    const games = schedule.filter(g => g.kind === 'reg' && g.etDate >= w.start && g.etDate <= w.end);
+    // NBA Cup knockout games are listed before their teams and tip times are
+    // set; they can't set a lock or a team's game count until they are.
+    const games = schedule.filter(g => g.kind === 'reg' && g.home && g.away && g.etDate >= w.start && g.etDate <= w.end);
     const gamesByTeam = {}, leftByTeam = {};
     let first = null;
     for (const g of games) {
