@@ -4,6 +4,16 @@
 
 export const UPDATES = [
   {
+    id: 3,
+    date: '2026-10-14',
+    title: 'Joker cards are here',
+    items: [
+      'A new Cards tab: earn packs (mostly by making your own picks), keep one card from each, and play one card a week.',
+      '17 cards: jinxes, traps, duels, heists, Blue Shells, pranks and more. Everything is revealed at the lock, and cards never cost you a life.',
+      'New to cards? Read the card primer at the top of the Cards tab.',
+    ],
+  },
+  {
     id: 2,
     date: '2026-10-14',
     title: 'More trophies to chase',

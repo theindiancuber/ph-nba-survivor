@@ -12,6 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LEAGUE, buildWeeks, defaultLockAt } from '../src/config.js';
 import { computeLeague, autopilotPicks } from '../src/league.js';
+import { seededDealer } from '../src/cards.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA = path.join(ROOT, 'data');
@@ -144,10 +145,13 @@ export function buildData({ schedule, boxes, now = Date.now() }) {
     const p = {}, t = {};
     for (const box of ordered) {
       if (box.kind !== 'reg' || box.etDate < w.start || box.etDate > w.end) continue;
-      for (const [pid, , played, pts, reb, ast] of box.players) {
+      for (const [pid, team, played, pts, reb, ast] of box.players) {
         if (!played) continue;
-        const x = p[pid] ||= [0, 0, 0, 0];
+        // [games, pts, reb, ast, best game pts/reb/ast, worst game pts/reb/ast, team]
+        const x = p[pid] ||= [0, 0, 0, 0, pts, reb, ast, pts, reb, ast, team];
         x[0]++; x[1] += pts; x[2] += reb; x[3] += ast;
+        [pts, reb, ast].forEach((v, i) => { x[4 + i] = Math.max(x[4 + i], v); x[7 + i] = Math.min(x[7 + i], v); });
+        x[10] = team;
       }
       const r = result(box);
       if (r) {
@@ -238,17 +242,25 @@ async function syncSupabase({ weeks, players, teams, totals, now }) {
   const merged = weeks.map(w => ({ ...w, lockAt: serverLock[w.week] ? new Date(serverLock[w.week]).toISOString() : w.lockAt }));
   const due = merged.filter(w => Date.parse(w.lockAt) <= now && now - Date.parse(w.lockAt) < 3 * 86400e3);
   if (!due.length) return;
-  const [profiles, picks, unburns] = await Promise.all([
+  const [profiles, picks, unburns, plays] = await Promise.all([
     sb.all('profiles?select=id,display_name,rival_id,fav_team,created_at'),
     sb.all('picks?select=*'),
     sb.all('unburns?select=*'),
+    sb.all('card_plays?select=*').catch(() => []), // before upgrade-cards.sql adds the cards table
   ]);
+  // Secret pack seeds, so hands (and so Copycat plays) can be checked. No seeds, no cards.
+  const seedRows = await sb('POST', 'rpc/pack_seeds', {}).catch(() => null);
+  const seeds = seedRows ? Object.fromEntries(seedRows.map(x => [`${x.user_id}|${x.week}`, x.seed])) : null;
+  const cardArgs = seeds ? { plays, dealer: seededDealer(seeds) } : { plays: [], cardsFrom: Infinity };
   for (const w of due) {
-    const league = computeLeague({ weeks: merged, totals, picks, unburns, profiles, now: Date.parse(w.lockAt) + 1 });
+    const league = computeLeague({ weeks: merged, totals, picks, unburns, profiles, now: Date.parse(w.lockAt) + 1, players, ...cardArgs });
+    const copycats = league.cards.weeks[w.week]?.copy || new Map();
     const rows = [];
     for (const pr of profiles) {
       if (Date.parse(pr.created_at) > Date.parse(w.lockAt)) continue;
       const current = Object.fromEntries(picks.filter(p => p.user_id === pr.id && p.week === w.week).map(p => [p.slot, p]));
+      // A Copycat slot is meant to stay empty: nothing to fill.
+      for (const slot of LEAGUE.slots) if (!current[slot] && copycats.has(`${pr.id}|${slot}`)) current[slot] = { copycat: true };
       if (Object.keys(current).length === LEAGUE.slots.length) continue;
       const chosen = autopilotPicks(league, pr.id, w.week, current, players, w.gamesByTeam, teams);
       for (const [slot, pid] of Object.entries(chosen)) {

@@ -1,15 +1,17 @@
 # Peakhill NBA Survivor
 
-A free, season-long NBA player-survivor league for the office. Every week you pick a scorer (**Bucket**), a rebounder (**Glass**), a passer (**Dime**) and a team to win (**Dub**). Each pick scores its weekly total. Once you use a player or team in a category, it's burned in that category for the season. You score 1 point for every colleague your pick beats, keep 3 lives on the survivor ladder, and play two Jokers. Champions get a downloadable certificate. Rules and design notes are in [CONCEPT.md](CONCEPT.md).
+A free, season-long NBA player-survivor league for the office. Every week you pick a scorer (**Bucket**), a rebounder (**Glass**), a passer (**Dime**) and a team to win (**Dub**). Each pick scores its weekly total. Once you use a player or team in a category, it's burned in that category for the season. You score 1 point for every colleague your pick beats, keep 3 lives on the survivor ladder, and play two Jokers plus a deck of collectible Joker cards (jinxes, traps, duels, heists, Blue Shells and pranks) that you pull from packs. Champions get a downloadable certificate. Rules and design notes are in [CONCEPT.md](CONCEPT.md).
 
 ## How it fits together
 
 | Piece | What it does |
 |---|---|
 | `index.html`, `styles.css`, `src/app.js` | The app. Static files, no build step. |
-| `src/league.js` | The rules engine: burns, backups, rank scoring, lives, drops, Monthly Crowns, awards, head-to-head, Autopilot. Shared by the app and the data script. |
+| `src/league.js` | The rules engine: burns, backups, rank scoring, card effects, lives, drops, Monthly Crowns, awards, head-to-head, Autopilot. Shared by the app and the data script. |
+| `src/cards.js` | The Joker card deck, pack odds, seeded pack dealing, and the hand/trap/attack bookkeeping the engine uses. |
+| `src/pack.js` | Card faces, foil packs and the pack-opening animation (swipe to tear, rarity tell, walkout, flip, keep one and burn the rest). |
 | `src/config.js` | League settings: name, commissioner, bars, calendar, Supabase keys. |
-| `supabase/schema.sql` | Accounts, picks and jokers, with row-level security. You can only write your own picks, only before the lock, and nobody can see anyone else's picks until the lock. |
+| `supabase/schema.sql` | Accounts, picks, jokers and card plays, with row-level security. You can only write your own picks, only before the lock, and nobody can see anyone else's picks or cards until the lock. |
 | `scripts/update-data.mjs` + `.github/workflows/update-data.yml` | Hourly on game nights: pulls the NBA schedule and box scores into `data/`, moves each week's lock to the real first tip-off, and runs Autopilot for empty slots after the lock. |
 
 ## Setup (about 15 minutes)
@@ -50,9 +52,19 @@ The database only answers these requests for accounts in the `admins` table. Bef
 
 ## Tour and "What's new"
 
-- **First login:** everyone sees a six-step tour of the rules: picks, burns, backups, scoring and survival, jokers and Autopilot. It's replayable from the Rules tab. Members who joined before the tour existed see it on their next visit.
+- **First login:** everyone sees a seven-step tour of the rules: picks, burns, backups, scoring and survival, jokers and Autopilot, and Joker cards. It's replayable from the Rules tab. Members who joined before the tour existed see it on their next visit.
 - **Updates:** player-facing changes are listed in `src/updates.js`. Each member sees the entries they haven't read, once, on their next visit. Everyone can reopen them from **What's new** in the footer. Commissioner-only changes aren't listed.
 - Run `supabase/upgrade-onboarding.sql` once so this is remembered per account across devices. Without it, it's remembered per browser.
+## Joker cards
+
+Packs are dealt from a seeded shuffle, so every browser deals the same three cards and nobody can re-roll. The seed comes from a secret in the database (`pack_seeds()`): you get your own seeds up to the open week and everyone else's once a week locks, so nobody can work out a colleague's hand early. The database only stores which card you kept (`_keep`), duel answers (`_reply`), gifts and plays, all in `card_plays`. The engine rebuilds every hand from that history and ignores a play for a card you don't hold. A forged play shows up at the reveal as "tried to play a card they don't have".
+
+- **Turn cards on:** run `supabase/upgrade-cards.sql` once in the Supabase SQL editor. Until then the app works as before, without cards.
+- **The card primer** on the Cards tab explains everything for players. It opens automatically until someone plays their first card, and the Rules tab links to it.
+- **When cards start:** `cards.startWeek` in `src/config.js`. Everyone gets a Starter Pack that week (late joiners get theirs in their first week). Hand limit, attack cap, duel stake, heist size and Embargo notice are next to it.
+- **What's visible when:** your own rows any time; everyone's at the lock. An Embargo is public immediately, and a duel is visible to the person challenged so they can accept or decline. A played Scout Report can't be taken back.
+- **Cards and Dub:** cards that name a slot take a team in Dub. Load Management takes off a win, Garbage Time turns a loss into a win, and Sixth Man and Switcheroo stay in the player slots.
+- **Pack opening** works with a swipe across the top of the pack, the *Rip it open* button, or Enter. Sound is synthesised and off by default (🔇 in the corner). It respects reduced-motion settings. In the demo, *Rip a practice pack* on the Cards tab opens as many as you like without saving.
 
 ## Things to know
 

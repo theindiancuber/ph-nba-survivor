@@ -57,7 +57,7 @@ test('box scores roll into weekly totals, averages, locks and team game counts',
   assert.equal(weeks[2].lockAt, '2026-11-10T00:00:00.000Z'); // only a TBD Cup game: 7pm ET default
   assert.deepEqual(weeks[2].gamesByTeam, {});
 
-  assert.deepEqual(totals[1].p[203999], [1, 31, 14, 12]); // preseason excluded
+  assert.deepEqual(totals[1].p[203999], [1, 31, 14, 12, 31, 14, 12, 31, 14, 12, 'DEN']); // preseason excluded
   assert.equal(totals[1].p[1], undefined); // did not play
   assert.equal(players[203999].name, 'Nikola Jokic');
   assert.deepEqual(players[203999].avg, [31, 14, 12]);

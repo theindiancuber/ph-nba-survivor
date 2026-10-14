@@ -1,6 +1,6 @@
 -- Peakhill NBA Survivor: database schema.
 -- Paste into Supabase → SQL Editor → Run. Safe to re-run.
--- Then run admin.sql and upgrade-dub-invite.sql.
+-- Then run admin.sql, upgrade-dub-invite.sql, upgrade-onboarding.sql and upgrade-cards.sql.
 
 -- People in the league. One row per signed-in account.
 create table if not exists public.profiles (
