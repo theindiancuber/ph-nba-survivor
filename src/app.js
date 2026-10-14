@@ -3,7 +3,7 @@ import { computeLeague, headToHead, blockedReason, projection, fmt } from './lea
 import { TEAMS, teamLogo, headshot } from './teams.js';
 import { SupabaseBackend, DemoBackend } from './backend.js';
 import { downloadCertificate } from './certificate.js';
-import { funStats } from './stats.js';
+import { funStats, perfectPlay } from './stats.js';
 
 const SLOTS = LEAGUE.slots;
 const INFO = LEAGUE.slotInfo;
@@ -270,7 +270,7 @@ function viewWeek() {
           </div>
         </div>
         <div class="bars-strip">
-          ${SLOTS.map(s => `<span class="bar-pill">${INFO[s].emoji} Survive: <b>${LEAGUE.bars[s] * open.mult} ${INFO[s].short}</b></span>`).join('')}
+          ${SLOTS.map(s => `<span class="bar-pill">${INFO[s].emoji} Survive: <b>${LEAGUE.bars[s]} ${INFO[s].short}</b></span>`).join('')}
           <span class="bar-pill">Clear <b>${LEAGUE.barsToSurvive} of 3</b> to keep your lives · ${hearts(meU()?.lives ?? LEAGUE.lives)}</span>
         </div>
       </section>`);
@@ -294,7 +294,7 @@ function viewLive(w) {
   const cards = SLOTS.map(s => {
     const x = r.slots[s];
     const pid = x.scorer ?? x.pid;
-    const bar = LEAGUE.bars[s] * w.mult;
+    const bar = LEAGUE.bars[s];
     const pct = Math.min(100, (x.value / bar) * 100);
     const team = player(pid)?.team;
     const left = w.leftByTeam?.[team] ?? 0;
@@ -568,8 +568,8 @@ function viewSurvivor() {
       <h1>${L.survivor.winner ? `${esc(L.survivor.winner.name)} wins the belt` : `${alive.length} still standing`}</h1>
       <div class="sub">Everyone starts with ${LEAGUE.lives} lives. Each week, clear at least ${LEAGUE.barsToSurvive} of the 3 bars with your weekly totals or lose one. Last one standing takes the belt.</div>
     </section>
-    <section class="panel"><div class="panel-title"><h2>The bars</h2><span class="muted">Fixed all season · doubled in double weeks (1 and 17)</span></div>
-      <div class="ladder-bars">${SLOTS.map(s => `<div class="ladder-bar" data-slot="${s}"><div class="kicker">${INFO[s].emoji} ${INFO[s].name}</div><b>${LEAGUE.bars[s]}${open?.mult === 2 ? ` <span class="muted" style="font-size:16px">×2 this week</span>` : ''}</b><div class="muted" style="font-size:12px">${INFO[s].stat.toLowerCase()} in the week</div></div>`).join('')}</div>
+    <section class="panel"><div class="panel-title"><h2>The bars</h2><span class="muted">The same every week, all season</span></div>
+      <div class="ladder-bars">${SLOTS.map(s => `<div class="ladder-bar" data-slot="${s}"><div class="kicker">${INFO[s].emoji} ${INFO[s].name}</div><b>${LEAGUE.bars[s]}</b><div class="muted" style="font-size:12px">${INFO[s].stat.toLowerCase()} in the week</div></div>`).join('')}</div>
     </section>
     <section class="panel"><div class="panel-title"><h2>Still alive</h2><span class="muted">${alive.length} of ${order.length}</span></div>
       ${alive.length ? `<div class="surv-grid">${alive.map(card).join('')}</div>` : '<p class="muted">Nobody yet. The ladder starts when Week 1 locks.</p>'}
@@ -594,7 +594,7 @@ function viewResults() {
       const x = r.slots[s];
       if (x.missing) return '<td><span class="dim">—</span></td>';
       const pid = x.scorer ?? x.pid;
-      const bar = LEAGUE.bars[s] * w.mult;
+      const bar = LEAGUE.bars[s];
       return `<td><div class="cell-pick">${thumb(pid, 'sm')}<div><div class="v" style="color:${x.value >= bar ? 'var(--text)' : 'var(--muted)'}">${x.value}${x.dd ? ' 🔥' : ''}</div><div class="n">${esc(shortName(pid))}${x.usedAlt ? ' (B)' : ''}${x.auto ? ' · auto' : ''}</div><div class="rp">+${fmt(x.rank)}</div></div></div></td>`;
     }).join('');
     const surv = w.status === 'final' ? (r.survived ? '<span class="trend-up">✓</span>' : '<span class="trend-down">✗ ❤️</span>') : `<span class="dim">${r.cleared}/3</span>`;
@@ -604,7 +604,7 @@ function viewResults() {
     <section class="panel">
       <div class="panel-title"><h2>Week ${w.week} ${w.status === 'live' ? '<span class="badge live">Live</span>' : '<span class="badge final">Final</span>'}</h2>
         <div class="pills">${weeks.map(x => `<button class="pill ${x.status === 'live' ? 'live' : ''}" data-act="results-week" data-week="${x.week}" aria-pressed="${x.week === w.week}">Wk ${x.week}</button>`).join('')}</div></div>
-      <p class="muted" style="margin:-6px 0 12px;font-size:13px">${weekRange(w)} · bars ${SLOTS.map(s => `${LEAGUE.bars[s] * w.mult} ${INFO[s].short}`).join(' / ')} · (B) backup scored · 🔥 Double Down</p>
+      <p class="muted" style="margin:-6px 0 12px;font-size:13px">${weekRange(w)} · bars ${SLOTS.map(s => `${LEAGUE.bars[s]} ${INFO[s].short}`).join(' / ')} · (B) backup scored · 🔥 Double Down</p>
       <div class="table-wrap"><table class="board"><thead><tr><th>#</th><th>Player</th>${SLOTS.map(s => `<th>${INFO[s].emoji} ${INFO[s].name}</th>`).join('')}<th class="r">Pts</th><th class="c">Bars</th></tr></thead><tbody>${body}</tbody></table></div>
     </section>
     ${ownershipPanel(w)}
@@ -714,10 +714,23 @@ function loadAdmin() {
   if (S.adminLoading) return;
   S.adminLoading = true;
   const wk = S.league.openWeek;
-  Promise.all([S.backend.adminMembers(), wk != null ? S.backend.adminPickStatus(wk) : []])
-    .then(([members, status]) => { S.adminData = { members, status: Object.fromEntries(status.map(r => [r.user_id, r])), week: wk }; })
+  Promise.all([S.backend.adminMembers(), wk != null ? S.backend.adminPickStatus(wk) : [], S.backend.adminBlocked().catch(() => [])])
+    .then(([members, status, blocked]) => { S.adminData = { members, blocked, status: Object.fromEntries(status.map(r => [r.user_id, r])), week: wk }; })
     .catch(e => { S.adminData = { error: e.message || String(e), week: wk }; })
     .finally(() => { S.adminLoading = false; if (S.view === 'admin') render(); });
+}
+
+function openRemove(id) {
+  const m = S.adminData?.members.find(x => x.user_id === id);
+  if (!m) return;
+  $('#modal-root').innerHTML = `<div class="modal-bg" data-act="close-modal-bg"><div class="modal narrow" role="dialog" aria-modal="true" aria-label="Remove member">
+    <div class="modal-head"><div class="ttl"><h3>Remove ${esc(m.display_name)}?</h3><button class="close-x" data-act="close-modal" aria-label="Close">×</button></div></div>
+    <div class="modal-body pad" style="display:grid;gap:14px">
+      <p style="margin:0">This deletes their account, picks, burns and jokers. Their results drop out of every week's standings. It can't be undone.</p>
+      <label style="display:flex;gap:10px;align-items:flex-start;font-size:14px"><input type="checkbox" id="remove-block" checked style="margin-top:3px">
+        <span>Also block <b>${esc(m.email || 'this email')}</b> from signing up again</span></label>
+      <div class="row-actions" style="justify-content:flex-end"><button class="btn ghost" data-act="close-modal">Cancel</button><button class="btn primary" data-act="remove-confirm" data-id="${m.user_id}">Remove</button></div>
+    </div></div></div>`;
 }
 
 function stillToPick() {
@@ -735,6 +748,7 @@ function viewAdmin() {
       <div class="sub">Only accounts in the admins table can open this. Everyone's picks stay hidden until each lock, including from you.</div></section>
     ${adminRoster(open)}
     ${adminTiles(st)}
+    ${adminStrategy(perfectPlay(L, S.data.totals))}
     ${adminLedger(st)}
     <section class="panel"><div class="panel-title"><h2>Most burned</h2><span class="muted">Players the league has already spent</span></div>
       <div class="own-cols">${SLOTS.map(s => `<div><h3 class="kicker" style="margin:0 0 10px">${INFO[s].emoji} ${INFO[s].name}</h3>${st.mostBurned[s].map(x => `
@@ -763,7 +777,8 @@ function adminRoster(open) {
       <td class="hide-sm"><span class="muted" style="font-size:13px">${esc(m.email || '')}</span></td>
       ${open ? `<td>${tag}${r?.backups ? ` <span class="dim" style="font-size:12px">+${r.backups} backup${r.backups > 1 ? 's' : ''}</span>` : ''}</td><td class="hide-sm dim" style="font-size:13px">${r ? ago(r.last_saved) : '—'}</td>` : ''}
       <td class="hide-sm dim" style="font-size:13px">${m.last_sign_in_at ? ago(m.last_sign_in_at) : '—'}</td>
-      <td class="hide-sm dim" style="font-size:13px">${dshort(m.joined_at.slice(0, 10))}</td></tr>`;
+      <td class="hide-sm dim" style="font-size:13px">${dshort(m.joined_at.slice(0, 10))}</td>
+      <td class="r">${m.user_id === myId() ? '' : `<button class="link danger" data-act="remove-open" data-id="${m.user_id}">Remove</button>`}</td></tr>`;
   }).join('');
   return `<section class="panel">
     <div class="panel-title"><h2>${open ? `Week ${open.week} check-in` : 'Members'}</h2>
@@ -775,8 +790,10 @@ function adminRoster(open) {
       <div class="stat"><b style="color:var(--red-hot)">${none}</b><small>Not started</small></div>
       <div class="stat"><b class="num" style="font-size:18px">${esc(lockText(open.lockAt))}</b><small>Lock</small></div>` : ''}
     </div>
-    <div class="table-wrap"><table class="board"><thead><tr><th>Member</th><th class="hide-sm">Email</th>${open ? `<th>Wk ${open.week}</th><th class="hide-sm">Last saved</th>` : ''}<th class="hide-sm">Last seen</th><th class="hide-sm">Joined</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="table-wrap"><table class="board"><thead><tr><th>Member</th><th class="hide-sm">Email</th>${open ? `<th>Wk ${open.week}</th><th class="hide-sm">Last saved</th>` : ''}<th class="hide-sm">Last seen</th><th class="hide-sm">Joined</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
     <p class="note" style="margin:10px 0 0">Shows how many slots each person has filled, never which players, until the lock.</p>
+    ${d.blocked?.length ? `<div class="section-gap"><h3 class="kicker" style="margin:0 0 8px">Blocked from signing up</h3>${d.blocked.map(b => `
+      <div class="alt-row" style="margin-bottom:6px"><span>${esc(b.email)}</span><span class="dim" style="font-size:12px">since ${dshort(b.blocked_at.slice(0, 10))}</span><button class="link" data-act="unblock" data-email="${esc(b.email)}">Unblock</button></div>`).join('')}</div>` : ''}
   </section>`;
 }
 
@@ -791,6 +808,33 @@ function adminTiles(st) {
   return `<section class="panel"><div class="panel-title"><h2>Season so far</h2></div>
     <div class="scoreline">${tiles.map(([l, v]) => `<div class="stat"><b>${v}</b><small>${l}</small></div>`).join('')}</div>
     <div class="awards">${rec(st.best, 'Best pick of the season')}${rec(st.worst, 'Worst pick of the season')}</div>
+  </section>`;
+}
+
+function adminStrategy(pp) {
+  if (!pp.finals) return `<section class="panel"><div class="panel-title"><h2>Best strategy</h2></div><p class="muted">Appears once Week 1 is final.</p></section>`;
+  const cell = (pid, value) => pid == null ? '<span class="dim">—</span>' : `<div class="cell-pick" style="min-width:130px">${thumb(pid, 'sm')}<div><div class="v">${value}</div><div class="n">${esc(shortName(pid))}</div></div></div>`;
+  const weekRows = [...pp.weeks].reverse().map(w => `<tr><td class="rank" style="font-size:16px">${w.week}</td>
+    ${SLOTS.map(s => `<td>${w.perfect ? cell(w.perfect[s].pid, w.perfect[s].value) : '—'}</td>`).join('')}
+    <td class="hide-sm" style="font-size:12.5px">${SLOTS.map(s => w.bestActual[s] ? `<div>${INFO[s].emoji} ${esc(userName(w.bestActual[s].id))} · ${esc(shortName(w.bestActual[s].pid))} <b>${w.bestActual[s].value}</b></div>` : '').join('')}</td>
+    <td>${w.winner ? `<div class="who" style="min-width:0">${avatar(w.winner)}<div><b>${esc(userName(w.winner))}</b><div class="dim" style="font-size:12px">${fmt(w.winnerScore)} pts</div></div></div>` : '—'}</td></tr>`).join('');
+  const planRows = pp.season.PTS.plan.map((x, i) => `<tr><td class="rank" style="font-size:16px">${x.week}</td>${SLOTS.map(s => `<td>${cell(pp.season[s].plan[i].pid, pp.season[s].plan[i].value)}</td>`).join('')}</tr>`).join('');
+  const max = pp.people[0]?.pct || 1;
+  return `<section class="panel"><div class="panel-title"><h2>Best strategy</h2><span class="muted">In hindsight, over ${pp.finals} final week${pp.finals > 1 ? 's' : ''}</span></div>
+    <h3 class="kicker" style="margin:4px 0 10px">Closest to the perfect season</h3>
+    ${pp.people.map((x, i) => `<div class="h2h-row" style="grid-template-columns:28px minmax(110px,180px) 1fr 52px">
+      <span class="rank ${i < 3 ? 'top' : ''}" style="font-size:16px">${i + 1}</span><div class="who" style="min-width:0">${avatar(x.id)}<b>${esc(userName(x.id))}</b></div>
+      <div><div class="h2h-bar"><i style="width:${(x.pct / max) * 100}%"></i></div><div class="dim" style="font-size:11.5px;margin-top:4px">${SLOTS.map(s => `${INFO[s].emoji} ${x.got[s]} of ${pp.season[s].total}`).join(' · ')}</div></div>
+      <b class="num" style="text-align:right">${Math.round(x.pct * 100)}%</b></div>`).join('')}
+    <p class="note" style="margin:8px 0 0">The percentage compares each person's weekly totals, summed over the season, with the perfect plan below, averaged across the three categories.</p>
+
+    <h3 class="kicker" style="margin:22px 0 10px">Week by week</h3>
+    <div class="table-wrap"><table class="board"><thead><tr><th>Wk</th>${SLOTS.map(s => `<th>${INFO[s].emoji} Perfect ${INFO[s].name}</th>`).join('')}<th class="hide-sm">League's best picks</th><th>Week winner</th></tr></thead><tbody>${weekRows}</tbody></table></div>
+    <p class="note" style="margin:8px 0 0">Perfect = the three different players who'd have done best against the bars that week.</p>
+
+    <h3 class="kicker" style="margin:22px 0 10px">The perfect season plan</h3>
+    <div class="table-wrap"><table class="board"><thead><tr><th>Wk</th>${SLOTS.map(s => `<th>${INFO[s].emoji} ${INFO[s].name} · ${pp.season[s].total} total</th>`).join('')}</tr></thead><tbody>${planRows}</tbody></table></div>
+    <p class="note" style="margin:8px 0 0">The highest possible season total in each category, using every player at most once per category, the same rule everyone plays under.</p>
   </section>`;
 }
 
@@ -850,7 +894,7 @@ function viewRules() {
       <div class="panel rule"><h3>🔥 The burn</h3><p>Once you use a player in a category, he's gone from that category for the season, but still available in the other two. One player can only fill one of your slots in a given week.</p></div>
       <div class="panel rule"><h3>🛟 Backups</h3><p>Add an optional backup to each slot. If your pick plays zero games, the backup scores and burns instead. If neither plays, the slot scores 0 and nothing burns.</p></div>
       <div class="panel rule"><h3>📊 Scoring</h3><p>Every category is ranked across the league each week. You get 1 point for every colleague whose pick you beat, ½ for a tie. Your weekly score is the sum of your three categories.</p><p>Drop your worst weeks: one drop unlocks after weeks 6, 12 and 18.</p></div>
-      <div class="panel rule"><h3>❤️ Survivor</h3><p>Everyone starts with ${LEAGUE.lives} lives. Clear at least ${LEAGUE.barsToSurvive} of the 3 weekly bars (${b.PTS} PTS / ${b.REB} REB / ${b.AST} AST, doubled in double weeks) or lose a life. Last one standing wins the Survivor Belt. You keep playing for points either way.</p></div>
+      <div class="panel rule"><h3>❤️ Survivor</h3><p>Everyone starts with ${LEAGUE.lives} lives. Clear at least ${LEAGUE.barsToSurvive} of the 3 weekly bars (${b.PTS} PTS / ${b.REB} REB / ${b.AST} AST, the same every week) or lose a life. Last one standing wins the Survivor Belt. You keep playing for points either way.</p></div>
       <div class="panel rule"><h3>🃏 Jokers</h3><ul><li><b>Double Down</b>: double the rank points from one slot, once a season.</li><li><b>Un-burn</b>: get one burned player back in one category, once a season.</li></ul></div>
       <div class="panel rule"><h3>🤖 Autopilot</h3><p>Forgot to pick? At the lock, Autopilot fills empty slots with your best unburned projected week (season average × games). It never leaves you at zero, but it spends your best players first.</p></div>
       <div class="panel rule"><h3>🥊 Rivals</h3><p>Name one coworker as your rival and track your weekly head-to-head record. You can change your rival any time.</p></div>
@@ -958,6 +1002,24 @@ const ACTIONS = {
   'demo-enter': async () => { await S.backend.signIn(); await refresh(); },
   'demo-reset': async () => { S.backend.reset(); location.reload(); },
   'admin-refresh': () => { S.adminData = null; render(); },
+  'remove-open': el => openRemove(el.dataset.id),
+  'remove-confirm': async el => {
+    const id = el.dataset.id;
+    const block = $('#remove-block')?.checked ?? true;
+    el.disabled = true;
+    try {
+      await S.backend.adminRemoveMember(id, block);
+      closeModal();
+      toast(`${userName(id)} removed${block ? ' and blocked' : ''}.`);
+      S.adminData = null;
+      await refresh();
+    } catch (e) { toast(e.message || String(e), true); el.disabled = false; }
+  },
+  unblock: async el => {
+    try { await S.backend.adminUnblock(el.dataset.email); toast(`${el.dataset.email} can sign up again.`); } catch (e) { toast(e.message, true); }
+    S.adminData = null;
+    render();
+  },
   'copy-emails': async () => {
     const emails = stillToPick().map(m => m.email).filter(Boolean);
     try { await navigator.clipboard.writeText(emails.join(', ')); toast(`Copied ${emails.length} email${emails.length === 1 ? '' : 's'}.`); }

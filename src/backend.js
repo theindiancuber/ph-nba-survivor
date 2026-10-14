@@ -19,7 +19,7 @@ export class SupabaseBackend {
 
   async signUp({ email, password, name, team }) {
     const { data, error } = await this.sb.auth.signUp({ email, password });
-    if (error) throw error;
+    if (error) throw friendly(error);
     if (!data.session) throw new Error('Account created, but email confirmation is switched on. Ask the commissioner to turn off "Confirm email" in Supabase, then sign in.');
     this.user = data.user;
     await this.createProfile({ name, team });
@@ -116,6 +116,19 @@ Object.assign(SupabaseBackend.prototype, {
     if (error) throw error;
     return data;
   },
+  async adminBlocked() {
+    const { data, error } = await this.sb.rpc('admin_blocked');
+    if (error) throw error;
+    return data;
+  },
+  async adminRemoveMember(id, block) {
+    const { error } = await this.sb.rpc('admin_remove_member', { target: id, block });
+    if (error) throw error;
+  },
+  async adminUnblock(email) {
+    const { error } = await this.sb.rpc('admin_unblock', { target_email: email });
+    if (error) throw error;
+  },
 });
 
 function friendly(error) {
@@ -123,6 +136,7 @@ function friendly(error) {
   if (/profiles_name_unique/.test(msg)) return new Error('That name is taken. Try adding a last initial.');
   if (/row-level security/.test(msg)) return new Error('Picks for this week are locked.');
   if (/picks_one_double_down/.test(msg)) return new Error('You have already used your Double Down this season.');
+  if (/Database error saving new user|removed from the league/.test(msg)) return new Error("This email can't join the league. Ask the commissioner.");
   if (/unburns_pkey|duplicate key/.test(msg)) return new Error('You have already used your Un-burn this season.');
   return new Error(msg);
 }
@@ -220,6 +234,23 @@ export class DemoBackend {
       email: `${p.display_name.toLowerCase().replace(/[^a-z]+/g, '.').replace(/\.$/, '')}@peakhill.example`,
       last_sign_in_at: new Date(this.now() - (p.id.length * 7 % 5) * 86400e3).toISOString(),
     }));
+  }
+
+  async adminBlocked() { return this.state.blocked || []; }
+
+  async adminRemoveMember(id, block) {
+    if (id === this.userId) throw new Error("You can't remove yourself.");
+    const p = this.state.profiles.find(x => x.id === id);
+    if (block && p) (this.state.blocked ||= []).unshift({ email: (await this.adminMembers()).find(m => m.user_id === id).email, blocked_at: new Date(this.now()).toISOString() });
+    this.state.profiles = this.state.profiles.filter(x => x.id !== id).map(x => x.rival_id === id ? { ...x, rival_id: null } : x);
+    this.state.picks = this.state.picks.filter(x => x.user_id !== id);
+    this.state.unburns = this.state.unburns.filter(x => x.user_id !== id);
+    this.persist();
+  }
+
+  async adminUnblock(email) {
+    this.state.blocked = (this.state.blocked || []).filter(b => b.email !== email);
+    this.persist();
   }
 
   async adminPickStatus(week) {

@@ -36,7 +36,7 @@ npm test          # league engine + data pipeline tests
 
 ## Commissioner tab
 
-Run `supabase/admin.sql` in the Supabase SQL editor, then make yourself commissioner:
+Run `supabase/admin.sql` in the Supabase SQL editor (it's safe to re-run after updates), then make yourself commissioner:
 
 ```sql
 insert into public.admins (user_id)
@@ -49,6 +49,8 @@ Sign out and back in. A **Commissioner** tab appears with:
 - **This week's check-in:** who has filled 0–3 slots, with a button to copy the emails of people who still need to pick.
 - **Burn ledger:** search any player to see who burned him, in which category and when.
 - **League-wide stats:** most-burned players, untouched gems, firepower left, playing styles, and the best and worst picks of the season.
+- **Best strategy (hindsight):** each final week's perfect three picks, the perfect season plan per category (every player used at most once, the same rule everyone plays under), and how close each person came to it.
+- **Remove member:** deletes the account with its picks and jokers, and by default blocks that email from signing up again. Blocked emails are listed with an **Unblock** button.
 
 The database only answers these requests for accounts in the `admins` table. Before a lock, the check-in shows how many slots each person has filled, never which players.
 

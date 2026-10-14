@@ -17,8 +17,8 @@ export const LEAGUE = {
     AST: { name: 'Dime', stat: 'Assists', short: 'AST', emoji: '🎯' },
   },
 
-  // Survivor ladder: weekly totals, fixed all season. Double weeks double them.
-  bars: { PTS: 75, REB: 30, AST: 20 },
+  // Survivor ladder: weekly totals, the same every week (double weeks included).
+  bars: { PTS: 50, REB: 18, AST: 15 },
   barsToSurvive: 2,
   lives: 3,
 
@@ -27,7 +27,7 @@ export const LEAGUE = {
 };
 
 // Weeks run Monday–Sunday on US Eastern dates. Week 1 and the All-Star week
-// are double weeks (mult 2).
+// span two calendar weeks (mult 2); the survivor bars stay the same.
 function addDays(iso, n) {
   const d = new Date(iso + 'T12:00:00Z');
   d.setUTCDate(d.getUTCDate() + n);

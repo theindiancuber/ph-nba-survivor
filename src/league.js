@@ -120,7 +120,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], profiles, no
     for (const id of entrants) {
       const r = results[id], u = users[id];
       r.score = SLOTS.reduce((a, s) => a + r.slots[s].rank, 0);
-      r.cleared = SLOTS.filter(s => r.slots[s].value >= LEAGUE.bars[s] * wk.mult).length;
+      r.cleared = SLOTS.filter(s => r.slots[s].value >= LEAGUE.bars[s]).length;
       r.survived = r.cleared >= LEAGUE.barsToSurvive;
       u.weekly[wk.week] = r.score;
       if (status === 'final' && u.lives > 0 && !r.survived) {
@@ -236,8 +236,8 @@ function weekAwards(w, users) {
   if (scored.length) {
     const gb = [...scored].sort((a, b) => a.owned - b.owned || b.rank - a.rank)[0];
     if (gb.rank > 0) awards.push({ key: 'galaxy', icon: '🧠', title: 'Galaxy Brain', user: gb.id, slot: gb.slot, pid: gb.scorer, text: `${gb.value} ${LEAGUE.slotInfo[gb.slot].short}, picked by ${gb.owned === 1 ? 'nobody else' : gb.owned + ' people'}` });
-    const heat = [...scored].sort((a, b) => b.value / (LEAGUE.bars[b.slot] * w.mult) - a.value / (LEAGUE.bars[a.slot] * w.mult))[0];
-    awards.push({ key: 'heater', icon: '🔥', title: 'Heater', user: heat.id, slot: heat.slot, pid: heat.scorer, text: `${heat.value} ${LEAGUE.slotInfo[heat.slot].short} (${(heat.value / (LEAGUE.bars[heat.slot] * w.mult)).toFixed(1)}× the bar)` });
+    const heat = [...scored].sort((a, b) => b.value / LEAGUE.bars[b.slot] - a.value / LEAGUE.bars[a.slot])[0];
+    awards.push({ key: 'heater', icon: '🔥', title: 'Heater', user: heat.id, slot: heat.slot, pid: heat.scorer, text: `${heat.value} ${LEAGUE.slotInfo[heat.slot].short} (${(heat.value / LEAGUE.bars[heat.slot]).toFixed(1)}× the bar)` });
   }
   for (const f of all.filter(p => p.fumble)) {
     awards.push({ key: 'fumble', icon: '🪦', title: 'The Fumble', user: f.id, slot: f.slot, pid: f.pid, text: `${LEAGUE.slotInfo[f.slot].name} pick never took the floor` });
