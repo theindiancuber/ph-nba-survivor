@@ -194,6 +194,7 @@ function render() {
   else html = ({ week: viewWeek, cards: viewCards, standings: viewStandings, survivor: viewSurvivor, results: viewResults, burns: viewBurns, rivals: viewRivals, trophies: viewTrophies, rules: viewRules })[S.view]();
   $('#app').innerHTML = html;
   tick();
+  if (S.tour != null) redrawTour();
 }
 
 function renderTop() {
@@ -1868,69 +1869,170 @@ function greet() {
   else if (LATEST_UPDATE > seen.updates) openWhatsNew(seen.updates);
 }
 
+// The tour walks through the real app: each step opens a page and spotlights the
+// thing it talks about. Targets are tried in order; with none on screen the step
+// shows as a centred card.
 const TOUR_BARS = LEAGUE.bars;
+const tab = k => `#tabs a[href="#${k}"]`;
 const TOUR = [
   {
-    icon: '👋', kicker: 'Welcome', title: `Welcome to ${LEAGUE.name}`,
-    body: () => `<p>Every week you make <b>four picks</b> and go up against everyone in the league. It's free, takes about five minutes, and the prize is bragging rights (plus a certificate).</p>
-      <p>Picks lock at the <b>first tip-off of each week</b>, usually Monday evening. The countdown on <b>This Week</b> always shows the exact time in your time zone. Until then you can change your picks as often as you like.</p>`,
+    route: 'week', icon: '👋', title: `Welcome to ${LEAGUE.name}`,
+    text: () => `<p>Four picks a week, everyone in the league against everyone else. It's free, takes about five minutes, and the prize is bragging rights plus a certificate.</p><p>This quick tour shows you where everything is.</p>`,
   },
   {
-    icon: '🏀', kicker: 'Your picks', title: 'Four picks a week',
-    body: () => `<div class="tour-slots">${SLOTS.map(s => `<div class="tour-slot" data-slot="${s}"><b>${INFO[s].emoji} ${INFO[s].name}</b><span>${s === 'WIN' ? "A team's wins" : `A player's ${INFO[s].stat.toLowerCase()}`}</span></div>`).join('')}</div>
-      <p>Each pick scores its <b>total for the whole week</b>, so a player with four games beats one with two. The player list shows games this week and a projected total to help.</p>`,
+    route: 'week', target: ['.lock-box'], icon: '⏰', title: 'The lock',
+    text: () => `<p>Picks lock at the <b>first tip-off of the week</b>, usually Monday evening. This countdown always shows the exact time in your time zone. Until then, change your picks as often as you like.</p>`,
   },
   {
-    icon: '🔥', kicker: 'The catch', title: "Burn 'em",
-    body: () => `<p>Once you use a player in a category, he's <b>gone from that category for the season</b>. He's still available in the other two, so the question is when, and where, to spend your stars.</p>
-      <p>Teams burn too: each team can be your Dub <b>once a season</b>. A player can only fill one of your slots in a given week. Your <b>Burn Book</b> tab keeps track of what you've used.</p>`,
+    route: 'week', target: ['.slots'], ptarget: ['.slot-card .slot-head'], icon: '🏀', title: 'Your four picks',
+    text: () => `<div class="tour-slots">${SLOTS.map(s => `<div class="tour-slot" data-slot="${s}"><b>${INFO[s].emoji} ${INFO[s].name}</b><span>${s === 'WIN' ? "A team's wins" : `A player's ${INFO[s].stat.toLowerCase()}`}</span></div>`).join('')}</div>
+      <p>Each pick scores its <b>total for the whole week</b>, so a player with four games beats one with two.</p>`,
   },
   {
-    icon: '🛟', kicker: 'Injury insurance', title: 'Backups',
-    body: () => `<p>After you choose a player, tap <b>+ Add</b> next to <b>Backup</b> on his card to name a second player for that slot.</p>
-      <p>The backup only comes in if your pick plays <b>zero games</b> that week. Then the backup's total counts, he's the one who burns, and your original pick stays available. If your pick plays even once, his total counts and the backup isn't used.</p>
-      <p class="dim">Dub doesn't need a backup, since teams always play.</p>`,
+    route: 'week', target: ['.slot-card .add-big', '.slot-card [data-act="pick"]'], icon: '👆', title: 'Choose a player',
+    text: () => `<p>Tap here to open the player list. It shows <b>games this week</b> and a <b>projected total</b> for everyone, and greys out anyone you can't use.</p>`,
   },
   {
-    icon: '❤️', kicker: 'Scoring and survival', title: 'Beat everyone, stay alive',
-    body: () => `<p><b>Points:</b> in every category, you get 1 point for each colleague whose pick you beat (½ for a tie). That's your weekly score, and it adds up across the season.</p>
-      <p><b>Survivor:</b> you start with ${LEAGUE.lives} lives. Each week, clear at least ${LEAGUE.barsToSurvive} of these ${SLOTS.length} bars or lose one:</p>
+    route: 'week', target: ['.slot-card [data-which="alt"]', '.slot-card .alt-row', '.slot-card .slot-head'], icon: '🛟', title: 'Backups',
+    text: () => `<p>Once you've chosen a player, tap <b>+ Add</b> next to Backup to name a second one. The backup only counts if your pick plays <b>zero games</b> that week. Then the backup burns instead and your pick stays available.</p>`,
+  },
+  {
+    route: 'week', target: ['.bars-strip'], icon: '❤️', title: 'Stay alive',
+    text: () => `<p>You have <b>${LEAGUE.lives} lives</b>. Each week, clear at least <b>${LEAGUE.barsToSurvive} of these ${SLOTS.length} bars</b> or lose one:</p>
       <div class="tour-bars">${SLOTS.map(s => `<span class="bar-pill">${INFO[s].emoji} <b>${TOUR_BARS[s]} ${s === 'WIN' ? (TOUR_BARS[s] === 1 ? 'win' : 'wins') : INFO[s].short}</b></span>`).join('')}</div>
       <p>Last one standing wins the Survivor Belt. Running out of lives doesn't stop you scoring points.</p>`,
   },
   {
-    icon: '🃏', kicker: 'Extras', title: 'Jokers, Autopilot and rivals',
-    body: () => `<ul class="tour-list">
-        <li><b>Double Down:</b> double one slot's points, once a season.</li>
-        <li><b>Un-burn:</b> get one used player back in one category, once a season.</li>
-        <li><b>Autopilot:</b> forget to pick and it fills empty slots at the lock with your best unused option. You won't score zero, but it spends your best players first.</li>
-        <li><b>Rivals:</b> pick a coworker and track your head-to-head record.</li>
-        <li><b>After the lock</b> everyone's picks are revealed on <b>Results</b>.</li>
-      </ul>`,
+    route: 'week', target: ['.savebar'], icon: '💾', title: 'Save your picks',
+    text: () => `<p>Hit <b>Save picks</b> when you're done. Forget, and <b>Autopilot</b> fills empty slots at the lock with your best unused option. You won't score zero, but it spends your best players first.</p>`,
   },
   {
-    icon: '🎴', kicker: 'Joker cards', title: 'Packs, cards and chaos',
-    body: () => `<p>You also earn <b>packs of Joker cards</b>, mostly by making your own picks each week. Keep one card from each pack and play <b>one card a week</b>: jinx a colleague's pick, set a trap, challenge someone to a duel, or copy a rival's pick.</p>
-      <p>Cards move points but <b>never cost a life</b>. Everything is revealed at the lock.</p>
-      <p>The <b>Cards</b> tab has a quick guide, and every card in the Card Dex opens to show what it does.</p>`,
+    route: 'week', target: ['.jokers'], icon: '🃏', title: 'Jokers',
+    text: () => `<p><b>Double Down</b> doubles one slot's points, once a season. <b>Un-burn</b> gets one used player back in one category, once a season.</p>`,
+  },
+  {
+    route: 'burns', target: [tab('burns')], icon: '🔥', title: "Burn 'em",
+    text: () => `<p>Use a player in a category and he's <b>gone from that category for the season</b>, but still free in the others. Each team can be your Dub once. The <b>Burn Book</b> tracks everything you've used.</p>`,
+  },
+  {
+    route: 'standings', target: [tab('standings')], icon: '📊', title: 'Scoring',
+    text: () => `<p>In every category you get <b>1 point for each colleague your pick beats</b> (½ for a tie). Weekly scores add up here in <b>Standings</b>. <b>Survivor</b>, next door, tracks lives.</p>`,
+  },
+  {
+    route: 'results', target: [tab('results')], icon: '👀', title: 'The reveal',
+    text: () => `<p>Nobody can see anyone's picks until the lock. Then everything appears in <b>Results</b>, with live scores as games are played.</p>`,
+  },
+  {
+    route: 'cards', target: ['.hud-row', tab('cards')], icon: '🎴', title: 'Joker cards',
+    text: () => `<p>Make your own picks to earn <b>packs</b>. Keep one card from each and play <b>one a week</b>: jinxes, traps, duels, heists and more. Cards move points but <b>never cost a life</b>.</p>`,
+  },
+  {
+    route: 'cards', target: ['#dex .dex-slot', '#dex'], icon: '📖', title: 'The Card Dex',
+    text: () => `<p>All ${Object.keys(CARDS).length} cards live further down the Cards tab, in the Card Dex. <b>Tap any card</b>, like this one, to see what it does and when to play it.</p>`,
+  },
+  {
+    route: 'rivals', target: ['[data-change="rival"]', tab('rivals')], icon: '⚔️', title: 'Pick a rival',
+    text: () => `<p>Choose a coworker and track your <b>head-to-head record</b> all season.</p>`,
+  },
+  {
+    route: 'rules', target: ['[data-act="tour-replay"]', tab('rules')], icon: '📜', title: "That's it",
+    text: () => `<p>The full rules live in <b>Rules</b>, and you can replay this tour from here any time. Now go make your picks.</p>`,
   },
 ];
 
-function openTour(i) {
-  S.tour = i;
-  const st = TOUR[i];
-  const last = i === TOUR.length - 1;
-  $('#modal-root').innerHTML = `<div class="modal-bg"><div class="modal tour" role="dialog" aria-modal="true" aria-label="${esc(st.title)}">
-    <div class="modal-body pad">
-      <div class="tour-top"><span class="tour-icon">${st.icon}</span><div><div class="kicker">${esc(st.kicker)} · ${i + 1} of ${TOUR.length}</div><h3>${esc(st.title)}</h3></div></div>
-      <div class="tour-body">${st.body()}</div>
-      <div class="tour-foot">
-        <div class="tour-dots">${TOUR.map((_, j) => `<i class="${j === i ? 'on' : ''}"></i>`).join('')}</div>
-        <div class="row-actions">${i ? '<button class="btn ghost" data-act="tour-back">Back</button>' : ''}
-          <button class="btn primary" data-act="${last ? 'tour-done' : 'tour-next'}">${last ? 'Make my picks' : 'Next'}</button></div>
-      </div>
-    </div></div></div>`;
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function tourTarget(st) {
+  for (const sel of (innerWidth < 640 && st.ptarget) || st.target || []) {
+    const el = document.querySelector(sel);
+    if (el && el.getClientRects().length) return el;
+  }
+  return null;
 }
+
+async function openTour(i) {
+  if (i < 0 || i >= TOUR.length) return;
+  S.tour = i;
+  closeModal();
+  const st = TOUR[i];
+  if (st.route && S.view !== st.route) {
+    location.hash = `#${st.route}`;
+    await new Promise(r => setTimeout(r, 60)); // let the hashchange render the page
+  }
+  if (S.tour !== i) return;
+  drawTour();
+  const el = tourTarget(st);
+  if (el) {
+    // Bring it into view below the sticky header, leaving room for the bubble
+    // (underneath it on a computer, the bottom sheet on a phone).
+    el.scrollIntoView({ block: 'nearest', inline: 'center' });
+    const head = document.querySelector('.topbar')?.getBoundingClientRect().bottom || 0;
+    const bh = document.querySelector('.tour-bubble')?.offsetHeight || 300;
+    const top = head + 16, bottom = innerHeight - bh - 32;
+    const r = el.getBoundingClientRect();
+    if (r.top < top || r.bottom > bottom) window.scrollBy(0, r.top - top);
+  } else window.scrollTo(0, 0);
+  drawTour();
+}
+
+// Draws the spotlight and the speech bubble, then keeps them on the target as the page scrolls or re-renders.
+function drawTour() {
+  if (S.tour == null) return;
+  const st = TOUR[S.tour];
+  let root = document.getElementById('tour-root');
+  if (!root) { root = document.createElement('div'); root.id = 'tour-root'; document.body.appendChild(root); }
+  if (root.dataset.step !== String(S.tour)) {
+    const last = S.tour === TOUR.length - 1;
+    const first = !root.innerHTML;
+    root.dataset.step = S.tour;
+    root.innerHTML = `<div class="tour-layer ${first && !reducedMotion() ? 'enter' : ''}"><div class="tour-spot"></div>
+      <div class="tour-bubble" role="dialog" aria-modal="true" aria-label="${esc(st.title)}">
+        <div class="tour-top"><span class="tour-icon">${st.icon}</span><div><div class="kicker">Quick tour · ${S.tour + 1} of ${TOUR.length}</div><h3>${esc(st.title)}</h3></div>
+          <button class="tour-skip" data-act="tour-skip">Skip</button></div>
+        <div class="tour-body">${st.text()}</div>
+        <div class="tour-foot">
+          <div class="tour-progress"><i style="width:${(S.tour + 1) / TOUR.length * 100}%"></i></div>
+          <div class="row-actions">${S.tour ? '<button class="btn ghost small" data-act="tour-back">Back</button>' : ''}
+            <button class="btn primary small" data-act="${last ? 'tour-done' : 'tour-next'}">${last ? 'Make my picks' : S.tour ? 'Next' : 'Show me around'}</button></div>
+        </div></div></div>`;
+    root.querySelector('.tour-bubble .btn.primary')?.focus({ preventScroll: true });
+  }
+  const spot = root.querySelector('.tour-spot'), b = root.querySelector('.tour-bubble');
+  const el = tourTarget(st);
+  const phone = innerWidth < 640;
+  const pad = 8;
+  const r = el?.getBoundingClientRect();
+  spot.classList.toggle('none', !r);
+  b.classList.toggle('sheet', phone);
+  b.classList.toggle('center', !r && !phone);
+  b.classList.remove('top');
+  b.style.top = b.style.left = '';
+  if (!r) return;
+  Object.assign(spot.style, { top: `${r.top - pad}px`, left: `${r.left - pad}px`, width: `${r.width + pad * 2}px`, height: `${r.height + pad * 2}px` });
+  // On a phone the bubble is a sheet: at the bottom, or the top if the target sits down there (like the save bar).
+  if (phone) { if (r.bottom + pad > innerHeight - b.offsetHeight - 16) b.classList.add('top'); return; }
+  // Below the target if it fits, else above, else beside it; always on screen.
+  const bw = b.offsetWidth, bh = b.offsetHeight, gap = 16;
+  let top = r.bottom + pad + gap, left = r.left + r.width / 2 - bw / 2;
+  if (top + bh > innerHeight - 8) top = r.top - pad - gap - bh;
+  if (top < 8) {
+    top = Math.min(Math.max(8, r.top), innerHeight - bh - 8);
+    left = r.right + pad + gap + bw < innerWidth ? r.right + pad + gap : r.left - pad - gap - bw;
+  }
+  b.style.top = `${top}px`;
+  b.style.left = `${Math.min(Math.max(8, left), innerWidth - bw - 8)}px`;
+}
+
+async function endTour() {
+  S.tour = null;
+  document.getElementById('tour-root')?.remove();
+  await markSeen({ intro_seen: true, updates_seen: LATEST_UPDATE });
+}
+
+let tourRaf = 0;
+const redrawTour = () => { if (S.tour != null && !tourRaf) tourRaf = requestAnimationFrame(() => { tourRaf = 0; drawTour(); }); };
+addEventListener('scroll', redrawTour, { passive: true });
+addEventListener('resize', redrawTour);
 
 function openWhatsNew(after = 0) {
   const list = UPDATES.filter(u => u.id > after).sort((a, c) => c.id - a.id);
@@ -2033,10 +2135,10 @@ const ACTIONS = {
   'tour-next': () => openTour(S.tour + 1),
   'tour-back': () => openTour(S.tour - 1),
   'tour-done': async () => {
-    closeModal();
-    await markSeen({ intro_seen: true, updates_seen: LATEST_UPDATE });
+    await endTour();
     if (S.me) location.hash = '#week';
   },
+  'tour-skip': () => endTour(),
   'tour-replay': () => openTour(0),
   'dex-open': el => openDex(el.dataset.card),
   'dex-scroll': () => $('#dex')?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
@@ -2161,8 +2263,13 @@ document.addEventListener('input', e => {
 document.addEventListener('toggle', e => { if (e.target.matches?.('[data-primer]')) S.primerOpen = e.target.open; }, true);
 
 document.addEventListener('keydown', e => {
-  // The tour is short and finishes with a button, so Escape doesn't skip it.
-  if (e.key === 'Escape' && $('#modal-root').innerHTML && !$('.modal.tour')) closeModal();
+  if (S.tour != null) {
+    if (e.key === 'ArrowRight') openTour(S.tour + 1);
+    else if (e.key === 'ArrowLeft') openTour(S.tour - 1);
+    else if (e.key === 'Escape') endTour();
+    return;
+  }
+  if (e.key === 'Escape' && $('#modal-root').innerHTML) closeModal();
 });
 
 boot();

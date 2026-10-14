@@ -4,6 +4,15 @@
 
 export const UPDATES = [
   {
+    id: 7,
+    date: '2026-10-14',
+    title: 'A guided tour',
+    items: [
+      'The quick tour now walks you through the real app, spotlighting the countdown, your pick slots, backups, the survival bars, Jokers, each tab, your cards and the Card Dex.',
+      'Replay it any time from the Rules tab. Use the arrow keys or Next and Back to move through it, and Skip to leave.',
+    ],
+  },
+  {
     id: 6,
     date: '2026-10-14',
     title: "The Commissioner's Decree",
