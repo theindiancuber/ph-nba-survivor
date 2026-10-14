@@ -17,6 +17,7 @@ const schedJson = {
       { games: [game('0022600001', '2026-10-20', '2026-10-20T23:30:00Z', 'NYK', 'PHI'), game('0022600002', '2026-10-21', '2026-10-22T02:00:00Z', 'DEN', 'OKC')] },
       { games: [game('0022600050', '2026-11-03', '2026-11-04T00:00:00Z', 'DEN', 'NYK', 1)] },
       { games: [game('0062600001', '2026-12-11', '2026-12-12T01:00:00Z', 'DEN', 'NYK', 1)] },
+      { games: [{ ...game('0022601229', '2026-11-10', '2026-11-10T05:00:00Z', null, null, 1), homeTeam: {}, awayTeam: {} }] },
     ],
   },
 };
@@ -32,7 +33,7 @@ test('game kinds and schedule parsing skip non-league games', () => {
   assert.equal(gameKind('0022600001'), 'reg');
   assert.equal(gameKind('0042600101'), 'other');
   const s = parseSchedule(schedJson);
-  assert.equal(s.length, 4);
+  assert.equal(s.length, 5);
   assert.deepEqual(s[1], { id: '0022600001', kind: 'reg', etDate: '2026-10-20', tipUtc: '2026-10-20T23:30:00Z', status: 3, home: 'NYK', away: 'PHI' });
 });
 
@@ -53,7 +54,8 @@ test('box scores roll into weekly totals, averages, locks and team game counts',
   assert.deepEqual(weeks[0].gamesByTeam, { NYK: 1, PHI: 1, DEN: 1, OKC: 1 });
   assert.equal(weeks[1].final, false);
   assert.deepEqual(weeks[1].leftByTeam, { DEN: 1, NYK: 1 });
-  assert.equal(weeks[2].lockAt, '2026-11-10T00:00:00.000Z'); // no games yet: 7pm ET default
+  assert.equal(weeks[2].lockAt, '2026-11-10T00:00:00.000Z'); // only a TBD Cup game: 7pm ET default
+  assert.deepEqual(weeks[2].gamesByTeam, {});
 
   assert.deepEqual(totals[1].p[203999], [1, 31, 14, 12]); // preseason excluded
   assert.equal(totals[1].p[1], undefined); // did not play
