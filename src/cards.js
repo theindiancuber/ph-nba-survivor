@@ -126,6 +126,7 @@ export const PACKS = {
   award: { name: 'Award Pack', blurb: 'Earned on last week’s awards', c1: '#8a5a00', c2: '#f2c14e' },
   revenge: { name: 'Revenge Pack', blurb: 'You lost a life. Get even.', c1: '#3a0710', c2: '#ef2b4d' },
   album: { name: 'Album Pack', blurb: 'You completed a division', c1: '#3b1780', c2: '#1fc8b4' },
+  decree: { name: 'Decree Pack', blurb: 'By order of the Commissioner', c1: '#1a1a1a', c2: '#d4af37' },
 };
 
 // Awards that hand out a pack. Ice Cold and The Fumble are pity packs.
@@ -210,20 +211,28 @@ function newSlotMaps() { return Object.fromEntries(SLOTS.map(s => [s, new Map()]
 
 // Rebuilds everyone's packs and hands week by week, and decides which plays are valid.
 // A '_keep' row's card_uid is `pack:<pack key>`; the card it keeps then goes by the pack key.
+// One change of mind per pack is allowed before the lock: a second '_keep' row with `repick:<pack key>`.
 // The league engine calls begin() before scoring a week and end() after it.
 export class CardTable {
-  constructor({ users, plays, weeks, byWeek, from, dealer }) {
+  constructor({ users, plays, weeks, byWeek, from, dealer, decrees = {} }) {
     this.users = users;
     this.byWeek = byWeek;
     this.from = from;
     this.weeks = weeks;
     this.deal = dealer || dealPack;
+    this.decrees = decrees;
     this.keeps = {};
+    this.repicks = {};
     this.replies = {};
     this.rows = {};
     for (const p of [...plays].sort(byTime)) {
       if (!users[p.user_id]) continue;
-      if (p.card === '_keep') { this.keeps[`${p.user_id}|${String(p.card_uid).replace(/^pack:/, '')}`] ||= p; continue; }
+      if (p.card === '_keep') {
+        const uid = String(p.card_uid);
+        if (uid.startsWith('repick:')) this.repicks[`${p.user_id}|${uid.slice(7)}`] ||= p;
+        else this.keeps[`${p.user_id}|${uid.replace(/^pack:/, '')}`] ||= p;
+        continue;
+      }
       if (p.card === '_reply') { const d = p.params?.duel; if (d != null) this.replies[d] ||= p; continue; }
       (this.rows[p.week] ||= []).push(p);
     }
@@ -261,15 +270,18 @@ export class CardTable {
       if (W === Math.max(this.from, this.joinStep(u))) stubs.push({ key: `w${W}:starter`, kind: 'starter' });
       if (W > this.from && this.pickedOwn(W - 1, u.id)) stubs.push({ key: `w${W}:locker`, kind: 'locker' });
       stubs.push(...(this.bonus[W]?.[u.id] || []));
+      if (this.decrees[W] === 'pack_day' && W >= this.joinStep(u)) stubs.push({ key: `w${W}:decree`, kind: 'decree' });
       for (const st of stubs) {
         const tier = st.kind === 'revenge' ? 'trail' : tierFor(snapPrev2, u.id);
         const cards = this.deal(u.id, st.key, st.kind, tier);
         if (!cards) continue; // face-down: someone else's pack before its week locks
-        const k = this.keeps[`${u.id}|${st.key}`];
-        const okKeep = k && k.week === W && Number.isInteger(k.params?.pick) && k.params.pick >= 0 && k.params.pick < cards.length
+        const valid = k => k && k.week === W && Number.isInteger(k.params?.pick) && k.params.pick >= 0 && k.params.pick < cards.length
           && (!k.created_at || Date.parse(k.created_at) < lockT);
-        const keep = okKeep ? k.params.pick : null;
-        c.packs.push({ ...st, step: W, tier, cards, keep, auto: keep == null && locked });
+        const k = this.keeps[`${u.id}|${st.key}`], r = this.repicks[`${u.id}|${st.key}`];
+        const first = valid(k) ? k.params.pick : null;
+        const repicked = first != null && valid(r) && byTime(k, r) <= 0;
+        const keep = repicked ? r.params.pick : first;
+        c.packs.push({ ...st, step: W, tier, cards, keep, first, repicked, auto: keep == null && locked });
         if (keep != null || locked) c.hand.push({ uid: st.key, card: cards[keep ?? 0], step: W, from: st.kind });
       }
       for (const g of this.giftsIn[W]?.[u.id] || []) c.hand.push(g);
@@ -318,7 +330,9 @@ export class CardTable {
     if (def.needs.includes('player') && def.needs.includes('slot') && (p.slot === 'WIN') !== isTeamId(p.player_id)) return 'player';
     if (p.card === 'sixth' && isTeamId(p.player_id)) return 'player';
     if (def.needs.includes('nickname') && !NICKNAMES[p.params?.nick]) return 'nickname';
-    if (countsAsPlay(p.card) && used[p.user_id]) return 'limit';
+    const decree = this.decrees[wk.week];
+    if (decree === 'ceasefire' && p.week === wk.week) return 'ceasefire';
+    if (countsAsPlay(p.card) && (used[p.user_id] || 0) >= (decree === 'free_for_all' ? 2 : 1)) return 'limit';
     return null;
   }
 

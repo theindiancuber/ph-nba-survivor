@@ -12,6 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LEAGUE, buildWeeks, defaultLockAt } from '../src/config.js';
 import { computeLeague, autopilotPicks } from '../src/league.js';
+import { resolveDecrees, decreeCodes } from '../src/decrees.js';
 import { seededDealer } from '../src/cards.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -248,12 +249,17 @@ async function syncSupabase({ weeks, players, teams, totals, now }) {
     sb.all('unburns?select=*'),
     sb.all('card_plays?select=*').catch(() => []), // before upgrade-cards.sql adds the cards table
   ]);
+  // Commissioner's Decree (Amnesty changes burns, so Autopilot needs it). None before upgrade-decree.sql.
+  const decreeRows = await sb.all('decrees?select=*').catch(() => []);
+  const tallies = await sb('POST', 'rpc/decree_tally', {}).catch(() => []);
   // Secret pack seeds, so hands (and so Copycat plays) can be checked. No seeds, no cards.
   const seedRows = await sb('POST', 'rpc/pack_seeds', {}).catch(() => null);
   const seeds = seedRows ? Object.fromEntries(seedRows.map(x => [`${x.user_id}|${x.week}`, x.seed])) : null;
   const cardArgs = seeds ? { plays, dealer: seededDealer(seeds) } : { plays: [], cardsFrom: Infinity };
   for (const w of due) {
-    const league = computeLeague({ weeks: merged, totals, picks, unburns, profiles, now: Date.parse(w.lockAt) + 1, players, ...cardArgs });
+    const at = Date.parse(w.lockAt) + 1;
+    const decrees = decreeCodes(resolveDecrees(decreeRows, tallies || [], Object.fromEntries(merged.map(x => [x.week, x.lockAt])), at));
+    const league = computeLeague({ weeks: merged, totals, picks, unburns, profiles, now: at, players, ...cardArgs, decrees });
     const copycats = league.cards.weeks[w.week]?.copy || new Map();
     const rows = [];
     for (const pr of profiles) {

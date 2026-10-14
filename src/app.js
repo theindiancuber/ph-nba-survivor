@@ -8,6 +8,7 @@ import { UPDATES, LATEST_UPDATE } from './updates.js';
 import { seasonAwards } from './awards.js';
 import { CARDS, RARITY, TYPES, NICKNAMES, TAUNTS, isTrap, isHindsight, countsAsPlay, dealPack, seededDealer } from './cards.js';
 import { cardFace, cardBack, packArt, openPack, initHolo } from './pack.js';
+import { DECREES, parseDecree, resolveDecrees, decreeCodes } from './decrees.js';
 
 const SLOTS = LEAGUE.slots;
 const INFO = LEAGUE.slotInfo;
@@ -104,12 +105,14 @@ async function loadData() {
 async function refresh() {
   S.db = await S.backend.load();
   const weeks = S.data.weeks.map(w => ({ ...w, lockAt: S.db.locks[w.week] || w.lockAt }));
+  S.decrees = resolveDecrees(S.db.decrees, S.db.tallies, Object.fromEntries(weeks.map(w => [w.week, w.lockAt])), now());
   S.league = computeLeague({
     weeks, totals: S.data.totals, picks: S.db.picks, unburns: S.db.unburns, plays: S.db.plays || [], profiles: S.db.profiles,
     now: now(), players: S.data.players,
     // The real league deals from the database's secret seeds; without them (cards SQL not run yet) cards stay off.
     cardsFrom: DEMO ? (S.data.cardsFrom ?? LEAGUE.cards.startWeek) : S.db.seeds ? LEAGUE.cards.startWeek : Infinity,
     dealer: S.db.seeds ? seededDealer(S.db.seeds) : undefined,
+    decrees: decreeCodes(S.decrees),
   });
   S.me = S.db.profiles.find(p => p.id === myId()) || null;
   if (S.adminFor !== myId()) {
@@ -627,6 +630,17 @@ function waitingPacks() {
   const u = meU(), ow = S.league.openWeek;
   return u?.cards && ow != null ? u.cards.packs.filter(p => p.step === ow && p.keep == null && !p.auto) : [];
 }
+// A pack you kept a card from this week, can still change your mind on (once), and whose card is still in your hand.
+function swapPack(inst) {
+  const ow = S.league.openWeek;
+  const pack = inst && meU()?.cards.packs.find(p => p.key === inst.uid && p.step === ow && p.keep != null && !p.repicked);
+  return pack && !S.db.plays.some(p => p.user_id === myId() && p.card_uid === inst.uid) ? pack : null;
+}
+const PRACTICE_PACKS = 2;
+function practiceLeft() {
+  if (DEMO) return Infinity;
+  try { return Math.max(0, PRACTICE_PACKS - Number(localStorage.getItem(`phs-practice-${myId()}`) || 0)); } catch { return PRACTICE_PACKS; }
+}
 function myMainPlay(week) { return (cw(week)?.plays || []).find(p => p.user_id === myId() && p.ok && countsAsPlay(p.card)); }
 function hindsightWeek() {
   const ow = S.league.openWeek;
@@ -653,9 +667,12 @@ function cardUse(inst) {
     if (!weekObj(hw.week).results[myId()]) return { why: `You had no picks in Week ${hw.week}.` };
     return { week: hw.week };
   }
+  const dk = S.decrees?.[ow]?.decree?.kind;
+  if (dk === 'ceasefire') return { why: "Ceasefire this week: the Commissioner's Decree says no cards. You can still gift it." };
   if (countsAsPlay(c)) {
-    const used = myMainPlay(ow);
-    if (used) return { why: `One card a week: you've played ${cardName(used.card)}.` };
+    const mine = (cw(ow)?.plays || []).filter(p => p.user_id === myId() && p.ok && countsAsPlay(p.card));
+    const limit = dk === 'free_for_all' ? 2 : 1;
+    if (mine.length >= limit) return { why: limit > 1 ? `Free-for-all: you've played your ${limit} cards this week.` : `One card a week: you've played ${cardName(mine[0].card)}.` };
   }
   if (c === 'embargo' && Date.parse(weekObj(ow).lockAt) - now() < LEAGUE.cards.embargoHours * 3600e3) return { why: `An Embargo needs ${LEAGUE.cards.embargoHours} hours' notice before the lock.` };
   return { week: ow };
@@ -670,7 +687,7 @@ function fxIcons(x) {
 function adjChip(r) {
   if (!r.adj?.length) return '';
   const sum = r.adj.reduce((a, x) => a + x.pts, 0);
-  const title = r.adj.map(x => `${CARDS[x.card].name} ${x.pts > 0 ? '+' : ''}${fmt(x.pts)}${x.who ? ` (${userName(x.who)})` : ''}`).join(', ');
+  const title = r.adj.map(x => `${x.label || CARDS[x.card].name} ${x.pts > 0 ? '+' : ''}${fmt(x.pts)}${x.who ? ` (${userName(x.who)})` : ''}`).join(', ');
   return `<span class="adj ${sum >= 0 ? 'up' : 'down'}" title="${esc(title)}">${sum > 0 ? '+' : ''}${fmt(sum)} 🃏</span>`;
 }
 // Clown nose, nickname and the duel chicken, for one week.
@@ -781,8 +798,32 @@ function cardTablePanel(w) {
     ${rows.length ? `<div class="ct-list">${rows.join('')}</div>` : '<p class="muted" style="margin:0">Nobody played a card this week. Suspiciously peaceful.</p>'}</section>`;
 }
 
+// Decrees from the open week on: votes to cast, and decrees already in force.
+function decreeCallouts() {
+  const ow = S.league.openWeek;
+  if (ow == null) return [];
+  return Object.values(S.decrees || {}).filter(d => d.week >= ow).sort((a, b) => a.week - b.week).map(d => {
+    if (d.vote && !d.closed) {
+      const mine = S.db.votes?.find(v => v.week === d.week)?.choice;
+      const total = d.votes.reduce((a, b) => a + b, 0);
+      return `<div class="decree vote"><div class="decree-head"><span class="ic">🗳️</span><div><small>The Commissioner's Decree · you decide</small><b>Vote on Week ${d.week}'s twist</b></div></div>
+        <div class="decree-opts">${d.options.map((code, i) => {
+          const x = parseDecree(code);
+          const pct = total ? Math.round(d.votes[i] / total * 100) : 0;
+          return `<button class="decree-opt ${mine === i ? 'on' : ''}" data-act="decree-vote" data-week="${d.week}" data-i="${i}" aria-pressed="${mine === i}">
+            <span class="di">${x.icon}</span><span class="dt"><b>${esc(x.title)}</b><small>${esc(x.text)}</small></span>
+            <span class="dv"><b>${d.votes[i]}</b><small>${pct}%</small></span><i style="width:${pct}%"></i></button>`;
+        }).join('')}</div>
+        <p class="note" style="margin:8px 0 0">${mine != null ? 'Tap your choice again to take your vote back. ' : ''}Voting closes ${esc(lockText(new Date(d.closesAt).toISOString()))}. Most votes wins; a tie goes to the option listed first.</p></div>`;
+    }
+    const x = d.decree;
+    if (!x) return '';
+    return `<div class="decree"><div class="decree-head"><span class="ic">📜</span><div><small>The Commissioner's Decree · Week ${d.week}${d.vote ? ' · voted by the league' : ''}</small><b>${x.icon} ${esc(x.title)}</b></div></div><p>${esc(x.text)}</p></div>`;
+  });
+}
+
 function weekCallouts() {
-  const out = [];
+  const out = decreeCallouts();
   const packs = waitingPacks();
   if (packs.length) out.push(`<div class="callout gold"><span class="ic">📦</span><div class="txt"><b>${packs.length} pack${packs.length > 1 ? 's' : ''} waiting.</b> Open ${packs.length > 1 ? 'them' : 'it'} before the lock, or the first card is kept for you.</div><a class="btn small gold" href="#cards">Open</a></div>`);
   for (const d of unansweredDuels()) out.push(`<div class="callout purple"><span class="ic">⚔️</span><div class="txt"><b>${esc(userName(d.user_id))}</b> challenged you to a duel on ${slotName(d.slot)}. No answer by the lock means you accepted.</div><a class="btn small" href="#cards">Answer</a></div>`);
@@ -796,6 +837,8 @@ function viewCards() {
   const packs = waitingPacks();
   const hand = u.cards.hand;
   const main = ow != null ? myMainPlay(ow) : null;
+  const dk = ow != null ? S.decrees?.[ow]?.decree?.kind : null;
+  const mainCount = ow != null ? (cw(ow)?.plays || []).filter(p => p.user_id === myId() && p.ok && countsAsPlay(p.card)).length : 0;
   const parts = [];
   const dex = collected(u);
   const albumN = u.cards.album.size;
@@ -805,7 +848,7 @@ function viewCards() {
     <div class="hud-head"><span class="badge gold">Joker cards</span><h1>The card table</h1></div>
     <div class="hud-row">
       <div class="hud-tile"><small>Hand</small><div class="hand-slots">${slotsHtml}</div><b>${hand.length}/${LEAGUE.cards.handLimit}</b></div>
-      <div class="hud-tile ${main ? 'used' : 'ready'}"><small>This week's play</small><b>${main ? `✓ ${esc(cardName(main.card))}` : ow != null ? '⚡ Ready' : '—'}</b></div>
+      <div class="hud-tile ${main ? 'used' : 'ready'}"><small>This week's play${dk === 'free_for_all' ? 's · Free-for-all' : ''}</small><b>${dk === 'ceasefire' ? '🏳️ Ceasefire' : main ? `✓ ${esc(cardName(main.card))}${dk === 'free_for_all' ? ` (${mainCount}/2)` : ''}` : ow != null ? '⚡ Ready' : '—'}</b></div>
       <div class="hud-tile"><small>Traps armed</small><b>${u.cards.armed.length ? '🛡️'.repeat(u.cards.armed.length) : '0'}</b></div>
       <div class="hud-tile"><small>Card Dex</small><b>${dex.size}/${Object.keys(CARDS).length}</b><span class="hud-bar"><i style="width:${dex.size / Object.keys(CARDS).length * 100}%"></i></span></div>
       <div class="hud-tile"><small>Album</small><b>${albumN}/30</b><span class="hud-bar"><i style="width:${albumN / 30 * 100}%"></i></span></div>
@@ -814,7 +857,7 @@ function viewCards() {
       : ow != null && ow < L.cards.from ? `<p class="sub" style="margin:12px 0 0">Cards switch on in Week ${L.cards.from}. Everyone gets a Starter Pack then.</p>`
       : ow != null ? `<div class="next-pack ${ownPicked ? 'done' : ''}">${ownPicked ? `✓ Next week's Locker Room Pack is secured.` : `🎁 Save your own Week ${ow} picks to earn next week's Locker Room Pack.`}</div>` : ''}
     ${packs.length ? `<div class="packs-row">${packs.map(p => `<button class="pack-mini" data-act="pack-open" data-key="${esc(p.key)}" aria-label="Open pack"><div class="shell">${packArt(p)}</div><span class="btn small gold">Open</span></button>`).join('')}</div>` : ''}
-    ${DEMO ? '<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn small" data-act="pack-practice">Rip a practice pack</button><span style="font-size:12px;color:#dbe4f7">Demo only. Nothing is saved.</span></div>' : ''}
+    ${practiceLeft() > 0 ? `<div class="practice-row"><button class="btn small" data-act="pack-practice">🎲 Rip a practice pack${DEMO ? '' : ` (${practiceLeft()} left)`}</button><span>See what a pull feels like. Practice cards don't stick.</span></div>` : ''}
   </section>`);
 
   parts.push(primerPanel(u));
@@ -824,7 +867,7 @@ function viewCards() {
     ${over > 0 ? `<div class="callout red" style="margin-bottom:14px"><span class="ic">⚠️</span><div class="txt">You're over the ${LEAGUE.cards.handLimit}-card limit. At the lock your oldest ${over === 1 ? 'card is' : `${over} cards are`} discarded, so play or gift something first.</div></div>` : ''}
     ${hand.length ? `<div class="hand">${hand.map(h => {
       const use = cardUse(h);
-      const note = use.why || (isTrap(h.card) ? 'Ready to arm' : isHindsight(h.card) ? `Ready for Week ${use.week}` : 'Ready to play');
+      const note = (use.why || (isTrap(h.card) ? 'Ready to arm' : isHindsight(h.card) ? `Ready for Week ${use.week}` : 'Ready to play')) + (swapPack(h) ? ' · ↺ 1 swap left' : '');
       return `<button class="hand-card" data-act="card-open" data-uid="${esc(h.uid)}">${cardFace(h.card, { cls: 'tilt' })}<span class="why">${esc(note)}${h.from === 'gift' ? ` · 🎁 from ${esc(userName(h.by))}` : ''}</span></button>`;
     }).join('')}</div>`
       : `<div class="empty-state"><div class="ic">🃏</div>${packs.length ? 'Open a pack to get started.' : 'No cards yet. You get a Locker Room Pack every week you make your own picks.'}</div>`}
@@ -854,7 +897,7 @@ function thisWeekCards(ow) {
   const mine = [...(c?.plays || []), ...(hw ? cw(hw.week)?.plays || [] : [])].filter(p => p.user_id === myId() && (p.week === ow || isHindsight(p.card)));
   const rows = mine.map(p => {
     const st = playStory(p, weekObj(p.week));
-    const note = p.ok ? '' : ` <span class="dim">(${p.why === 'limit' ? "doesn't count: one card a week" : p.why === 'not-in-hand' ? 'card not in your hand' : 'not valid'})</span>`;
+    const note = p.ok ? '' : ` <span class="dim">(${p.why === 'limit' ? "doesn't count: over this week's card limit" : p.why === 'ceasefire' ? "doesn't count: Ceasefire this week, so take it back" : p.why === 'not-in-hand' ? 'card not in your hand' : 'not valid'})</span>`;
     const extra = p.card === 'scout' && p.ok ? `<button class="btn small" data-act="scout-view" data-week="${p.week}" data-slot="${p.slot}">See report</button>` : '';
     const what = isTrap(p.card) ? `You armed ${esc(cardName(p.card))} face-down${p.sprung ? `. It sprang in Week ${p.sprung}` : ''}` : st.text;
     return `<div class="ct-row me"><div class="ic">${st.icon}</div><div class="txt">${what}${note}</div><div style="display:flex;gap:8px;align-items:center">${extra}${p.card === 'scout' ? '' : `<button class="link danger" data-act="play-undo" data-id="${esc(p.id)}">Take back</button>`}</div></div>`;
@@ -904,12 +947,13 @@ function primerPanel() {
       <div class="primer-body">
         <div class="primer-quick">
           <div><b>1</b><span>Earn packs</span><small>Make your own picks each week</small></div>
-          <div><b>2</b><span>Keep 1 of 3</span><small>Up to ${C.handLimit} in your hand</small></div>
+          <div><b>2</b><span>Keep 1 of 3</span><small>One swap per pack before the lock</small></div>
           <div><b>3</b><span>Play 1 a week</span><small>Before the lock</small></div>
           <div><b>4</b><span>The reveal</span><small>Everything shows at the lock</small></div>
         </div>
         <ul class="primer-list">
           <li>🎁 <b>Bonus packs</b> for weekly awards, losing a life and finishing an album division.</li>
+          <li>🃏 Hold up to <b>${C.handLimit} cards</b>. 🎲 Two practice packs let you try a pull for free.</li>
           <li>🛡️ <b>Traps and gifts are free</b>: they don't use up your weekly play.</li>
           <li>🚦 Nobody can be hit by more than <b>${C.attackCap} attacks a week</b>. Extras fizzle and the card goes back to its owner.</li>
           <li>❤️ Cards move points, <b>never lives</b>.</li>
@@ -1026,7 +1070,12 @@ async function practicePack() {
   const kind = kinds[Math.floor(Math.random() * kinds.length)];
   const pack = { key: 'practice', kind, step: S.league.openWeek ?? 1, label: kind === 'album' ? 'Atlantic' : 'Heater' };
   const cards = dealPack(`practice-${Date.now()}-${Math.random()}`, 'practice', Math.random() < 0.4 ? 'album' : 'revenge', 'trail');
+  if (!DEMO) {
+    if (practiceLeft() <= 0) return;
+    try { localStorage.setItem(`phs-practice-${myId()}`, String(PRACTICE_PACKS - practiceLeft() + 1)); } catch {}
+  }
   await openPack({ pack, cards, practice: true, onKeep: async () => {} });
+  render();
 }
 
 // ---------- Playing a card ----------
@@ -1043,12 +1092,37 @@ function renderPlay() {
   const d = CARDS[P.card];
   const use = cardUse(P.inst);
   const gift = P.mode === 'gift';
-  const body = gift ? giftForm() : use.why ? `<p style="margin:0;color:#c7d3ee">${esc(d.text)}</p><div class="callout"><span class="ic">⏳</span><div class="txt">${esc(use.why)}</div></div>` : playForm(use);
+  const swap = swapPack(P.inst);
+  const body = P.mode === 'swap' && swap ? keepSwapForm(swap) : gift ? giftForm() : use.why ? `<p style="margin:0;color:#c7d3ee">${esc(d.text)}</p><div class="callout"><span class="ic">⏳</span><div class="txt">${esc(use.why)}</div></div>` : playForm(use);
   $('#modal-root').innerHTML = `<div class="modal-bg" data-act="close-modal-bg"><div class="modal" role="dialog" aria-modal="true" aria-label="${esc(d.name)}">
     <div class="modal-head"><div class="ttl"><div><div class="kicker">${TYPES[d.type].label} · ${RARITY[d.rarity].label}</div><h3>${d.icon} ${esc(d.name)}</h3></div><button class="close-x" data-act="close-modal" aria-label="Close">×</button></div>
-      <div class="seg" style="margin:0"><button data-act="play-mode" data-mode="play" aria-pressed="${!gift}">${isTrap(P.card) ? 'Arm it' : 'Play it'}</button><button data-act="play-mode" data-mode="gift" aria-pressed="${gift}">Gift it</button></div></div>
-    <div class="modal-body pad"><div class="play-wrap">${cardFace(P.card, { cls: 'tilt' })}<div class="play-form">${body}<div class="err" id="play-err"></div></div></div></div>
+      <div class="seg" style="margin:0${swap ? ';grid-template-columns:1fr 1fr 1fr' : ''}"><button data-act="play-mode" data-mode="play" aria-pressed="${!gift && P.mode !== 'swap'}">${isTrap(P.card) ? 'Arm it' : 'Play it'}</button><button data-act="play-mode" data-mode="gift" aria-pressed="${gift}">Gift it</button>${swap ? `<button data-act="play-mode" data-mode="swap" aria-pressed="${P.mode === 'swap'}">↺ Swap it</button>` : ''}</div></div>
+    <div class="modal-body pad"><div class="play-wrap"${P.mode === 'swap' && swap ? ' style="grid-template-columns:1fr"' : ''}>${P.mode === 'swap' && swap ? '' : cardFace(P.card, { cls: 'tilt' })}<div class="play-form">${body}<div class="err" id="play-err"></div></div></div></div>
   </div></div>`;
+}
+
+function keepSwapForm(pack) {
+  const P = S.play;
+  return `<p style="margin:0;color:#c7d3ee">Changed your mind? Swap this card for another one from the same pack. You get <b>one swap per pack</b>, until the Week ${pack.step} lock, and it can't be undone.</p>
+    <div class="keep-swap">${pack.cards.map((c, i) => i === pack.keep
+      ? `<div class="swap-opt cur">${cardFace(c)}<span class="tag">Kept</span></div>`
+      : `<button class="swap-opt ${P.swapTo === i ? 'on' : ''}" data-act="swap-pick" data-i="${i}" aria-pressed="${P.swapTo === i}">${cardFace(c)}<span class="tag ${P.swapTo === i ? 'gold' : ''}">${P.swapTo === i ? 'Swap to this' : 'Choose'}</span></button>`).join('')}</div>
+    <button class="btn primary" data-act="swap-submit" ${P.swapTo == null ? 'disabled' : ''}>${P.swapTo == null ? 'Pick a card to swap to' : `Swap to ${esc(CARDS[pack.cards[P.swapTo]].name)}`}</button>`;
+}
+
+async function swapSubmit() {
+  const P = S.play, pack = swapPack(P?.inst);
+  if (!pack || P.swapTo == null) return;
+  try {
+    await S.backend.savePlay({ week: pack.step, card: '_keep', card_uid: `repick:${pack.key}`, params: { pick: P.swapTo } });
+  } catch (e) {
+    $('#play-err').textContent = /already been used/.test(e.message) ? "You've already swapped this pack." : e.message;
+    return;
+  }
+  const name = cardName(pack.cards[P.swapTo]);
+  closeModal();
+  toast(`Swapped. ${name} is in your hand.`);
+  await refresh();
 }
 
 function giftForm() {
@@ -1309,6 +1383,7 @@ function viewResults() {
     <section class="panel">
       <div class="panel-title"><h2>Week ${w.week} ${w.status === 'live' ? '<span class="badge live">Live</span>' : '<span class="badge final">Final</span>'}</h2>
         <div class="pills">${weeks.map(x => `<button class="pill ${x.status === 'live' ? 'live' : ''}" data-act="results-week" data-week="${x.week}" aria-pressed="${x.week === w.week}">Wk ${x.week}</button>`).join('')}</div></div>
+      ${w.decree ? `<div class="decree slim"><span>📜 Decree: <b>${w.decree.icon} ${esc(w.decree.title)}</b></span> <span class="dim">${esc(w.decree.text)}</span></div>` : ''}
       <p class="muted" style="margin:-6px 0 12px;font-size:13px">${weekRange(w)} · bars ${SLOTS.map(s => `${LEAGUE.bars[s]} ${INFO[s].short}`).join(' / ')} · (B) backup scored · 🔥 Double Down · card icons show what hit a pick (hover for who)</p>
       <div class="table-wrap"><table class="board"><thead><tr><th>#</th><th>Player</th>${SLOTS.map(s => `<th>${INFO[s].emoji} ${INFO[s].name}</th>`).join('')}<th class="r">Pts</th><th class="c">Bars</th></tr></thead><tbody>${body}</tbody></table></div>
     </section>
@@ -1473,6 +1548,7 @@ function viewAdmin() {
     <section class="hero"><span class="badge">🔒 Commissioner only</span><h1>The Commissioner's office</h1>
       <div class="sub">Only accounts in the admins table can open this. Everyone's picks stay hidden until each lock, including from you.</div></section>
     ${adminInvite()}
+    ${adminDecree()}
     ${adminRoster(open)}
     ${adminTiles(st)}
     ${adminStrategy(perfectPlay(L, S.data.totals))}
@@ -1489,6 +1565,52 @@ function viewAdmin() {
     ${adminFirepower(st)}
     ${adminStyles(st)}
   </div>`;
+}
+
+function adminDecree() {
+  const L = S.league, C = LEAGUE.decree;
+  const all = Object.values(S.decrees || {}).sort((a, b) => a.week - b.week);
+  const left = C.perSeason - all.length;
+  const eligible = L.weeks.filter(w => w.status === 'open' && Date.parse(w.lockAt) - now() > C.noticeHours * 3600e3 && !S.decrees?.[w.week]);
+  const D = S.decreeDraft ||= { week: null, mode: 'impose', picks: [], slots: {} };
+  if (!eligible.some(w => w.week === D.week)) D.week = eligible[0]?.week ?? null;
+  const max = D.mode === 'vote' ? 3 : 1;
+  const ready = D.mode === 'vote' ? D.picks.length >= 2 : D.picks.length === 1;
+  const list = all.map(d => {
+    const open = Date.parse(weekObj(d.week).lockAt) - now() > C.noticeHours * 3600e3;
+    const what = d.vote
+      ? d.options.map((code, i) => `${parseDecree(code).icon} ${esc(parseDecree(code).title)} <b>${d.votes[i]}</b>`).join(' · ') + (d.closed ? ` → <b>${esc(d.decree?.title || '')}</b>` : ' <span class="dim">(voting)</span>')
+      : `${d.decree.icon} <b>${esc(d.decree.title)}</b>`;
+    return `<div class="own-row"><span class="tag">Wk ${d.week}</span><div style="flex:1">${what}</div>${open ? `<button class="link danger" data-act="decree-cancel" data-week="${d.week}">Cancel</button>` : '<span class="dim">Locked in</span>'}</div>`;
+  }).join('');
+  return `<section class="panel decree-admin"><div class="panel-title"><h2>📜 Commissioner's Decree</h2><span class="muted">${left} of ${C.perSeason} left this season · everyone sees it once it's posted</span></div>
+    ${list ? `<div style="display:grid;gap:8px;margin-bottom:16px">${list}</div>` : ''}
+    ${left <= 0 ? '<p class="muted" style="margin:0">That\'s every decree for the season.</p>'
+      : !eligible.length ? `<p class="muted" style="margin:0">No week is far enough out. Decrees go up at least ${C.noticeHours} hours before a lock.</p>`
+      : `<div class="decree-form">
+        <label class="field">Week<select class="input" data-change="decree-week">${eligible.slice(0, 8).map(w => `<option value="${w.week}" ${w.week === D.week ? 'selected' : ''}>Week ${w.week} · locks ${esc(lockText(w.lockAt))}</option>`).join('')}</select></label>
+        <div class="seg" style="margin:0"><button data-act="decree-mode" data-mode="impose" aria-pressed="${D.mode === 'impose'}">⚖️ Impose one</button><button data-act="decree-mode" data-mode="vote" aria-pressed="${D.mode === 'vote'}">🗳️ Let them vote</button></div>
+      </div>
+      <p class="note">${D.mode === 'vote' ? 'Pick 2 or 3 options. Members vote until ' + C.noticeHours + ' hours before the lock; most votes wins.' : 'Pick one. It goes live for everyone straight away.'}</p>
+      <div class="decree-cat">${Object.entries(DECREES).map(([k, d]) => {
+        const on = D.picks.includes(k);
+        const slot = D.slots[k] || 'PTS';
+        const x = parseDecree(d.slot ? `${k}:${slot}` : k);
+        return `<div class="decree-pick ${on ? 'on' : ''}"><button class="dp-main" data-act="decree-toggle" data-kind="${k}" aria-pressed="${on}"><span class="di">${d.icon}</span><b>${esc(d.name)}</b><small>${esc(x.text)}</small></button>
+          ${d.slot ? `<select class="input" data-change="decree-slot" data-kind="${k}">${SLOTS.map(s => `<option value="${s}" ${s === slot ? 'selected' : ''}>${INFO[s].emoji} ${INFO[s].name}</option>`).join('')}</select>` : ''}</div>`;
+      }).join('')}</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px"><button class="btn primary" data-act="decree-issue" ${ready ? '' : 'disabled'}>${D.mode === 'vote' ? `Put ${D.picks.length || ''} to a vote` : 'Issue the decree'}</button><span class="dim" style="font-size:13px">${D.picks.length}/${max} chosen</span></div>`}
+  </section>`;
+}
+
+async function decreeIssue() {
+  const D = S.decreeDraft;
+  const options = D.picks.map(k => DECREES[k].slot ? `${k}:${D.slots[k] || 'PTS'}` : k);
+  if (!D.week || !options.length) return;
+  try { await S.backend.adminSaveDecree(D.week, options); } catch (e) { return toast(e.message, true); }
+  toast(options.length > 1 ? `Week ${D.week} is up for a vote.` : `Decreed: ${parseDecree(options[0]).title} in Week ${D.week}.`);
+  S.decreeDraft = null;
+  await refresh();
 }
 
 function inviteLink(code) {
@@ -1647,7 +1769,8 @@ function viewRules() {
       <div class="panel rule"><h3>📊 Scoring</h3><p>Every category is ranked across the league each week. You get 1 point for every colleague whose pick you beat, ½ for a tie. Your weekly score is the sum of your four categories.</p><p>Drop your worst weeks: one drop unlocks after weeks 6, 12 and 18.</p></div>
       <div class="panel rule"><h3>❤️ Survivor</h3><p>Everyone starts with ${LEAGUE.lives} lives. Clear at least ${LEAGUE.barsToSurvive} of the ${SLOTS.length} weekly bars (${b.PTS} PTS / ${b.REB} REB / ${b.AST} AST / ${b.WIN} win, the same every week) or lose a life. Last one standing wins the Survivor Belt. You keep playing for points either way.</p></div>
       <div class="panel rule"><h3>🃏 Jokers</h3><ul><li><b>Double Down</b>: double the rank points from one slot, once a season.</li><li><b>Un-burn</b>: get one burned player back in one category, once a season.</li></ul></div>
-      <div class="panel rule"><h3>🎴 Joker cards</h3><p>Earn packs, keep one card from each, and play one card a week: jinxes, traps, duels, heists, Blue Shells and pranks. Attacks are revealed at the lock. Cards move points but never cost a life.</p><p><button class="link" data-act="primer">How cards work →</button></p></div>
+      <div class="panel rule"><h3>📜 Commissioner's Decree</h3><p>Up to ${LEAGUE.decree.perSeason} times a season the commissioner sets a one-week twist, such as Prime Time (a category counts double), Opposite Day, Mercy Rule, Sudden Death, Amnesty, Ceasefire or Pack Day. Sometimes the league votes on it instead. Decrees are posted, and votes close, at least ${LEAGUE.decree.noticeHours} hours before the lock, so nobody gets surprised.</p></div>
+      <div class="panel rule"><h3>🎴 Joker cards</h3><p>Earn packs, keep one card from each (you can swap it once before the lock), and play one card a week: jinxes, traps, duels, heists, Blue Shells and pranks. Attacks are revealed at the lock. Cards move points but never cost a life.</p><p><button class="link" data-act="primer">How cards work →</button></p></div>
       <div class="panel rule"><h3>🤖 Autopilot</h3><p>Forgot to pick? At the lock, Autopilot fills empty slots with your best unburned projected week (season average × games). It never leaves you at zero, but it spends your best players first.</p></div>
       <div class="panel rule"><h3>🥊 Rivals</h3><p>Name one coworker as your rival and track your weekly head-to-head record. You can change your rival any time.</p></div>
       <div class="panel rule"><h3>🏆 Titles and awards</h3><ul><li><b>Season Champion</b></li><li><b>Title belts:</b> Survivor Belt, plus Scoring, Rebounding, Assists and Dub Champions (most of each from your picks over the season)</li><li><b>Monthly Crowns:</b> Nov, Dec, Jan, Feb, Mar/Apr</li><li><b>Hall of Fame</b> and <b>Hall of Shame:</b> fun season awards</li><li><b>Playoff Burn</b> (April–June)</li></ul><p>Every award comes with a downloadable certificate. The Trophies tab shows who's leading each race and where you stand.</p></div>
@@ -1846,6 +1969,29 @@ const ACTIONS = {
   'results-week': el => { S.resultsWeek = +el.dataset.week; render(); },
   'pack-open': el => openWaitingPack(el.dataset.key),
   'pack-practice': () => practicePack(),
+  'swap-pick': el => { S.play.swapTo = Number(el.dataset.i); renderPlay(); },
+  'swap-submit': () => swapSubmit(),
+  'decree-mode': el => { S.decreeDraft.mode = el.dataset.mode; S.decreeDraft.picks = S.decreeDraft.picks.slice(0, el.dataset.mode === 'vote' ? 3 : 1); render(); },
+  'decree-toggle': el => {
+    const D = S.decreeDraft, k = el.dataset.kind;
+    if (D.picks.includes(k)) D.picks = D.picks.filter(x => x !== k);
+    else if (D.mode === 'impose') D.picks = [k];
+    else if (D.picks.length < 3) D.picks.push(k);
+    else return toast('Up to 3 options in a vote.', true);
+    render();
+  },
+  'decree-issue': () => decreeIssue(),
+  'decree-cancel': async el => {
+    if (!confirm(`Cancel the Week ${el.dataset.week} decree? Any votes are lost.`)) return;
+    try { await S.backend.adminDeleteDecree(+el.dataset.week); toast('Decree cancelled.'); } catch (e) { toast(e.message, true); }
+    await refresh();
+  },
+  'decree-vote': async el => {
+    const week = +el.dataset.week, i = +el.dataset.i;
+    const mine = S.db.votes?.find(v => v.week === week)?.choice;
+    try { await S.backend.voteDecree(week, mine === i ? null : i); toast(mine === i ? 'Vote taken back.' : 'Vote counted.'); } catch (e) { toast(e.message, true); }
+    await refresh();
+  },
   'card-open': el => openPlay(el.dataset.uid),
   'play-mode': el => { S.play.mode = el.dataset.mode; renderPlay(); },
   'play-slot': el => {
@@ -1951,6 +2097,8 @@ document.addEventListener('change', async e => {
   const el = e.target.closest('[data-change]');
   if (!el) return;
   if (el.dataset.change === 'burn-user') { S.burnUser = el.value; render(); }
+  if (el.dataset.change === 'decree-week') { S.decreeDraft.week = +el.value; render(); }
+  if (el.dataset.change === 'decree-slot') { S.decreeDraft.slots[el.dataset.kind] = el.value; render(); }
   if (S.play) {
     const k = el.dataset.change;
     if (k === 'play-target') { S.play.target = el.value; if (S.play.card === 'burn_notice') S.play.player = null; renderPlay(); }

@@ -4,6 +4,7 @@
 import { LEAGUE, monthKey, MONTH_LABELS } from './config.js';
 import { TEAMS, TEAM_BY_ID } from './teams.js';
 import { CardTable } from './cards.js';
+import { parseDecree } from './decrees.js';
 
 const STAT = { PTS: 1, REB: 2, AST: 3 };
 const SLOTS = LEAGUE.slots;
@@ -66,7 +67,7 @@ function applyUnburn(u, week) {
   u.unburnApplied = true;
 }
 
-export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], profiles, now = Date.now(), players = {}, cardsFrom = LEAGUE.cards.startWeek, dealer }) {
+export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], profiles, now = Date.now(), players = {}, cardsFrom = LEAGUE.cards.startWeek, dealer, decrees = {} }) {
   const byWeek = groupPicks(picks);
   const unburnByUser = Object.fromEntries(unburns.map(u => [u.user_id, u]));
   const users = {};
@@ -78,7 +79,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       unburn: unburnByUser[pr.id] || null, monthly: {},
     };
   }
-  const table = new CardTable({ users, plays, weeks, byWeek, from: cardsFrom, dealer });
+  const table = new CardTable({ users, plays, weeks, byWeek, from: cardsFrom, dealer, decrees });
   // Running season totals after each week, for comeback odds, Blue Shell and Heist.
   const cum = {};
   const snaps = {};
@@ -88,11 +89,13 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
   for (const wk of weeks) {
     const status = weekStatus(wk, now);
     const W = wk.week;
+    const dec = parseDecree(decrees[W]);
+    const is = (kind, slot) => dec?.kind === kind && (slot === undefined || dec.slot === slot);
     if (status === 'open') {
       if (openWeek == null) {
         openWeek = W;
-        out.push({ ...wk, status, entrants: [], results: {}, ownership: {}, cards: table.begin(wk, status, snaps[W - 2]) });
-      } else out.push({ ...wk, status, entrants: [], results: {}, ownership: {} });
+        out.push({ ...wk, status, entrants: [], results: {}, ownership: {}, decree: dec, cards: table.begin(wk, status, snaps[W - 2]) });
+      } else out.push({ ...wk, status, entrants: [], results: {}, ownership: {}, decree: dec });
       continue;
     }
     const cw = table.begin(wk, status, snaps[W - 2]);
@@ -154,21 +157,34 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
     }
     for (const slot of SLOTS) {
       // An empty slot ranks below everyone and earns nothing.
-      const pts = rankPoints(entrants.map(id => results[id].slots[slot].missing ? -1 : results[id].slots[slot].value));
+      // Opposite Day: the lowest total wins, but an empty slot or a fumble still ranks last.
+      const flip = is('opposite', slot);
+      const pts = rankPoints(entrants.map(id => {
+        const s = results[id].slots[slot];
+        if (s.missing) return -Infinity;
+        if (!flip) return s.value;
+        return s.scorer == null && !s.copy && !s.pending ? -Infinity : -s.value;
+      }));
       entrants.forEach((id, i) => {
         const s = results[id].slots[slot];
-        s.rank = s.missing ? 0 : pts[i] * (s.dd ? 2 : 1);
+        s.rank = s.missing ? 0 : pts[i] * (s.dd ? 2 : 1) * (is('spotlight', slot) ? 2 : 1);
         s.owned = s.scorer != null && !s.copy ? ownership[slot][s.scorer] : 0;
       });
     }
     playPointCards({ cw, wk, results, hits, table });
+
+    if (is('bounty') && entrants.length) {
+      const pre = id => SLOTS.reduce((a, s) => a + results[id].slots[s].rank, 0) + results[id].adj.reduce((a, x) => a + x.pts, 0);
+      const top = Math.max(...entrants.map(pre));
+      for (const id of entrants) if (pre(id) === top) results[id].adj.push({ decree: 'bounty', label: 'Bounty', pts: LEAGUE.decree.bounty });
+    }
 
     for (const id of entrants) {
       const r = results[id], u = users[id];
       r.score = SLOTS.reduce((a, s) => a + r.slots[s].rank, 0) + r.adj.reduce((a, x) => a + x.pts, 0);
       // The Survivor Belt ignores cards: bars are checked against your own picks' real totals.
       r.cleared = SLOTS.filter(s => r.slots[s].base >= LEAGUE.bars[s]).length;
-      r.survived = r.cleared >= LEAGUE.barsToSurvive;
+      r.survived = r.cleared >= (is('sudden_death') ? SLOTS.length : LEAGUE.barsToSurvive) || is('mercy');
       u.weekly[W] = r.score;
       cum[id] = (cum[id] || 0) + r.score;
       if (status === 'final' && u.lives > 0 && !r.survived) {
@@ -182,6 +198,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       const six = cw.sixth.get(id);
       for (const slot of SLOTS) {
         const s = r.slots[slot];
+        if (is('amnesty')) continue;
         if (status === 'final') for (const pid of s.burn) u.burns[slot].set(pid, W);
         else {
           if (!s.copy) for (const pid of [s.pid, s.alt]) if (pid != null) u.reserved[slot].set(pid, W);
@@ -206,7 +223,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
     order.forEach((id, i) => rank.set(id, i > 0 && cum[order[i - 1]] === cum[id] ? rank.get(order[i - 1]) : i + 1));
     snaps[W] = { order, rank };
 
-    const w = { ...wk, status, entrants, results, ownership, cards: cw };
+    const w = { ...wk, status, entrants, results, ownership, cards: cw, decree: dec };
     if (status === 'final') w.awards = weekAwards(w);
     table.end(wk, status, { entrants, results, awards: w.awards || [], teamOf: pid => TEAM_BY_ID[pid] || statLine(totals, W, pid)[10] || players[pid]?.team || null });
     out.push(w);

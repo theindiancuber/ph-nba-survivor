@@ -893,3 +893,41 @@ footer .link { font-size: 12px; }
   .dex-big .tc { --cw: 190px; }
   .dex-info { width: 100%; }
 }
+
+/* Practice packs and swapping a kept card */
+.practice-row { margin-top: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.practice-row span { font-size: 12px; color: #dbe4f7; }
+.keep-swap { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.swap-opt { display: flex; flex-direction: column; align-items: center; gap: 6px; border: 2px solid transparent; background: none; padding: 4px; border-radius: 14px; cursor: pointer; transition: transform .15s, border-color .15s; }
+.swap-opt .tc { --cw: 110px; }
+.swap-opt:hover { transform: translateY(-3px); }
+.swap-opt.on { border-color: var(--gold, #f2c14e); }
+.swap-opt.cur { cursor: default; opacity: .6; }
+@media (max-width: 480px) { .keep-swap { gap: 6px; } .swap-opt { padding: 2px; } .swap-opt .tc { --cw: 92px; } }
+
+/* Commissioner's Decree */
+.decree { border-radius: 14px; padding: 14px 16px; background: linear-gradient(135deg, rgba(212, 175, 55, .16), rgba(20, 20, 20, .4)); border: 1px solid rgba(212, 175, 55, .45); }
+.decree p { margin: 8px 0 0; color: #e9e2c8; font-size: 14px; }
+.decree.slim { padding: 8px 12px; margin: -4px 0 12px; font-size: 13.5px; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.decree-head { display: flex; gap: 12px; align-items: center; }
+.decree-head .ic { font-size: 28px; }
+.decree-head small { display: block; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: #d4af37; }
+.decree-head b { font: 700 20px/1.1 var(--display); text-transform: uppercase; letter-spacing: .02em; }
+.decree-opts { display: grid; gap: 8px; margin-top: 12px; }
+.decree-opt { position: relative; overflow: hidden; display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; text-align: left; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: #07112a; color: var(--text); cursor: pointer; }
+.decree-opt > i { position: absolute; left: 0; bottom: 0; height: 3px; background: #d4af37; transition: width .3s; }
+.decree-opt.on { border-color: #d4af37; box-shadow: 0 0 0 1px #d4af37 inset; }
+.decree-opt .di { font-size: 24px; }
+.decree-opt .dt small, .decree-opt .dv small { display: block; color: var(--muted); font-size: 12.5px; }
+.decree-opt .dv { text-align: right; }
+.decree-opt .dv b { font: 700 20px/1 var(--display); }
+.decree-form { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
+.decree-cat { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.decree-pick { display: grid; gap: 6px; border-radius: 12px; border: 1px solid var(--line); background: #07112a; padding: 6px; }
+.decree-pick.on { border-color: #d4af37; background: rgba(212, 175, 55, .1); }
+.dp-main { display: grid; gap: 4px; text-align: left; border: 0; background: none; color: var(--text); padding: 6px; cursor: pointer; }
+.dp-main .di { font-size: 24px; }
+.dp-main b { font: 700 16px/1 var(--display); text-transform: uppercase; letter-spacing: .03em; }
+.dp-main small { color: var(--muted); font-size: 12.5px; line-height: 1.35; }
+.decree-pick select { font-size: 13px; padding: 6px 8px; }
+@media (max-width: 600px) { .decree-form { grid-template-columns: 1fr; } }

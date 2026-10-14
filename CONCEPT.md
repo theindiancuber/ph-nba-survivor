@@ -113,7 +113,8 @@ There's no money, just bragging rights and a **downloadable certificate** for ev
 - **Two jokers a season:**
   - **Double Down**: one slot earns double rank points this week.
   - **Un-burn**: get back one player in one category, once.
-- **Joker cards** (Monopoly Go meets Uno). You earn packs of three cards, keep one, and the other two burn. You can play one card a week. Traps and gifts don't count toward that.
+- **Commissioner's Decree.** Up to 3 times a season, a one-week rule twist (Prime Time, Opposite Day, Bounty, Mercy Rule, Sudden Death, Amnesty, Ceasefire, Free-for-all, Pack Day), imposed by the commissioner or chosen by a league vote. It's posted at least 24 hours before the lock, so everyone plays under the same known rules.
+- **Joker cards** (Monopoly Go meets Uno). You earn packs of three cards, keep one, and the other two burn. You can swap the kept card for one of the other two once, before that week's lock, as long as you haven't played or gifted it. Everyone also gets two practice packs that don't count. You can play one card a week. Traps and gifts don't count toward that.
   - **Where packs come from:**
     - a Starter Pack when you join;
     - a Locker Room Pack every week you picked for yourself (not Autopilot);

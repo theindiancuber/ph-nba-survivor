@@ -46,6 +46,7 @@ Sign out and back in. A **Commissioner** tab appears with:
 - **Burn ledger:** search any player to see who burned him, in which category and when.
 - **League-wide stats:** most-burned players, untouched gems, firepower left, playing styles, and the best and worst picks of the season.
 - **Best strategy (hindsight):** each final week's perfect three picks, the perfect season plan per category (every player used at most once, the same rule everyone plays under), and how close each person came to it.
+- **Commissioner's Decree:** a one-week twist, up to 3 a season. Impose one, or put 2–3 to a league vote. The twists are Prime Time (a category's rank points double), Opposite Day (the lowest total wins a category), Bounty (+5 for the week's top scorer), Mercy Rule, Sudden Death (all 4 bars), Amnesty (no burns), Ceasefire (no cards), Free-for-all (2 cards each) and Pack Day (a bonus pack). Decrees go up, and votes close, at least 24 hours before the lock, and can be cancelled until then. Everyone sees decrees and running vote counts, never who voted for what. Run `supabase/upgrade-decree.sql` once to turn it on. The catalog is `src/decrees.js`; the limits are `decree` in `src/config.js` (keep `perSeason` in step with the SQL).
 - **Remove member:** deletes the account with its picks and jokers, and by default blocks that email from signing up again. Blocked emails are listed with an **Unblock** button.
 
 The database only answers these requests for accounts in the `admins` table. Before a lock, the check-in shows how many slots each person has filled, never which players.
@@ -64,7 +65,9 @@ Packs are dealt from a seeded shuffle, so every browser deals the same three car
 - **When cards start:** `cards.startWeek` in `src/config.js`. Everyone gets a Starter Pack that week (late joiners get theirs in their first week). Hand limit, attack cap, duel stake, heist size and Embargo notice are next to it.
 - **What's visible when:** your own rows any time; everyone's at the lock. An Embargo is public immediately, and a duel is visible to the person challenged so they can accept or decline. A played Scout Report can't be taken back.
 - **Cards and Dub:** cards that name a slot take a team in Dub. Load Management takes off a win, Garbage Time turns a loss into a win, and Sixth Man and Switcheroo stay in the player slots.
-- **Pack opening** works with a swipe across the top of the pack, the *Rip it open* button, or Enter. Sound is synthesised and off by default (🔇 in the corner). It respects reduced-motion settings. In the demo, *Rip a practice pack* on the Cards tab opens as many as you like without saving.
+- **Changing your mind:** each pack allows one swap of the kept card for one of the other two, until that week's lock, and only while the card is still in your hand (not played, armed or gifted). It's a second `_keep` row with `card_uid` `repick:<pack key>`; the insert policy in `upgrade-cards.sql` enforces the rules.
+- **Practice packs:** everyone gets 2 on the Cards tab. They're dealt at random in the browser, never saved and never touch the real seeds.
+- **Pack opening** works with a swipe across the top of the pack, the *Rip it open* button, or Enter. Sound is synthesised and off by default (🔇 in the corner). It respects reduced-motion settings. In the demo, practice packs are unlimited.
 
 ## Things to know
 

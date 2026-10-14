@@ -196,7 +196,17 @@ export function makeDemo() {
   }
   const unburns = [{ user_id: 'demo-4', slot: 'REB', player_id: 203999, week: 5 }];
   const plays = demoPlays({ weeks, totals, picks, unburns, profiles, players, now, meId, rand });
-  return { version: 5, now, players, teams, weeks, totals, profiles, picks, unburns, plays, meId, cardsFrom: CARDS_FROM };
+  // Commissioner's Decree: one imposed on the last locked week, and a vote running for the week after the open one.
+  const open = weeks.find(x => now < Date.parse(x.lockAt));
+  const lastLocked = [...weeks].reverse().find(x => now >= Date.parse(x.lockAt));
+  const decrees = [], votes = [];
+  if (lastLocked) decrees.push({ week: lastLocked.week, options: ['spotlight:REB'], created_at: lastLocked.start + 'T12:00:00Z' });
+  const next = open && weeks.find(x => x.week === open.week + 1);
+  if (next) {
+    decrees.push({ week: next.week, options: ['mercy', 'opposite:AST', 'pack_day'], created_at: new Date(now - 86400e3).toISOString() });
+    profiles.filter(p => p.id !== meId).forEach(p => { if (rand() < 0.7) votes.push({ week: next.week, user_id: p.id, choice: Math.floor(rand() * 3) }); });
+  }
+  return { version: 6, now, players, teams, weeks, totals, profiles, picks, unburns, plays, decrees, votes, meId, cardsFrom: CARDS_FROM };
 }
 
 // The colleagues keep the spiciest card from each pack and play one a week,

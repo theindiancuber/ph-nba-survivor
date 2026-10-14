@@ -62,7 +62,7 @@ export class SupabaseBackend {
   }
 
   async load() {
-    const [profiles, picks, unburns, weeks, plays, seeds] = await Promise.all([
+    const [profiles, picks, unburns, weeks, plays, seeds, decrees, tallies, votes] = await Promise.all([
       this.all('profiles', 'created_at'), this.all('picks', 'week'), this.all('unburns', 'created_at'), this.all('weeks', 'week'),
       // Until supabase/upgrade-cards.sql is run there are no cards: play without them.
       this.all('card_plays', 'created_at').catch(() => []),
@@ -70,8 +70,12 @@ export class SupabaseBackend {
       this.sb.rpc('pack_seeds')
         .then(r => (r.error || !Array.isArray(r.data) ? null : Object.fromEntries(r.data.map(x => [`${x.user_id}|${x.week}`, x.seed]))))
         .catch(() => null),
+      // Commissioner's Decree. Until supabase/upgrade-decree.sql is run there are none.
+      this.all('decrees', 'week').catch(() => []),
+      this.sb.rpc('decree_tally').then(r => (r.error || !Array.isArray(r.data) ? [] : r.data)).catch(() => []),
+      this.userId ? this.sb.from('decree_votes').select('week,choice').eq('user_id', this.userId).then(r => r.data || []).catch(() => []) : [],
     ]);
-    return { profiles, picks, unburns, plays, seeds, locks: Object.fromEntries(weeks.map(w => [w.week, new Date(w.lock_at).toISOString()])) };
+    return { profiles, picks, unburns, plays, seeds, decrees, tallies, votes, locks: Object.fromEntries(weeks.map(w => [w.week, new Date(w.lock_at).toISOString()])) };
   }
 
   // slots: { PTS: {player_id, alt_id} | null, ... }, dd: slot or null
@@ -112,6 +116,14 @@ export class SupabaseBackend {
     const { data, error } = await this.sb.rpc('scout_report', { w: week, s: slot });
     if (error) throw friendly(error);
     return data;
+  }
+
+  // choice null takes your vote back.
+  async voteDecree(week, choice) {
+    const q = this.sb.from('decree_votes');
+    const { error } = choice == null ? await q.delete().eq('week', week).eq('user_id', this.userId)
+      : await q.upsert({ week, user_id: this.userId, choice }, { onConflict: 'week,user_id' });
+    if (error) throw decreeError(error);
   }
 
   async setUnburn(row) {
@@ -164,7 +176,23 @@ Object.assign(SupabaseBackend.prototype, {
     const { error } = await this.sb.rpc('admin_set_invite', { code });
     if (error) throw error;
   },
+  async adminSaveDecree(week, options) {
+    const { error } = await this.sb.from('decrees').insert({ week, options });
+    if (error) throw decreeError(error);
+  },
+  async adminDeleteDecree(week) {
+    const { error } = await this.sb.from('decrees').delete().eq('week', week);
+    if (error) throw decreeError(error);
+  },
 });
+
+function decreeError(error) {
+  const msg = error?.message || String(error);
+  if (/decrees_pkey|duplicate key/.test(msg)) return new Error('That week already has a decree.');
+  if (/row-level security/.test(msg)) return new Error(`Too late: decrees and votes close ${LEAGUE.decree.noticeHours} hours before the lock (and there are ${LEAGUE.decree.perSeason} a season).`);
+  if (/relation .* does not exist|decree/.test(msg)) return new Error('Run supabase/upgrade-decree.sql first.');
+  return new Error(msg);
+}
 
 function friendly(error) {
   const msg = error?.message || String(error);
@@ -194,7 +222,7 @@ export class DemoBackend {
   async init() {
     try { this.state = JSON.parse(localStorage.getItem(DEMO_KEY)); } catch { this.state = null; }
     if (!this.state || this.state.version !== this.seed.version) {
-      this.state = { version: this.seed.version, profiles: this.seed.profiles, picks: this.seed.picks, unburns: this.seed.unburns, plays: this.seed.plays, userId: null };
+      this.state = { version: this.seed.version, profiles: this.seed.profiles, picks: this.seed.picks, unburns: this.seed.unburns, plays: this.seed.plays, decrees: this.seed.decrees || [], votes: this.seed.votes || [], userId: null };
     }
   }
 
@@ -227,7 +255,10 @@ export class DemoBackend {
     // Same visibility as the real database: other people's picks appear once the week locks.
     const visible = r => r.user_id === this.userId || this.now() >= Date.parse(locks[r.week]);
     const playVisible = r => visible(r) || r.card === 'embargo' || (['duel', '_reply'].includes(r.card) && r.target_id === this.userId);
-    return structuredClone({ profiles: this.state.profiles, picks: this.state.picks.filter(visible), unburns: this.state.unburns.filter(visible), plays: this.state.plays.filter(playVisible), locks });
+    const decrees = this.state.decrees || [];
+    const tallies = Object.values((this.state.votes || []).reduce((m, v) => { const k = `${v.week}|${v.choice}`; (m[k] ||= { week: v.week, choice: v.choice, votes: 0 }).votes++; return m; }, {}));
+    const votes = (this.state.votes || []).filter(v => v.user_id === this.userId).map(({ week, choice }) => ({ week, choice }));
+    return structuredClone({ profiles: this.state.profiles, picks: this.state.picks.filter(visible), unburns: this.state.unburns.filter(visible), plays: this.state.plays.filter(playVisible), decrees, tallies, votes, locks });
   }
 
   // Same windows as card_window() in schema.sql.
@@ -245,6 +276,11 @@ export class DemoBackend {
     this.assertCardWindow(row.card, row.week);
     const uid = this.userId;
     if (row.card_uid && this.state.plays.some(p => p.user_id === uid && p.card_uid === row.card_uid)) throw new Error('That card has already been used.');
+    if (row.card === '_keep' && String(row.card_uid).startsWith('repick:')) {
+      const key = row.card_uid.slice(7);
+      if (!this.state.plays.some(p => p.user_id === uid && p.card === '_keep' && p.card_uid === `pack:${key}` && p.week === row.week)) throw new Error('Keep a card from that pack first.');
+      if (this.state.plays.some(p => p.user_id === uid && p.card_uid === key)) throw new Error('Take that card back before you swap it.');
+    }
     this.state.plays.push({ params: {}, target_id: null, slot: null, player_id: null, card_uid: null, ...row, user_id: uid, id: `demo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, created_at: new Date(this.now()).toISOString() });
     this.persist();
   }
@@ -297,6 +333,38 @@ export class DemoBackend {
       if (existing) this.assertOpen(existing.week);
       this.state.unburns = this.state.unburns.filter(u => u.user_id !== uid);
     }
+    this.persist();
+  }
+
+  assertDecreeOpen(week) {
+    const w = this.seed.weeks.find(x => x.week === week);
+    if (!w || !(Date.parse(w.lockAt) > this.now() + LEAGUE.decree.noticeHours * 3600e3)) {
+      throw new Error(`Too late: decrees and votes close ${LEAGUE.decree.noticeHours} hours before the lock.`);
+    }
+  }
+
+  async voteDecree(week, choice) {
+    this.assertDecreeOpen(week);
+    const d = (this.state.decrees || []).find(x => x.week === week);
+    if (!d || d.options.length < 2) throw new Error("There's no vote that week.");
+    this.state.votes = (this.state.votes || []).filter(v => !(v.week === week && v.user_id === this.userId));
+    if (choice != null) this.state.votes.push({ week, user_id: this.userId, choice });
+    this.persist();
+  }
+
+  async adminSaveDecree(week, options) {
+    this.assertDecreeOpen(week);
+    const list = this.state.decrees ||= [];
+    if (list.some(d => d.week === week)) throw new Error('That week already has a decree.');
+    if (list.length >= LEAGUE.decree.perSeason) throw new Error(`That's all ${LEAGUE.decree.perSeason} decrees for the season.`);
+    list.push({ week, options, created_at: new Date(this.now()).toISOString() });
+    this.persist();
+  }
+
+  async adminDeleteDecree(week) {
+    this.assertDecreeOpen(week);
+    this.state.decrees = (this.state.decrees || []).filter(d => d.week !== week);
+    this.state.votes = (this.state.votes || []).filter(v => v.week !== week);
     this.persist();
   }
 
