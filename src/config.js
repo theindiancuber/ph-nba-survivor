@@ -7,8 +7,8 @@ export const LEAGUE = {
 
   // Supabase project (Settings → API). The anon key is public by design;
   // row-level security in supabase/schema.sql is what protects the data.
-  supabaseUrl: '',
-  supabaseAnonKey: '',
+  supabaseUrl: 'https://miotcbvafwddymqkslyy.supabase.co',
+  supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pb3RjYnZhZndkZHltcWtzbHl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5OTEwMjAsImV4cCI6MjEwNzU2NzAyMH0.dfRVbsAlto2GSnNr5V9VKstymrMc4DV9fAjc017jIys',
 
   slots: ['PTS', 'REB', 'AST'],
   slotInfo: {

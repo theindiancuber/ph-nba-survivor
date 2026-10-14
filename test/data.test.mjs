@@ -41,12 +41,14 @@ test('box scores roll into weekly totals, averages, locks and team game counts',
   const byId = Object.fromEntries(schedule.map(g => [g.id, g]));
   const boxes = {
     '0012600001': parseBox(boxJson('0012600001', 'DEN', 'OKC', [pl(203999, 'Nikola', 'Jokic', 1, 20, 10, 10)], [pl(1628983, 'Shai', 'Gilgeous-Alexander', 1, 25, 4, 5)]), byId['0012600001']),
+    '0012600002': parseBox(boxJson('0012600002', 'DEN', 'RMD', [], [pl(777, 'Guest', 'Player', 1, 12, 3, 2)]), { kind: 'pre', etDate: '2026-10-11', tipUtc: '2026-10-11T18:00:00Z' }),
     '0022600001': parseBox(boxJson('0022600001', 'NYK', 'PHI', [pl(1628973, 'Jalen', 'Brunson', 1, 30, 3, 8)], [pl(1, 'Bench', 'Guy', 0, 0, 0, 0)]), byId['0022600001']),
     '0022600002': parseBox(boxJson('0022600002', 'DEN', 'OKC', [pl(203999, 'Nikola', 'Jokic', 1, 31, 14, 12)], [pl(1628983, 'Shai', 'Gilgeous-Alexander', 1, 35, 5, 6)]), byId['0022600002']),
   };
   const { weeks, players, totals } = buildData({ schedule, boxes, now: Date.parse('2026-11-05T00:00:00Z') });
 
   assert.equal(weeks[0].lockAt, '2026-10-20T23:30:00.000Z');
+  assert.deepEqual(weeks[0].firstGame, { id: '0022600001', away: 'PHI', home: 'NYK', etDate: '2026-10-20', tipUtc: '2026-10-20T23:30:00Z' });
   assert.equal(weeks[0].final, true);
   assert.deepEqual(weeks[0].gamesByTeam, { NYK: 1, PHI: 1, DEN: 1, OKC: 1 });
   assert.equal(weeks[1].final, false);
@@ -59,4 +61,5 @@ test('box scores roll into weekly totals, averages, locks and team game counts',
   assert.deepEqual(players[203999].avg, [31, 14, 12]);
   assert.equal(players[1].gp, 0);
   assert.equal(players[1].pre, true);
+  assert.equal(players[777], undefined); // preseason guest team, not in the league
 });
