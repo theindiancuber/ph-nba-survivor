@@ -34,6 +34,24 @@ npm test          # league engine + data pipeline tests
    - Or connect the repo to Netlify. Leave the build command empty and set the publish directory to `/`. It redeploys whenever the hourly job commits data.
 5. **Share the link.** Picks for week 1 lock at the first tip-off on Tuesday, Oct 20.
 
+## Commissioner tab
+
+Run `supabase/admin.sql` in the Supabase SQL editor, then make yourself commissioner:
+
+```sql
+insert into public.admins (user_id)
+select id from public.profiles where display_name = 'Your display name'
+on conflict do nothing;
+```
+
+Sign out and back in. A **Commissioner** tab appears with:
+- **Member list:** everyone's email and when they were last seen.
+- **This week's check-in:** who has filled 0–3 slots, with a button to copy the emails of people who still need to pick.
+- **Burn ledger:** search any player to see who burned him, in which category and when.
+- **League-wide stats:** most-burned players, untouched gems, firepower left, playing styles, and the best and worst picks of the season.
+
+The database only answers these requests for accounts in the `admins` table. Before a lock, the check-in shows how many slots each person has filled, never which players.
+
 ## Things to know
 
 - **Stats source:** NBA.com's public JSON (`cdn.nba.com`: the season schedule and per-game box scores). It's free and unofficial. Player headshots and team logos also load from there. If NBA.com ever blocks the hourly job, the parser in `scripts/update-data.mjs` is the only place that needs changing.

@@ -140,3 +140,27 @@ test('head to head and autopilot', () => {
   // a burned 1 on PTS: best PTS is 2 (64) vs 3 (60); REB 1 (48); AST: 3 left (12)
   assert.deepEqual(auto, { PTS: 2, REB: 1, AST: 3 });
 });
+
+test('commissioner stats: burn ledger, firepower, contrarians, records', async () => {
+  const { funStats } = await import('../src/stats.js');
+  const weeks = [wk(1)];
+  const totals = { 1: { final: true, p: { 1: [3, 90, 30, 25], 2: [3, 60, 20, 10], 3: [0, 0, 0, 0] } } };
+  const picks = [
+    pick('a', 1, 'PTS', 1), pick('b', 1, 'PTS', 1), pick('c', 1, 'PTS', 2),
+    pick('a', 1, 'REB', 3, { alt_id: 2 }),
+  ];
+  const players = {
+    1: { id: 1, name: 'One', avg: [30, 10, 8] },
+    2: { id: 2, name: 'Two', avg: [20, 7, 3] },
+    3: { id: 3, name: 'Three', avg: [10, 12, 2] },
+  };
+  const L = computeLeague({ weeks, totals, picks, profiles, now: NOW });
+  const st = funStats(L, players);
+  assert.equal(st.ledger[1].PTS.length, 2);
+  assert.equal(st.mostBurned.PTS[0].pid, 1);
+  assert.equal(st.people.a.saves, 1);
+  assert.deepEqual(st.untouched.PTS.map(p => p.id), [3]);
+  assert.equal(st.contrarian[0].id, 'c');
+  assert.equal(st.best.pid, 1);
+  assert.equal(st.firepower[0].id, 'c'); // c kept player 1 for points
+});

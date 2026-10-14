@@ -99,6 +99,25 @@ export class SupabaseBackend {
   }
 }
 
+// Commissioner calls: the database returns nothing unless you're in the admins table.
+Object.assign(SupabaseBackend.prototype, {
+  async isAdmin() {
+    if (!this.userId) return false;
+    const { data, error } = await this.sb.rpc('is_admin');
+    return !error && data === true;
+  },
+  async adminMembers() {
+    const { data, error } = await this.sb.rpc('admin_members');
+    if (error) throw error;
+    return data;
+  },
+  async adminPickStatus(week) {
+    const { data, error } = await this.sb.rpc('admin_pick_status', { w: week });
+    if (error) throw error;
+    return data;
+  },
+});
+
 function friendly(error) {
   const msg = error?.message || String(error);
   if (/profiles_name_unique/.test(msg)) return new Error('That name is taken. Try adding a last initial.');
@@ -191,4 +210,25 @@ export class DemoBackend {
   }
 
   reset() { localStorage.removeItem(DEMO_KEY); }
+
+  // In the demo, "You" are the commissioner.
+  async isAdmin() { return this.userId === this.seed.meId; }
+
+  async adminMembers() {
+    return this.state.profiles.map(p => ({
+      user_id: p.id, display_name: p.display_name, joined_at: p.created_at,
+      email: `${p.display_name.toLowerCase().replace(/[^a-z]+/g, '.').replace(/\.$/, '')}@peakhill.example`,
+      last_sign_in_at: new Date(this.now() - (p.id.length * 7 % 5) * 86400e3).toISOString(),
+    }));
+  }
+
+  async adminPickStatus(week) {
+    const by = {};
+    for (const p of this.state.picks.filter(x => x.week === week)) {
+      const r = by[p.user_id] ||= { user_id: p.user_id, slots: 0, backups: 0, last_saved: new Date(this.now() - 3600e3).toISOString() };
+      r.slots++;
+      if (p.alt_id != null) r.backups++;
+    }
+    return Object.values(by);
+  }
 }
