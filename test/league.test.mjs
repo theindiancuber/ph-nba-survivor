@@ -72,19 +72,21 @@ test('both picks DNP: zero, nothing burned, fumble award', () => {
   assert.ok(L.weeks[0].awards.some(x => x.key === 'fumble' && x.user === 'a'));
 });
 
-test('survivor: clear 2 of 3 bars, double weeks double the bars, 3 lives', () => {
+test('survivor: clear 2 of 3 bars (50/18/15, the same in double weeks), 3 lives', () => {
   const weeks = [wk(1, { mult: 2 }), wk(2), wk(3), wk(4)];
-  const line = [3, 80, 31, 19]; // clears PTS+REB at 1x, nothing at 2x
-  const totals = Object.fromEntries([1, 2, 3, 4].map(w => [w, { final: true, p: { [w * 10 + 1]: line, [w * 10 + 2]: line, [w * 10 + 3]: line } }]));
+  const line = [3, 52, 18, 14]; // clears PTS and REB, misses AST
+  const thin = [2, 49, 10, 15]; // clears only AST
+  const totals = Object.fromEntries([1, 2, 3, 4].map(w => [w, { final: true, p: { [w * 10 + 1]: line, [w * 10 + 2]: line, [w * 10 + 3]: line, [w * 10 + 4]: thin } }]));
   const picks = [];
   for (const w of [1, 2, 3, 4]) {
     picks.push(pick('a', w, 'PTS', w * 10 + 1), pick('a', w, 'REB', w * 10 + 2), pick('a', w, 'AST', w * 10 + 3));
-    picks.push(pick('b', w, 'PTS', w * 10 + 3)); // b only fills one slot: loses a life each week
+    picks.push(pick('b', w, 'PTS', w * 10 + 4), pick('b', w, 'REB', w * 10 + 1), pick('b', w, 'AST', w * 10 + 2));
   }
   const L = computeLeague({ weeks, totals, picks, profiles, now: NOW });
-  assert.equal(L.weeks[0].results.a.survived, false);
-  assert.equal(L.weeks[1].results.a.survived, true);
-  assert.equal(L.users.a.lives, 2);
+  assert.equal(L.weeks[0].results.a.survived, true); // double week, same bars
+  assert.equal(L.weeks[0].results.a.cleared, 2);
+  assert.equal(L.weeks[0].results.b.cleared, 1); // 49 PTS misses 50, 18 REB clears, 14 AST misses
+  assert.equal(L.users.a.lives, 3);
   assert.equal(L.users.b.lives, 0);
   assert.equal(L.users.b.eliminatedWeek, 3);
   assert.equal(L.survivor.winner.id, 'a');
@@ -163,4 +165,26 @@ test('commissioner stats: burn ledger, firepower, contrarians, records', async (
   assert.equal(st.contrarian[0].id, 'c');
   assert.equal(st.best.pid, 1);
   assert.equal(st.firepower[0].id, 'c'); // c kept player 1 for points
+});
+
+test('hindsight: assignment is optimal, perfect week uses three different players', async () => {
+  const { perfectPlay, maxAssignment } = await import('../src/stats.js');
+  // Greedy would give row 0 → col 0 (10) and row 1 → col 1 (1) = 11; optimal is 9 + 8 = 17.
+  const M = [[10, 9], [8, 1]];
+  assert.deepEqual(maxAssignment(2, 2, (i, j) => M[i][j]), [1, 0]);
+
+  const weeks = [wk(1), wk(2)];
+  // Player 1 is the best scorer both weeks; the perfect season uses him once, in his bigger week.
+  const totals = {
+    1: { final: true, p: { 1: [3, 100, 20, 10], 2: [3, 90, 5, 5], 3: [3, 20, 25, 3] } },
+    2: { final: true, p: { 1: [3, 110, 9, 9], 2: [3, 40, 9, 9], 3: [3, 30, 30, 12] } },
+  };
+  const picks = [pick('a', 1, 'PTS', 2), pick('a', 2, 'PTS', 1), pick('b', 1, 'PTS', 1), pick('b', 2, 'PTS', 2)];
+  const L = computeLeague({ weeks, totals, picks, profiles, now: NOW });
+  const pp = perfectPlay(L, totals);
+  assert.equal(pp.season.PTS.total, 200);
+  assert.deepEqual(pp.season.PTS.plan.map(x => x.pid), [2, 1]);
+  const w1 = pp.weeks[0].perfect;
+  assert.equal(new Set([w1.PTS.pid, w1.REB.pid, w1.AST.pid]).size, 3);
+  assert.equal(pp.people[0].id, 'a'); // a got 90 + 110 = 200 points, the perfect total
 });

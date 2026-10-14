@@ -60,18 +60,17 @@ With 30 players, the top Bucket pick earns 29, the median earns about 15 and the
 Your weekly picks also count toward a second title, with no extra work.
 
 - Everyone starts with **3 lives** ❤️❤️❤️.
-- The weekly bars stay **fixed all season**:
+- The weekly bars are **the same every week**, double weeks included:
 
   | Bucket | Glass | Dime |
   |---|---|---|
-  | **75 points** | **30 rebounds** | **20 assists** |
+  | **50 points** | **18 rebounds** | **15 assists** |
 
-  These are weekly totals. They're set at roughly what the 20th-best player in each category produces in an average 3–4 game week. That number still needs checking against last season's box scores before week 2.
+  These are weekly totals.
 - **Clear at least 2 of the 3 bars** to survive the week. Otherwise you lose a life.
-- **Double weeks** (the opening week and the All-Star week, see the calendar) use **double bars**. The bar per day stays the same.
 - The last person with a life left wins the **Survivor Belt**. If the final players all go out in the same week, the one with the higher season points wins.
 
-The bars don't move, but your options shrink. In October you clear 75 points with Shai. By March, a two-game week from your 20th-best scorer might come up short. Players who lose all their lives **stay in the points table**, so no one stops playing.
+The bars don't move, but your options shrink. In October you clear 50 points with Shai in two games. By March, a two-game week from your 20th-best scorer might come up short. Players who lose all their lives **stay in the points table**, so no one stops playing.
 
 ---
 
@@ -120,9 +119,9 @@ The regular season runs from **Tue Oct 20, 2026** to **Sun Apr 11, 2027**. Notab
 
 | Week | Dates | Note |
 |---|---|---|
-| 1 | Tue Oct 20 – Sun Nov 1 | Opening **double week** so people have time to sign up. Double bars. |
+| 1 | Tue Oct 20 – Sun Nov 1 | Opening **double week** so people have time to sign up. Same bars. |
 | 2–16 | Mon Nov 2 – Sun Feb 14 | Regular weeks |
-| 17 | Mon Feb 15 – Sun Feb 28 | All-Star week is light, so it's merged with the next week into a **double week**. Double bars. |
+| 17 | Mon Feb 15 – Sun Feb 28 | All-Star week is light, so it's merged with the next week into a **double week**. Same bars. |
 | 18–23 | Mon Mar 1 – Sun Apr 11 | Stretch run, with tanking and resting stars to watch for |
 
 That's **23 picks per category per person**. By March you'll be picking roughly your 20th-best option in each category.
@@ -136,7 +135,7 @@ That's **23 picks per category per person**. By March you'll be picking roughly 
 | What a pick scores | **Weekly total**. Big nights and hot streaks count in full, and games per week matter. |
 | Burn scope | **Once per category**. A player can be used up to 3 times, once in each slot. |
 | Fourth rotating stat | **Not for now.** We can revisit for next season. |
-| Survivor bars | **Fixed all season**: 75 PTS / 30 REB / 20 AST weekly (to be checked against real data). Double weeks double them. |
+| Survivor bars | **The same every week**: 50 PTS / 18 REB / 15 AST weekly totals, double weeks included. |
 | Name | **Peakhill NBA Survivor** |
 | Prizes | **Bragging rights.** Champions get a downloadable certificate. |
 
