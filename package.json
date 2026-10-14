@@ -1,0 +1,10 @@
+{
+  "name": "ph-nba-survivor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "data": "node scripts/update-data.mjs",
+    "serve": "npx http-server -c-1 -p 8080 ."
+  }
+}

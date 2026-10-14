@@ -1,4 +1,4 @@
-# Peakhill NBA Survivor (concept v0.2)
+# Peakhill NBA Survivor (concept v0.3)
 
 A free, season-long NBA league for Peakhill. Each week you pick three players: one for **points**, one for **rebounds**, one for **assists**. Once you've used a player in a category, you can't use him in that category again this season. You're ranked against everyone in the league, not against one opponent.
 
@@ -51,7 +51,7 @@ With 30 players, the top Bucket pick earns 29, the median earns about 15 and the
 - Every category is worth the same.
 - As the season goes on, everyone runs low on stars together, so late picks still matter.
 
-**Drop your 3 worst weeks.** Only your best (total weeks − 3) count toward the season title. Vacations, a forgotten Monday or a late start won't sink anyone.
+**Drop your 3 worst weeks.** One drop unlocks after weeks 6, 12 and 18, so by the end only your best 20 of 23 weeks count toward the season title. Vacations, a forgotten Monday or a late start won't sink anyone.
 
 ---
 
@@ -146,25 +146,20 @@ Still open:
 
 ---
 
-## 10. Build plan
+## 10. Build status
 
-**Phase 0: launch week 1 by hand (now)**
-- A Google Form takes name + 3 picks + 3 alternates, and timestamps enforce the lock.
-- Score week 1 in a sheet.
+Built (see the README for setup):
+- **The app:** a static site with an NBA arena look. It covers sign-up and sign-in, picks with backups, a player picker with projections, a live week view, results with the lock reveal, standings, the survivor ladder, a burn book, rivals, trophies and certificates, and rules.
+- **Jokers and Rivals:** live from day one.
+- **Weekly awards and Monthly Crowns:** calculated automatically.
+- **Storage:** Supabase (free tier). Row-level security handles locks and keeps picks hidden until the lock.
+- **Hourly GitHub Action:** pulls NBA.com box scores, syncs locks to the real first tip-off, and runs Autopilot.
+- **Demo mode** (`/?demo`) for trying it before the season starts.
 
-**Phase 1: the app (weeks 2–3)**
-- A single static page (same approach as `dynasty-draft`: one `index.html`, no build step) for picks, per-category burn lists, standings, lives and lock reveal.
-- **Shared storage** for picks and users: a free hosted database (Supabase/Firebase) or a shared-state artifact.
-- A **scoring job** that runs on a schedule (e.g. GitHub Actions nightly), pulls box scores, sums each player's weekly totals, and writes standings JSON. Standings update live during the week.
-  - Data source options: NBA's public CDN JSON (schedule + box scores, free, unofficial), ESPN's public scoreboard/summary JSON (free, unofficial), `nba_api` (wraps stats.nba.com, often blocks cloud IPs), or BALLDONTLIE (stats endpoints appear to need a paid tier). These still need testing.
-- **Player picker:** every active player, searchable, showing season averages, **games this week** and a projected weekly total, so casual players can choose without leaving the app.
-
-**Phase 2 (before the end of November, when the first Monthly Crown is decided)**
-- Champion certificates
-- Weekly awards
-- Jokers, rivals
-
-**Phase 3:** Playoff Burn.
+Next:
+- Check the survivor bars against the first few weeks of real totals.
+- Playoff Burn (April).
+- Monday reminder (email or Slack).
 
 ---
 
