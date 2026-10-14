@@ -4,6 +4,7 @@ import { TEAMS, TEAM_BY_ID, isTeamId, teamLogo, headshot } from './teams.js';
 import { SupabaseBackend, DemoBackend } from './backend.js';
 import { downloadCertificate } from './certificate.js';
 import { funStats, perfectPlay } from './stats.js';
+import { UPDATES, LATEST_UPDATE } from './updates.js';
 
 const SLOTS = LEAGUE.slots;
 const INFO = LEAGUE.slotInfo;
@@ -103,11 +104,13 @@ async function refresh() {
   S.me = S.db.profiles.find(p => p.id === myId()) || null;
   if (S.adminFor !== myId()) {
     S.adminFor = myId();
+    S.greeted = false;
     S.isAdmin = S.me ? await S.backend.isAdmin().catch(() => false) : false;
     S.adminData = null;
   }
   if (!S.draft || !S.draft.dirty || S.draft.week !== S.league.openWeek) resetDraft();
   render();
+  greet();
 }
 
 function resetDraft() {
@@ -232,7 +235,7 @@ function renderTicker() {
 function renderFooter() {
   const m = S.data.meta;
   const stamp = m?.demo ? 'Demo data · simulated stats' : m?.updatedAt ? `Stats updated ${ago(m.updatedAt)} · box scores from NBA.com` : 'Waiting for the first stats sync';
-  $('#footer').innerHTML = `<span>${esc(LEAGUE.name)} · ${LEAGUE.season} · free to play, bragging rights only</span><span>${stamp}</span>`;
+  $('#footer').innerHTML = `<span>${esc(LEAGUE.name)} · ${LEAGUE.season} · free to play, bragging rights only · <button class="link" data-act="whats-new">What's new</button></span><span>${stamp}</span>`;
 }
 
 function tick() {
@@ -972,7 +975,8 @@ function adminStyles(st) {
 function viewRules() {
   const b = LEAGUE.bars;
   return `<div class="grid">
-    <section class="hero"><span class="badge">How it works</span><h1>Pick 4. Burn 'em. Outlast the office.</h1><div class="sub">Five minutes a week. No draft, no roster, no money.</div></section>
+    <section class="hero"><span class="badge">How it works</span><h1>Pick 4. Burn 'em. Outlast the office.</h1><div class="sub">Five minutes a week. No draft, no roster, no money.</div>
+      <div style="margin-top:14px"><button class="btn" data-act="tour-replay">Replay the quick tour</button></div></section>
     <div class="rules">
       <div class="panel rule"><h3>🗓️ The week</h3><p>Weeks run Monday to Sunday. Picks lock at the first tip-off of the week, shown in your local time. Week 1 (Oct 20 – Nov 1) and Week 17 (All-Star, Feb 15–28) are double weeks.</p></div>
       <div class="panel rule"><h3>🏀 The picks</h3><ul><li><b>Bucket</b>: a player's points</li><li><b>Glass</b>: a player's rebounds</li><li><b>Dime</b>: a player's assists</li><li><b>Dub</b>: a team's wins</li></ul><p>Each pick scores its <b>total</b> for the week, so a four-game week beats a two-game week.</p></div>
@@ -1052,6 +1056,100 @@ function openProfile() {
     </form></div></div></div>`;
 }
 
+// ---------- First-login tour and "What's new" ----------
+
+// Stored on the profile so it follows people across devices; browser storage is
+// a fallback if the profile columns haven't been added yet.
+const seenKey = () => `phs-seen-${myId()}`;
+function seenState() {
+  let local = {};
+  try { local = JSON.parse(localStorage.getItem(seenKey())) || {}; } catch { /* storage blocked */ }
+  return { intro: !!(S.me?.intro_seen || local.intro), updates: Math.max(S.me?.updates_seen || 0, local.updates || 0) };
+}
+
+async function markSeen(patch) {
+  const cur = seenState();
+  const next = { intro: patch.intro_seen ?? cur.intro, updates: patch.updates_seen ?? cur.updates };
+  try { localStorage.setItem(seenKey(), JSON.stringify(next)); } catch { /* storage blocked */ }
+  try { await S.backend.updateProfile(patch); Object.assign(S.me, patch); } catch { /* columns missing: browser only */ }
+}
+
+function greet() {
+  if (!S.me || S.greeted || $('#modal-root').innerHTML) return;
+  S.greeted = true;
+  const seen = seenState();
+  if (!seen.intro) openTour(0);
+  else if (LATEST_UPDATE > seen.updates) openWhatsNew(seen.updates);
+}
+
+const TOUR_BARS = LEAGUE.bars;
+const TOUR = [
+  {
+    icon: '👋', kicker: 'Welcome', title: `Welcome to ${LEAGUE.name}`,
+    body: () => `<p>Every week you make <b>four picks</b> and go up against everyone in the league. It's free, takes about five minutes, and the prize is bragging rights (plus a certificate).</p>
+      <p>Picks lock at the <b>first tip-off of each week</b>, usually Monday evening. The countdown on <b>This Week</b> always shows the exact time in your time zone. Until then you can change your picks as often as you like.</p>`,
+  },
+  {
+    icon: '🏀', kicker: 'Your picks', title: 'Four picks a week',
+    body: () => `<div class="tour-slots">${SLOTS.map(s => `<div class="tour-slot" data-slot="${s}"><b>${INFO[s].emoji} ${INFO[s].name}</b><span>${s === 'WIN' ? "A team's wins" : `A player's ${INFO[s].stat.toLowerCase()}`}</span></div>`).join('')}</div>
+      <p>Each pick scores its <b>total for the whole week</b>, so a player with four games beats one with two. The player list shows games this week and a projected total to help.</p>`,
+  },
+  {
+    icon: '🔥', kicker: 'The catch', title: "Burn 'em",
+    body: () => `<p>Once you use a player in a category, he's <b>gone from that category for the season</b>. He's still available in the other two, so the question is when, and where, to spend your stars.</p>
+      <p>Teams burn too: each team can be your Dub <b>once a season</b>. A player can only fill one of your slots in a given week. Your <b>Burn Book</b> tab keeps track of what you've used.</p>`,
+  },
+  {
+    icon: '🛟', kicker: 'Injury insurance', title: 'Backups',
+    body: () => `<p>After you choose a player, tap <b>+ Add</b> next to <b>Backup</b> on his card to name a second player for that slot.</p>
+      <p>The backup only comes in if your pick plays <b>zero games</b> that week. Then the backup's total counts, he's the one who burns, and your original pick stays available. If your pick plays even once, his total counts and the backup isn't used.</p>
+      <p class="dim">Dub doesn't need a backup, since teams always play.</p>`,
+  },
+  {
+    icon: '❤️', kicker: 'Scoring and survival', title: 'Beat everyone, stay alive',
+    body: () => `<p><b>Points:</b> in every category, you get 1 point for each colleague whose pick you beat (½ for a tie). That's your weekly score, and it adds up across the season.</p>
+      <p><b>Survivor:</b> you start with ${LEAGUE.lives} lives. Each week, clear at least ${LEAGUE.barsToSurvive} of these ${SLOTS.length} bars or lose one:</p>
+      <div class="tour-bars">${SLOTS.map(s => `<span class="bar-pill">${INFO[s].emoji} <b>${TOUR_BARS[s]} ${s === 'WIN' ? (TOUR_BARS[s] === 1 ? 'win' : 'wins') : INFO[s].short}</b></span>`).join('')}</div>
+      <p>Last one standing wins the Survivor Belt. Running out of lives doesn't stop you scoring points.</p>`,
+  },
+  {
+    icon: '🃏', kicker: 'Extras', title: 'Jokers, Autopilot and rivals',
+    body: () => `<ul class="tour-list">
+        <li><b>Double Down:</b> double one slot's points, once a season.</li>
+        <li><b>Un-burn:</b> get one used player back in one category, once a season.</li>
+        <li><b>Autopilot:</b> forget to pick and it fills empty slots at the lock with your best unused option. You won't score zero, but it spends your best players first.</li>
+        <li><b>Rivals:</b> pick a coworker and track your head-to-head record.</li>
+        <li><b>After the lock</b> everyone's picks are revealed on <b>Results</b>.</li>
+      </ul>`,
+  },
+];
+
+function openTour(i) {
+  S.tour = i;
+  const st = TOUR[i];
+  const last = i === TOUR.length - 1;
+  $('#modal-root').innerHTML = `<div class="modal-bg"><div class="modal tour" role="dialog" aria-modal="true" aria-label="${esc(st.title)}">
+    <div class="modal-body pad">
+      <div class="tour-top"><span class="tour-icon">${st.icon}</span><div><div class="kicker">${esc(st.kicker)} · ${i + 1} of ${TOUR.length}</div><h3>${esc(st.title)}</h3></div></div>
+      <div class="tour-body">${st.body()}</div>
+      <div class="tour-foot">
+        <div class="tour-dots">${TOUR.map((_, j) => `<i class="${j === i ? 'on' : ''}"></i>`).join('')}</div>
+        <div class="row-actions">${i ? '<button class="btn ghost" data-act="tour-back">Back</button>' : ''}
+          <button class="btn primary" data-act="${last ? 'tour-done' : 'tour-next'}">${last ? 'Make my picks' : 'Next'}</button></div>
+      </div>
+    </div></div></div>`;
+}
+
+function openWhatsNew(after = 0) {
+  const list = UPDATES.filter(u => u.id > after).sort((a, c) => c.id - a.id);
+  const items = (list.length ? list : [...UPDATES].sort((a, c) => c.id - a.id)).map(u => `
+    <div class="update"><div class="kicker">${dshort(u.date)}</div><h4>${esc(u.title)}</h4><ul>${u.items.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>`).join('');
+  $('#modal-root').innerHTML = `<div class="modal-bg" data-act="close-whats-new-bg"><div class="modal narrow" role="dialog" aria-modal="true" aria-label="What's new">
+    <div class="modal-head"><div class="ttl"><div><div class="kicker">${esc(LEAGUE.name)}</div><h3>What's new</h3></div><button class="close-x" data-act="whats-new-done" aria-label="Close">×</button></div></div>
+    <div class="modal-body pad">${items}<div class="row-actions" style="justify-content:flex-end;margin-top:6px"><button class="btn primary" data-act="whats-new-done">Got it</button></div></div>
+  </div></div>`;
+}
+
 // ---------- Events ----------
 
 function toast(msg, bad = false) {
@@ -1088,6 +1186,17 @@ const ACTIONS = {
   'demo-enter': async () => { await S.backend.signIn(); await refresh(); },
   'demo-reset': async () => { S.backend.reset(); location.reload(); },
   'admin-refresh': () => { S.adminData = null; render(); },
+  'tour-next': () => openTour(S.tour + 1),
+  'tour-back': () => openTour(S.tour - 1),
+  'tour-done': async () => {
+    closeModal();
+    await markSeen({ intro_seen: true, updates_seen: LATEST_UPDATE });
+    if (S.me) location.hash = '#week';
+  },
+  'tour-replay': () => openTour(0),
+  'whats-new': () => openWhatsNew(0),
+  'whats-new-done': async () => { closeModal(); if (S.me) await markSeen({ updates_seen: LATEST_UPDATE }); },
+  'close-whats-new-bg': async (el, e) => { if (e.target === el) { closeModal(); if (S.me) await markSeen({ updates_seen: LATEST_UPDATE }); } },
   'copy-invite': async () => {
     try { await navigator.clipboard.writeText(inviteLink(S.adminData.invite)); toast('Invite link copied.'); }
     catch { toast('Could not copy. Your browser blocked clipboard access.', true); }
@@ -1183,6 +1292,9 @@ document.addEventListener('input', e => {
   }
 });
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#modal-root').innerHTML) closeModal(); });
+document.addEventListener('keydown', e => {
+  // The tour is short and finishes with a button, so Escape doesn't skip it.
+  if (e.key === 'Escape' && $('#modal-root').innerHTML && !$('.modal.tour')) closeModal();
+});
 
 boot();

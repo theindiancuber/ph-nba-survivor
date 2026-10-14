@@ -55,6 +55,12 @@ Sign out and back in. A **Commissioner** tab appears with:
 
 The database only answers these requests for accounts in the `admins` table. Before a lock, the check-in shows how many slots each person has filled, never which players.
 
+## Tour and "What's new"
+
+- **First login:** everyone sees a six-step tour of the rules: picks, burns, backups, scoring and survival, jokers and Autopilot. It's replayable from the Rules tab. Members who joined before the tour existed see it on their next visit.
+- **Updates:** player-facing changes are listed in `src/updates.js`. Each member sees the entries they haven't read, once, on their next visit. Everyone can reopen them from **What's new** in the footer. Commissioner-only changes aren't listed.
+- Run `supabase/upgrade-onboarding.sql` once so this is remembered per account across devices. Without it, it's remembered per browser.
+
 ## Things to know
 
 - **Stats source:** NBA.com's public JSON (`cdn.nba.com`: the season schedule and per-game box scores). It's free and unofficial. Player headshots and team logos also load from there. If NBA.com ever blocks the hourly job, the parser in `scripts/update-data.mjs` is the only place that needs changing.

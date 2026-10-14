@@ -117,3 +117,7 @@ insert into public.weeks (week, lock_at) values
   (22, '2027-03-29T23:00:00.000Z'),
   (23, '2027-04-05T23:00:00.000Z')
 on conflict (week) do nothing;
+
+-- First-login tour and "What's new" tracking (also in upgrade-onboarding.sql).
+alter table public.profiles add column if not exists intro_seen boolean not null default false;
+alter table public.profiles add column if not exists updates_seen int not null default 0;
