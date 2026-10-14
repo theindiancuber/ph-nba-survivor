@@ -103,6 +103,8 @@ export function makeDemo() {
 
   const totals = {};
   const seasonAcc = {};
+  const strength = Object.fromEntries(Object.keys(TEAMS).map(t => [t, 0.25 + rand() * 0.5]));
+  const teams = Object.fromEntries(Object.keys(TEAMS).map(t => [t, { w: 0, l: 0 }]));
   for (const w of weeks) {
     if (now < Date.parse(w.lockAt)) continue;
     const span = (Date.parse(w.end + 'T23:59:00Z') - Date.parse(w.lockAt));
@@ -124,7 +126,16 @@ export function makeDemo() {
         line.forEach((v, i) => { acc[i] += v; });
       }
     }
-    totals[w.week] = { final: w.final, p };
+    const t = {};
+    for (const tri of Object.keys(TEAMS)) {
+      const played = Math.round(w.gamesByTeam[tri] * frac);
+      let wins = 0;
+      for (let g = 0; g < played; g++) if (rand() < strength[tri]) wins++;
+      t[tri] = [played, wins];
+      teams[tri].w += wins;
+      teams[tri].l += played - wins;
+    }
+    totals[w.week] = { final: w.final, p, t };
   }
   for (const [id, acc] of Object.entries(seasonAcc)) {
     players[id].gp = acc[0];
@@ -139,13 +150,23 @@ export function makeDemo() {
   const picks = [];
   const STAT = { PTS: 0, REB: 1, AST: 2 };
   for (const pr of profiles) {
-    const burned = { PTS: new Set(), REB: new Set(), AST: new Set() };
+    const burned = Object.fromEntries(LEAGUE.slots.map(sl => [sl, new Set()]));
     const ddWeek = 2 + Math.floor(rand() * 6);
     for (const w of weeks) {
       if (now >= Date.parse(w.lockAt) || w.week === weeks.find(x => now < Date.parse(x.lockAt))?.week && pr.id !== meId && rand() < 0.5) {
         const usedWeek = new Set();
         const lockedWeek = now >= Date.parse(w.lockAt);
         for (const slot of LEAGUE.slots) {
+          if (slot === 'WIN') {
+            const opts = Object.entries(TEAMS).filter(([, tm]) => !burned.WIN.has(tm.id))
+              .map(([tri, tm]) => ({ id: tm.id, score: strength[tri] * w.gamesByTeam[tri] * (0.7 + rand() * 0.6) }))
+              .sort((a, b) => b.score - a.score);
+            const pickTeam = opts[Math.floor(rand() * rand() * 5)];
+            if (!pickTeam) continue;
+            picks.push({ user_id: pr.id, week: w.week, slot, player_id: pickTeam.id, alt_id: null, double_down: false, auto: false });
+            if (lockedWeek) burned.WIN.add(pickTeam.id);
+            continue;
+          }
           const ranked = Object.values(players)
             .filter(pl => !burned[slot].has(pl.id) && !usedWeek.has(pl.id))
             .map(pl => ({ pl, score: pl.avg[STAT[slot]] * w.gamesByTeam[pl.team] * (0.7 + rand() * 0.6) }))
@@ -165,5 +186,5 @@ export function makeDemo() {
     }
   }
   const unburns = [{ user_id: 'demo-4', slot: 'REB', player_id: 203999, week: 5 }];
-  return { version: 3, now, players, weeks, totals, profiles, picks, unburns, meId };
+  return { version: 4, now, players, teams, weeks, totals, profiles, picks, unburns, meId };
 }

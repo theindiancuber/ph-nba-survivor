@@ -4,7 +4,7 @@
 //   node scripts/update-data.mjs
 //
 // Env (optional): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-// Writes: data/weeks.json, data/players.json, data/totals.json, data/games/<id>.json
+// Writes: data/weeks.json, data/players.json, data/teams.json, data/totals.json, data/games/<id>.json
 
 import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -123,20 +123,41 @@ export function buildData({ schedule, boxes, now = Date.now() }) {
     players[pid].avg = [src[1] / gp, src[2] / gp, src[3] / gp].map(x => Math.round(x * 10) / 10);
   }
 
+  // Team results: a finished game's winner is the side whose players scored more.
+  const teams = {};
+  const result = box => {
+    if (box.kind !== 'reg' || box.status !== 3 || !box.home || !box.away) return null;
+    const pts = {};
+    for (const [, team, , p] of box.players) pts[team] = (pts[team] || 0) + p;
+    const h = pts[box.home] || 0, a = pts[box.away] || 0;
+    return h === a ? null : { winner: h > a ? box.home : box.away, loser: h > a ? box.away : box.home };
+  };
+  for (const box of ordered) {
+    const r = result(box);
+    if (!r) continue;
+    (teams[r.winner] ||= { w: 0, l: 0 }).w++;
+    (teams[r.loser] ||= { w: 0, l: 0 }).l++;
+  }
+
   const totals = {};
   for (const w of weeks) {
-    const p = {};
+    const p = {}, t = {};
     for (const box of ordered) {
       if (box.kind !== 'reg' || box.etDate < w.start || box.etDate > w.end) continue;
       for (const [pid, , played, pts, reb, ast] of box.players) {
         if (!played) continue;
-        const t = p[pid] ||= [0, 0, 0, 0];
-        t[0]++; t[1] += pts; t[2] += reb; t[3] += ast;
+        const x = p[pid] ||= [0, 0, 0, 0];
+        x[0]++; x[1] += pts; x[2] += reb; x[3] += ast;
+      }
+      const r = result(box);
+      if (r) {
+        (t[r.winner] ||= [0, 0])[0]++; t[r.winner][1]++;
+        (t[r.loser] ||= [0, 0])[0]++;
       }
     }
-    if (Object.keys(p).length) totals[w.week] = { final: w.final, p };
+    if (Object.keys(p).length || Object.keys(t).length) totals[w.week] = { final: w.final, p, t };
   }
-  return { weeks, players, totals };
+  return { weeks, players, teams, totals };
 }
 
 async function getJson(url) {
@@ -199,7 +220,7 @@ function supabase() {
   return call;
 }
 
-async function syncSupabase({ weeks, players, totals, now }) {
+async function syncSupabase({ weeks, players, teams, totals, now }) {
   const sb = supabase();
   if (!sb) { console.log('Supabase secrets not set: skipping lock sync and Autopilot.'); return; }
 
@@ -229,7 +250,7 @@ async function syncSupabase({ weeks, players, totals, now }) {
       if (Date.parse(pr.created_at) > Date.parse(w.lockAt)) continue;
       const current = Object.fromEntries(picks.filter(p => p.user_id === pr.id && p.week === w.week).map(p => [p.slot, p]));
       if (Object.keys(current).length === LEAGUE.slots.length) continue;
-      const chosen = autopilotPicks(league, pr.id, w.week, current, players, w.gamesByTeam);
+      const chosen = autopilotPicks(league, pr.id, w.week, current, players, w.gamesByTeam, teams);
       for (const [slot, pid] of Object.entries(chosen)) {
         rows.push({ user_id: pr.id, week: w.week, slot, player_id: pid, alt_id: null, double_down: false, auto: true });
       }
@@ -265,10 +286,11 @@ async function main() {
     }
   });
 
-  const { weeks, players, totals } = buildData({ schedule, boxes, now });
+  const { weeks, players, teams, totals } = buildData({ schedule, boxes, now });
   const changed = [
     await writeJson(path.join(DATA, 'weeks.json'), { season: LEAGUE.season, weeks }),
     await writeJson(path.join(DATA, 'players.json'), { season: LEAGUE.season, players }),
+    await writeJson(path.join(DATA, 'teams.json'), { season: LEAGUE.season, teams }),
     await writeJson(path.join(DATA, 'totals.json'), { season: LEAGUE.season, weeks: totals }),
   ].some(Boolean);
   // Only bump the timestamp when the data moved, so quiet hours make no commit.
@@ -277,7 +299,7 @@ async function main() {
   }
   console.log(`Players: ${Object.keys(players).length}. Weeks with stats: ${Object.keys(totals).length}. Failed fetches: ${failed}.`);
 
-  await syncSupabase({ weeks, players, totals, now });
+  await syncSupabase({ weeks, players, teams, totals, now });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

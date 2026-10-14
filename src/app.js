@@ -1,6 +1,6 @@
 import { LEAGUE, buildWeeks, defaultLockAt, MONTH_LABELS } from './config.js';
-import { computeLeague, headToHead, blockedReason, projection, fmt } from './league.js';
-import { TEAMS, teamLogo, headshot } from './teams.js';
+import { computeLeague, headToHead, blockedReason, projection, teamProjection, fmt } from './league.js';
+import { TEAMS, TEAM_BY_ID, isTeamId, teamLogo, headshot } from './teams.js';
 import { SupabaseBackend, DemoBackend } from './backend.js';
 import { downloadCertificate } from './certificate.js';
 import { funStats, perfectPlay } from './stats.js';
@@ -29,8 +29,11 @@ const now = () => Date.now() + S.clockOffset;
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const player = pid => S.data.players[pid] || null;
-const pname = pid => player(pid)?.name || (pid != null ? `Player #${pid}` : '—');
-const shortName = pid => { const p = player(pid); return p ? `${p.first?.[0] ? p.first[0] + '. ' : ''}${p.last || p.name}` : pname(pid); };
+// The Dub slot picks teams; their ids are NBA team ids, which never collide with player ids.
+const team = id => { const tri = TEAM_BY_ID[id]; return tri ? { tri, ...TEAMS[tri], record: S.data.teams?.[tri] || { w: 0, l: 0 } } : null; };
+const pname = pid => { const t = team(pid); if (t) return `${t.city} ${t.name}`; return player(pid)?.name || (pid != null ? `Player #${pid}` : '—'); };
+const shortName = pid => { const t = team(pid); if (t) return t.name; const p = player(pid); return p ? `${p.first?.[0] ? p.first[0] + '. ' : ''}${p.last || p.name}` : pname(pid); };
+const record = t => `${t.record.w}–${t.record.l}`;
 const userName = id => S.league?.users[id]?.name || 'Someone';
 const myId = () => S.backend?.userId || null;
 const meU = () => S.league?.users[myId()] || null;
@@ -44,7 +47,7 @@ async function boot() {
       const seed = makeDemo();
       S.clockOffset = seed.now - Date.now();
       S.backend = new DemoBackend(seed, now);
-      S.data = { weeks: seed.weeks, players: seed.players, totals: seed.totals, meta: { updatedAt: new Date(seed.now).toISOString(), demo: true } };
+      S.data = { weeks: seed.weeks, players: seed.players, teams: seed.teams, totals: seed.totals, meta: { updatedAt: new Date(seed.now).toISOString(), demo: true } };
       $('#demo-banner').innerHTML = `<div class="demo-banner">Demo league · made-up colleagues and simulated stats, frozen in early December. <button data-act="demo-reset">Reset demo</button></div>`;
     } else {
       S.backend = new SupabaseBackend();
@@ -81,12 +84,13 @@ async function loadData() {
     if (!r.ok) throw new Error(`data/${f}.json: ${r.status}`);
     return r.json();
   };
-  const [weeks, players, totals, meta] = await Promise.all([
-    get('weeks').catch(() => null), get('players').catch(() => null), get('totals').catch(() => null), get('meta').catch(() => null),
+  const [weeks, players, teams, totals, meta] = await Promise.all([
+    get('weeks').catch(() => null), get('players').catch(() => null), get('teams').catch(() => null), get('totals').catch(() => null), get('meta').catch(() => null),
   ]);
   return {
     weeks: weeks?.weeks || buildWeeks().map(w => ({ ...w, lockAt: defaultLockAt(w), final: false, gamesByTeam: {}, leftByTeam: {} })),
     players: players?.players || {},
+    teams: teams?.teams || {},
     totals: totals?.weeks || {},
     meta,
   };
@@ -147,6 +151,8 @@ function avatar(id, cls = '') {
 }
 
 function thumb(pid, cls = '') {
+  const t = team(pid);
+  if (t) return `<div class="thumb team ${cls}" style="--tc1:${t.c1}"><span class="mini">${t.tri}</span><img src="${teamLogo(t.tri)}" alt="" loading="lazy" onerror="this.remove()"></div>`;
   const p = player(pid);
   const c = TEAMS[p?.team]?.c1 || '#1d3361';
   return `<div class="thumb ${cls}" style="--tc1:${c}"><span class="mini">${esc(initials(p?.name))}</span>${pid != null ? `<img src="${headshot(pid)}" alt="" loading="lazy" onerror="this.remove()">` : ''}</div>`;
@@ -262,7 +268,7 @@ function viewWeek() {
           <div>
             <span class="badge open">Picks open</span> ${open.mult === 2 ? '<span class="badge gold">Double week</span>' : ''}
             <h1>Week ${open.week}</h1>
-            <div class="sub">${weekRange(open)} · ${picked}/3 picks saved</div>
+            <div class="sub">${weekRange(open)} · ${picked}/${SLOTS.length} picks saved</div>
           </div>
           <div class="lock-box">
             <div class="kicker" style="color:#dbe4f7">Locks at first tip · ${esc(lockText(open.lockAt))}</div>
@@ -271,7 +277,7 @@ function viewWeek() {
         </div>
         <div class="bars-strip">
           ${SLOTS.map(s => `<span class="bar-pill">${INFO[s].emoji} Survive: <b>${LEAGUE.bars[s]} ${INFO[s].short}</b></span>`).join('')}
-          <span class="bar-pill">Clear <b>${LEAGUE.barsToSurvive} of 3</b> to keep your lives · ${hearts(meU()?.lives ?? LEAGUE.lives)}</span>
+          <span class="bar-pill">Clear <b>${LEAGUE.barsToSurvive} of ${SLOTS.length}</b> to keep your lives · ${hearts(meU()?.lives ?? LEAGUE.lives)}</span>
         </div>
       </section>`);
   } else {
@@ -296,7 +302,7 @@ function viewLive(w) {
     const pid = x.scorer ?? x.pid;
     const bar = LEAGUE.bars[s];
     const pct = Math.min(100, (x.value / bar) * 100);
-    const team = player(pid)?.team;
+    const team = isTeamId(pid) ? TEAM_BY_ID[pid] : player(pid)?.team;
     const left = w.leftByTeam?.[team] ?? 0;
     return `<div class="live-slot" data-slot="${s}">
       <div class="live-top">${thumb(pid)}<div><div class="kicker">${INFO[s].emoji} ${INFO[s].name}</div><b>${esc(pname(pid))}</b>
@@ -313,7 +319,7 @@ function viewLive(w) {
     <div class="scoreline">
       <div class="stat"><b>${fmt(r.score)}</b><small>Points so far</small></div>
       <div class="stat"><b>${pos}<span class="muted" style="font-size:15px">/${w.entrants.length}</span></b><small>Place this week</small></div>
-      <div class="stat"><b style="color:${onTrack ? 'var(--green)' : 'var(--orange)'}">${r.cleared}/3</b><small>${onTrack ? 'Bars cleared · safe' : 'Bars cleared · in danger'}</small></div>
+      <div class="stat"><b style="color:${onTrack ? 'var(--green)' : 'var(--orange)'}">${r.cleared}/${SLOTS.length}</b><small>${onTrack ? 'Bars cleared · safe' : 'Bars cleared · in danger'}</small></div>
     </div>
     <div class="live-grid">${cards}</div>
   </section>`;
@@ -324,9 +330,9 @@ function viewPicks(open) {
   const d = S.draft;
   const cards = SLOTS.map(s => slotCard(s, open, u, d)).join('');
   const complete = SLOTS.every(s => d.slots[s]?.player_id);
-  const status = d.dirty ? '<b>Unsaved changes</b>' : complete ? '<b>All three picks saved ✓</b> You can change them until the lock.' : 'Fill all three slots. Empty slots go to Autopilot at the lock.';
+  const status = d.dirty ? '<b>Unsaved changes</b>' : complete ? '<b>All four picks saved ✓</b> You can change them until the lock.' : 'Fill all four slots. Empty slots go to Autopilot at the lock.';
   return `<section>
-    <div class="panel-title" style="margin-top:4px"><h2>Your Week ${open.week} picks</h2><span class="muted">Each pick scores his total for the week</span></div>
+    <div class="panel-title" style="margin-top:4px"><h2>Your Week ${open.week} picks</h2><span class="muted">Each pick scores its total for the week</span></div>
     <div class="slots">${cards}</div>
     <div class="savebar"><span class="state">${status}</span><button class="btn primary" data-act="save" ${d.dirty && !S.busy ? '' : 'disabled'}>${S.busy ? 'Saving…' : 'Save picks'}</button></div>
     <div class="panel section-gap">
@@ -344,12 +350,34 @@ function slotCard(s, open, u, d) {
       <div class="slot-empty"><button class="add-big" data-act="pick" data-slot="${s}" data-which="main"><span class="plus">+</span><b>Choose your ${INFO[s].name.toLowerCase()} pick</b><span>Best ${INFO[s].stat.toLowerCase()} total this week</span></button></div>
     </div>`;
   }
+  const ddUsed = u?.doubleDownWeek != null;
+  const ddOn = d.dd === s;
+  const ddButton = `<button class="dd-toggle" data-act="dd" data-slot="${s}" aria-pressed="${ddOn}" ${ddUsed ? 'disabled' : ''}><span class="x2">×2</span>${ddUsed ? `Double Down used in week ${u.doubleDownWeek}` : ddOn ? 'Double Down is on for this slot' : 'Double Down this slot'}</button>`;
+  const actions = `<div class="row-actions"><button class="btn small" data-act="pick" data-slot="${s}" data-which="main">Change pick</button><button class="btn small ghost" data-act="clear-main" data-slot="${s}">Clear</button></div>`;
+  if (INFO[s].team) {
+    const t = team(sel.player_id);
+    const games = open.gamesByTeam?.[t?.tri] ?? 0;
+    return `<div class="slot-card" data-slot="${s}">${head}
+      <div class="player-stage" style="--tc1:${t?.c1 || '#1d3361'}">
+        <span class="mono">${esc(t?.tri || '')}</span>
+        ${t ? `<img class="team-logo-big" src="${teamLogo(t.tri)}" alt="" onerror="this.remove()">` : ''}
+      </div>
+      <div class="player-info"><div class="pname">${esc(pname(sel.player_id))}</div><div class="pmeta">${t ? `${record(t)} this season` : ''}</div></div>
+      <div class="statline">
+        <div><b>${t ? record(t) : '—'}</b><small>Record</small></div>
+        <div><b>${games}</b><small>Games</small></div>
+        <div><b>${fmt(Math.round(teamProjection(t?.record, games) * 10) / 10)}</b><small>Proj wins</small></div>
+      </div>
+      <div class="slot-foot">
+        <div class="alt-row"><span class="lbl">Backup</span><span class="dim">Not needed</span></div>
+        ${ddButton}${actions}
+      </div>
+    </div>`;
+  }
   const p = player(sel.player_id);
   const t = TEAMS[p?.team];
   const games = open.gamesByTeam?.[p?.team] ?? 0;
   const avg = p?.avg?.[STAT_IDX[s]] ?? 0;
-  const ddUsed = u?.doubleDownWeek != null;
-  const ddOn = d.dd === s;
   return `<div class="slot-card" data-slot="${s}">${head}
     <div class="player-stage" style="--tc1:${t?.c1 || '#1d3361'}">
       <span class="jersey">${esc(p?.num || '')}</span>
@@ -364,9 +392,8 @@ function slotCard(s, open, u, d) {
       <div><b>${Math.round(avg * games)}</b><small>Projected</small></div>
     </div>
     <div class="slot-foot">
-      <div class="alt-row"><span class="lbl">Backup</span>${sel.alt_id ? `${thumb(sel.alt_id, 'sm')}<span>${esc(shortName(sel.alt_id))}</span><button class="link danger" data-act="clear-alt" data-slot="${s}">Remove</button>` : `<span class="dim">Plays if your pick sits all week</span><button class="link" data-act="pick" data-slot="${s}" data-which="alt">+ Add</button>`}</div>
-      <button class="dd-toggle" data-act="dd" data-slot="${s}" aria-pressed="${ddOn}" ${ddUsed ? 'disabled' : ''}><span class="x2">×2</span>${ddUsed ? `Double Down used in week ${u.doubleDownWeek}` : ddOn ? 'Double Down is on for this slot' : 'Double Down this slot'}</button>
-      <div class="row-actions"><button class="btn small" data-act="pick" data-slot="${s}" data-which="main">Change pick</button><button class="btn small ghost" data-act="clear-main" data-slot="${s}">Clear</button></div>
+      <div class="alt-row"><span class="lbl">Backup</span>${sel.alt_id ? `${thumb(sel.alt_id, 'sm')}<span>${esc(shortName(sel.alt_id))}</span><button class="link danger" data-act="clear-alt" data-slot="${s}">Remove</button>` : `<span class="dim">If he sits all week</span><button class="link" data-act="pick" data-slot="${s}" data-which="alt">+ Add</button>`}</div>
+      ${ddButton}${actions}
     </div>
   </div>`;
 }
@@ -405,14 +432,18 @@ function renderPicker() {
   const P = S.picker;
   const open = weekObj(S.league.openWeek);
   const title = P.which === 'alt' ? `Backup ${INFO[P.slot].name}` : `${INFO[P.slot].emoji} ${INFO[P.slot].name} pick`;
+  const teamMode = !!INFO[P.slot].team;
+  const sorts = teamMode
+    ? [['proj', 'Projected wins'], ['avg', 'Best record'], ['games', 'Most games'], ['name', 'Name']]
+    : [['proj', 'Projected week'], ['avg', `${INFO[P.slot].short} per game`], ['games', 'Most games'], ['name', 'Name']];
   $('#modal-root').innerHTML = `<div class="modal-bg" data-act="close-modal-bg"><div class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}">
     <div class="modal-head">
       <div class="ttl"><div><div class="kicker">Week ${open.week} · ${INFO[P.slot].stat} total</div><h3>${esc(title)}</h3></div><button class="close-x" data-act="close-modal" aria-label="Close">×</button></div>
       <div class="filters">
-        <input id="picker-q" class="input" type="search" placeholder="Search players" value="${esc(P.q)}" autocomplete="off">
-        <select id="picker-team" class="input"><option value="">All teams</option>${Object.keys(TEAMS).sort().map(t => `<option value="${t}" ${P.team === t ? 'selected' : ''}>${t} · ${TEAMS[t].name}</option>`).join('')}</select>
+        <input id="picker-q" class="input" type="search" placeholder="Search ${teamMode ? 'teams' : 'players'}" value="${esc(P.q)}" autocomplete="off">
+        <select id="picker-team" class="input ${teamMode ? 'hide' : ''}"><option value="">All teams</option>${Object.keys(TEAMS).sort().map(t => `<option value="${t}" ${P.team === t ? 'selected' : ''}>${t} · ${TEAMS[t].name}</option>`).join('')}</select>
       </div>
-      <div class="pills">${[['proj', 'Projected week'], ['avg', `${INFO[P.slot].short} per game`], ['games', 'Most games'], ['name', 'Name']].map(([k, l]) => `<button class="pill" data-act="picker-sort" data-sort="${k}" aria-pressed="${P.sort === k}">${l}</button>`).join('')}</div>
+      <div class="pills">${sorts.map(([k, l]) => `<button class="pill" data-act="picker-sort" data-sort="${k}" aria-pressed="${P.sort === k}">${l}</button>`).join('')}</div>
     </div>
     <div class="modal-body" id="picker-list">${pickerRows()}</div>
   </div></div>`;
@@ -425,6 +456,7 @@ const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLow
 function pickerRows() {
   const P = S.picker;
   const open = weekObj(S.league.openWeek);
+  if (INFO[P.slot].team) return teamRows(P, open);
   const list = Object.values(S.data.players);
   if (!list.length) return `<div class="empty-state"><div class="ic">⏳</div>The player list arrives with the first stats sync.</div>`;
   const q = norm(P.q);
@@ -457,6 +489,32 @@ function pickerRows() {
       <div><div class="nm">${esc(p.name)}</div>
         <div class="mt">${teamLogo(p.team) ? `<img src="${teamLogo(p.team)}" alt="" onerror="this.remove()">` : ''}${esc(p.team)}${p.pos ? ` · ${esc(p.pos)}` : ''} ${gchip(games)} <span>${fmt(avg)} ${INFO[P.slot].short}/g${p.pre ? ' (preseason)' : ''}</span>${why ? ` <span class="blocked">${esc(why)}</span>` : ''}</div></div>
       <div class="proj"><b>${Math.round(proj)}</b><small>Proj</small></div>
+    </button>`).join('');
+}
+
+function teamRows(P, open) {
+  const q = norm(P.q);
+  const pct = r => r.w / Math.max(1, r.w + r.l);
+  const rows = Object.entries(TEAMS)
+    .map(([tri, t]) => {
+      const rec = S.data.teams?.[tri] || { w: 0, l: 0 };
+      const games = open.gamesByTeam?.[tri] ?? 0;
+      return { tri, t, rec, games, proj: teamProjection(rec, games), why: blockedReason(S.league, myId(), P.slot, t.id) };
+    })
+    .filter(r => !q || norm(`${r.t.city} ${r.t.name} ${r.tri}`).includes(q))
+    .sort((a, b) => {
+      if (P.sort === 'name') return a.t.city.localeCompare(b.t.city);
+      if (P.sort === 'avg') return pct(b.rec) - pct(a.rec) || b.rec.w - a.rec.w;
+      if (P.sort === 'games') return b.games - a.games || b.proj - a.proj;
+      return b.proj - a.proj || pct(b.rec) - pct(a.rec);
+    });
+  if (!rows.length) return `<div class="empty-state">No teams match.</div>`;
+  return rows.map(r => `
+    <button class="prow" data-act="choose" data-pid="${r.t.id}" ${r.why ? 'disabled' : ''}>
+      ${thumb(r.t.id)}
+      <div><div class="nm">${esc(r.t.city)} ${esc(r.t.name)}</div>
+        <div class="mt">${r.rec.w}–${r.rec.l} ${gchip(r.games)}${r.why ? ` <span class="blocked">${esc(r.why)}</span>` : ''}</div></div>
+      <div class="proj"><b>${fmt(Math.round(r.proj * 10) / 10)}</b><small>Proj W</small></div>
     </button>`).join('');
 }
 
@@ -566,7 +624,7 @@ function viewSurvivor() {
     <section class="hero">
       <span class="badge">Survivor Belt</span>
       <h1>${L.survivor.winner ? `${esc(L.survivor.winner.name)} wins the belt` : `${alive.length} still standing`}</h1>
-      <div class="sub">Everyone starts with ${LEAGUE.lives} lives. Each week, clear at least ${LEAGUE.barsToSurvive} of the 3 bars with your weekly totals or lose one. Last one standing takes the belt.</div>
+      <div class="sub">Everyone starts with ${LEAGUE.lives} lives. Each week, clear at least ${LEAGUE.barsToSurvive} of the ${SLOTS.length} bars with your weekly totals or lose one. Last one standing takes the belt.</div>
     </section>
     <section class="panel"><div class="panel-title"><h2>The bars</h2><span class="muted">The same every week, all season</span></div>
       <div class="ladder-bars">${SLOTS.map(s => `<div class="ladder-bar" data-slot="${s}"><div class="kicker">${INFO[s].emoji} ${INFO[s].name}</div><b>${LEAGUE.bars[s]}</b><div class="muted" style="font-size:12px">${INFO[s].stat.toLowerCase()} in the week</div></div>`).join('')}</div>
@@ -597,7 +655,7 @@ function viewResults() {
       const bar = LEAGUE.bars[s];
       return `<td><div class="cell-pick">${thumb(pid, 'sm')}<div><div class="v" style="color:${x.value >= bar ? 'var(--text)' : 'var(--muted)'}">${x.value}${x.dd ? ' 🔥' : ''}</div><div class="n">${esc(shortName(pid))}${x.usedAlt ? ' (B)' : ''}${x.auto ? ' · auto' : ''}</div><div class="rp">+${fmt(x.rank)}</div></div></div></td>`;
     }).join('');
-    const surv = w.status === 'final' ? (r.survived ? '<span class="trend-up">✓</span>' : '<span class="trend-down">✗ ❤️</span>') : `<span class="dim">${r.cleared}/3</span>`;
+    const surv = w.status === 'final' ? (r.survived ? '<span class="trend-up">✓</span>' : '<span class="trend-down">✗ ❤️</span>') : `<span class="dim">${r.cleared}/${SLOTS.length}</span>`;
     return `<tr class="${id === myId() ? 'me' : ''}"><td class="rank ${rank <= 3 ? 'top' : ''}">${rank}</td><td><div class="who">${avatar(id)}<b>${esc(userName(id))}</b></div></td>${cells}<td class="r"><span class="pts">${fmt(r.score)}</span></td><td class="c">${surv}</td></tr>`;
   }).join('');
   return `<div class="grid">
@@ -714,8 +772,11 @@ function loadAdmin() {
   if (S.adminLoading) return;
   S.adminLoading = true;
   const wk = S.league.openWeek;
-  Promise.all([S.backend.adminMembers(), wk != null ? S.backend.adminPickStatus(wk) : [], S.backend.adminBlocked().catch(() => [])])
-    .then(([members, status, blocked]) => { S.adminData = { members, blocked, status: Object.fromEntries(status.map(r => [r.user_id, r])), week: wk }; })
+  Promise.all([
+    S.backend.adminMembers(), wk != null ? S.backend.adminPickStatus(wk) : [],
+    S.backend.adminBlocked().catch(() => []), S.backend.adminGetInvite().catch(() => undefined),
+  ])
+    .then(([members, status, blocked, invite]) => { S.adminData = { members, blocked, invite, status: Object.fromEntries(status.map(r => [r.user_id, r])), week: wk }; })
     .catch(e => { S.adminData = { error: e.message || String(e), week: wk }; })
     .finally(() => { S.adminLoading = false; if (S.view === 'admin') render(); });
 }
@@ -742,10 +803,11 @@ function viewAdmin() {
   const L = S.league;
   const open = L.openWeek != null ? weekObj(L.openWeek) : null;
   if (!S.adminData || S.adminData.week !== L.openWeek) loadAdmin();
-  const st = funStats(L, S.data.players);
+  const st = funStats(L, S.data.players, S.data.teams);
   return `<div class="grid">
     <section class="hero"><span class="badge">🔒 Commissioner only</span><h1>The Commissioner's office</h1>
       <div class="sub">Only accounts in the admins table can open this. Everyone's picks stay hidden until each lock, including from you.</div></section>
+    ${adminInvite()}
     ${adminRoster(open)}
     ${adminTiles(st)}
     ${adminStrategy(perfectPlay(L, S.data.totals))}
@@ -754,13 +816,36 @@ function viewAdmin() {
       <div class="own-cols">${SLOTS.map(s => `<div><h3 class="kicker" style="margin:0 0 10px">${INFO[s].emoji} ${INFO[s].name}</h3>${st.mostBurned[s].map(x => `
         <div class="own-row">${thumb(x.pid, 'sm')}<div><div style="font-weight:600">${esc(shortName(x.pid))}</div><div class="dim" style="font-size:12px">${x.who.map(w => esc(userName(w.id))).join(', ')}</div></div><b class="num">${x.who.length}</b></div>`).join('') || '<p class="dim">Nobody yet.</p>'}</div>`).join('')}</div>
     </section>
-    <section class="panel"><div class="panel-title"><h2>Untouched gems</h2><span class="muted">Best season averages nobody has burned in that category</span></div>
-      <div class="own-cols">${SLOTS.map(s => `<div><h3 class="kicker" style="margin:0 0 10px">${INFO[s].emoji} ${INFO[s].name}</h3>${st.untouched[s].map(p => `
-        <div class="own-row">${thumb(p.id, 'sm')}<div style="font-weight:600">${esc(shortName(p.id))} <span class="dim">${esc(p.team)}</span></div><b class="num">${fmt(p.avg[STAT_IDX[s]])}</b></div>`).join('')}</div>`).join('')}</div>
+    <section class="panel"><div class="panel-title"><h2>Untouched gems</h2><span class="muted">Best season averages (and records) nobody has burned in that category</span></div>
+      <div class="own-cols">${SLOTS.map(s => `<div><h3 class="kicker" style="margin:0 0 10px">${INFO[s].emoji} ${INFO[s].name}</h3>${st.untouched[s].map(p => s === 'WIN' ? `
+        <div class="own-row">${thumb(p.id, 'sm')}<div style="font-weight:600">${esc(shortName(p.id))}</div><b class="num">${p.record.w}–${p.record.l}</b></div>` : `
+        <div class="own-row">${thumb(p.id, 'sm')}<div style="font-weight:600">${esc(shortName(p.id))} <span class="dim">${esc(p.team)}</span></div><b class="num">${fmt(p.avg[STAT_IDX[s]])}</b></div>`).join('') || '<p class="dim">All burned.</p>'}</div>`).join('')}</div>
     </section>
     ${adminFirepower(st)}
     ${adminStyles(st)}
   </div>`;
+}
+
+function inviteLink(code) {
+  return `${location.origin}${location.pathname}?invite=${encodeURIComponent(code)}`;
+}
+
+function adminInvite() {
+  const d = S.adminData;
+  if (!d || d.error) return '';
+  if (d.invite === undefined) return `<section class="panel"><div class="panel-title"><h2>Invite code</h2></div><p class="muted">Run supabase/upgrade-dub-invite.sql in the Supabase SQL editor to turn on invite codes.</p></section>`;
+  const on = !!d.invite;
+  return `<section class="panel"><div class="panel-title"><h2>Invite code</h2><span class="muted">${on ? 'New sign-ups need this code' : 'Off: anyone with the link can join'}</span></div>
+    ${on ? `<div class="scoreline"><div class="stat"><b class="num" style="letter-spacing:.12em">${esc(d.invite)}</b><small>Current code</small></div>
+      <button class="btn" data-act="copy-invite">Copy invite link</button></div>
+      <p class="note" style="margin:-4px 0 14px;word-break:break-all">${esc(inviteLink(d.invite))}</p>` : ''}
+    <form data-form="invite" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <label class="field" style="flex:1;min-width:180px">${on ? 'Change code' : 'Set a code'}<input class="input" name="code" maxlength="32" autocomplete="off" placeholder="e.g. HOOPS26"></label>
+      <button class="btn" type="submit">Save code</button>
+      ${on ? '<button class="btn ghost" type="button" data-act="invite-off">Turn off</button>' : ''}
+    </form>
+    <p class="note" style="margin:10px 0 0">Changing the code doesn't affect people who have already joined. The link fills the code in on the sign-up form.</p>
+  </section>`;
 }
 
 function adminRoster(open) {
@@ -772,7 +857,7 @@ function adminRoster(open) {
   const rows = d.members.map(m => {
     const r = d.status[m.user_id];
     const n = r?.slots || 0;
-    const tag = n === SLOTS.length ? '<span class="tag green">3/3 ✓</span>' : n ? `<span class="tag gold">${n}/3</span>` : '<span class="tag">Not started</span>';
+    const tag = n === SLOTS.length ? `<span class="tag green">${n}/${n} ✓</span>` : n ? `<span class="tag gold">${n}/${SLOTS.length}</span>` : '<span class="tag">Not started</span>';
     return `<tr class="${m.user_id === myId() ? 'me' : ''}"><td><div class="who">${avatar(m.user_id)}<b>${esc(m.display_name)}</b></div></td>
       <td class="hide-sm"><span class="muted" style="font-size:13px">${esc(m.email || '')}</span></td>
       ${open ? `<td>${tag}${r?.backups ? ` <span class="dim" style="font-size:12px">+${r.backups} backup${r.backups > 1 ? 's' : ''}</span>` : ''}</td><td class="hide-sm dim" style="font-size:13px">${r ? ago(r.last_saved) : '—'}</td>` : ''}
@@ -785,7 +870,7 @@ function adminRoster(open) {
       <div class="row-actions">${open ? `<button class="btn small" data-act="copy-emails" ${stillToPick().length ? '' : 'disabled'}>Copy emails still to pick</button>` : ''}<button class="btn small ghost" data-act="admin-refresh">Refresh</button></div></div>
     <div class="scoreline">
       <div class="stat"><b>${d.members.length}</b><small>Members</small></div>
-      ${open ? `<div class="stat"><b style="color:var(--green)">${full}</b><small>All 3 picks in</small></div>
+      ${open ? `<div class="stat"><b style="color:var(--green)">${full}</b><small>All ${SLOTS.length} picks in</small></div>
       <div class="stat"><b style="color:var(--orange)">${d.members.length - full - none}</b><small>Partly picked</small></div>
       <div class="stat"><b style="color:var(--red-hot)">${none}</b><small>Not started</small></div>
       <div class="stat"><b class="num" style="font-size:18px">${esc(lockText(open.lockAt))}</b><small>Lock</small></div>` : ''}
@@ -826,11 +911,11 @@ function adminStrategy(pp) {
       <span class="rank ${i < 3 ? 'top' : ''}" style="font-size:16px">${i + 1}</span><div class="who" style="min-width:0">${avatar(x.id)}<b>${esc(userName(x.id))}</b></div>
       <div><div class="h2h-bar"><i style="width:${(x.pct / max) * 100}%"></i></div><div class="dim" style="font-size:11.5px;margin-top:4px">${SLOTS.map(s => `${INFO[s].emoji} ${x.got[s]} of ${pp.season[s].total}`).join(' · ')}</div></div>
       <b class="num" style="text-align:right">${Math.round(x.pct * 100)}%</b></div>`).join('')}
-    <p class="note" style="margin:8px 0 0">The percentage compares each person's weekly totals, summed over the season, with the perfect plan below, averaged across the three categories.</p>
+    <p class="note" style="margin:8px 0 0">The percentage compares each person's weekly totals, summed over the season, with the perfect plan below, averaged across the four categories.</p>
 
     <h3 class="kicker" style="margin:22px 0 10px">Week by week</h3>
     <div class="table-wrap"><table class="board"><thead><tr><th>Wk</th>${SLOTS.map(s => `<th>${INFO[s].emoji} Perfect ${INFO[s].name}</th>`).join('')}<th class="hide-sm">League's best picks</th><th>Week winner</th></tr></thead><tbody>${weekRows}</tbody></table></div>
-    <p class="note" style="margin:8px 0 0">Perfect = the three different players who'd have done best against the bars that week.</p>
+    <p class="note" style="margin:8px 0 0">Perfect = the three different players who'd have done best against the bars that week, plus the team with the most wins.</p>
 
     <h3 class="kicker" style="margin:22px 0 10px">The perfect season plan</h3>
     <div class="table-wrap"><table class="board"><thead><tr><th>Wk</th>${SLOTS.map(s => `<th>${INFO[s].emoji} ${INFO[s].name} · ${pp.season[s].total} total</th>`).join('')}</tr></thead><tbody>${planRows}</tbody></table></div>
@@ -863,10 +948,10 @@ function adminFirepower(st) {
   const min = st.firepower[st.firepower.length - 1].score;
   // Stretch the bars across the league's spread so small gaps are visible.
   const width = sc => (max > min ? 12 + 88 * (sc - min) / (max - min) : 100);
-  return `<section class="panel"><div class="panel-title"><h2>Firepower left</h2><span class="muted">Strength of each person's best 5 unburned players per category</span></div>
+  return `<section class="panel"><div class="panel-title"><h2>Firepower left</h2><span class="muted">Strength of each person's best 5 unburned players in each player category</span></div>
     ${st.firepower.map((f, i) => `<div class="h2h-row" style="grid-template-columns:28px minmax(110px,180px) 1fr 44px">
       <span class="rank ${i < 3 ? 'top' : ''}" style="font-size:16px">${i + 1}</span><div class="who" style="min-width:0">${avatar(f.id)}<b>${esc(userName(f.id))}</b></div>
-      <div><div class="h2h-bar"><i style="width:${width(f.score)}%"></i></div><div class="dim" style="font-size:11.5px;margin-top:4px">${SLOTS.map(s => `${INFO[s].emoji} ${f.left[s][0] ? esc(shortName(f.left[s][0])) : '—'}`).join(' · ')}</div></div>
+      <div><div class="h2h-bar"><i style="width:${width(f.score)}%"></i></div><div class="dim" style="font-size:11.5px;margin-top:4px">${LEAGUE.playerSlots.map(s => `${INFO[s].emoji} ${f.left[s][0] ? esc(shortName(f.left[s][0])) : '—'}`).join(' · ')}</div></div>
       <b class="num" style="text-align:right">${Math.round((f.score / max) * 100)}</b></div>`).join('')}
   </section>`;
 }
@@ -887,14 +972,14 @@ function adminStyles(st) {
 function viewRules() {
   const b = LEAGUE.bars;
   return `<div class="grid">
-    <section class="hero"><span class="badge">How it works</span><h1>Pick 3. Burn 'em. Outlast the office.</h1><div class="sub">Five minutes a week. No draft, no roster, no money.</div></section>
+    <section class="hero"><span class="badge">How it works</span><h1>Pick 4. Burn 'em. Outlast the office.</h1><div class="sub">Five minutes a week. No draft, no roster, no money.</div></section>
     <div class="rules">
       <div class="panel rule"><h3>🗓️ The week</h3><p>Weeks run Monday to Sunday. Picks lock at the first tip-off of the week, shown in your local time. Week 1 (Oct 20 – Nov 1) and Week 17 (All-Star, Feb 15–28) are double weeks.</p></div>
-      <div class="panel rule"><h3>🏀 The picks</h3><ul><li><b>Bucket</b>: points</li><li><b>Glass</b>: rebounds</li><li><b>Dime</b>: assists</li></ul><p>Each pick scores his <b>total</b> for the week, so a four-game week beats a two-game week.</p></div>
-      <div class="panel rule"><h3>🔥 The burn</h3><p>Once you use a player in a category, he's gone from that category for the season, but still available in the other two. One player can only fill one of your slots in a given week.</p></div>
-      <div class="panel rule"><h3>🛟 Backups</h3><p>Add an optional backup to each slot. If your pick plays zero games, the backup scores and burns instead. If neither plays, the slot scores 0 and nothing burns.</p></div>
-      <div class="panel rule"><h3>📊 Scoring</h3><p>Every category is ranked across the league each week. You get 1 point for every colleague whose pick you beat, ½ for a tie. Your weekly score is the sum of your three categories.</p><p>Drop your worst weeks: one drop unlocks after weeks 6, 12 and 18.</p></div>
-      <div class="panel rule"><h3>❤️ Survivor</h3><p>Everyone starts with ${LEAGUE.lives} lives. Clear at least ${LEAGUE.barsToSurvive} of the 3 weekly bars (${b.PTS} PTS / ${b.REB} REB / ${b.AST} AST, the same every week) or lose a life. Last one standing wins the Survivor Belt. You keep playing for points either way.</p></div>
+      <div class="panel rule"><h3>🏀 The picks</h3><ul><li><b>Bucket</b>: a player's points</li><li><b>Glass</b>: a player's rebounds</li><li><b>Dime</b>: a player's assists</li><li><b>Dub</b>: a team's wins</li></ul><p>Each pick scores its <b>total</b> for the week, so a four-game week beats a two-game week.</p></div>
+      <div class="panel rule"><h3>🔥 The burn</h3><p>Once you use a player in a category, he's gone from that category for the season, but still available in the other two. One player can only fill one of your slots in a given week.</p><p>Teams burn too: each team can be your Dub pick once a season. There are 30 teams for 23 weeks, so choose when to spend the contenders.</p></div>
+      <div class="panel rule"><h3>🛟 Backups</h3><p>Add an optional backup to each player slot. It only comes in if your pick plays <b>zero</b> games that week; then the backup scores and burns instead, and your pick stays available. If your pick plays even once, his total counts and the backup stays unused. If neither plays, the slot scores 0 and nothing burns. Teams always play, so Dub has no backup.</p></div>
+      <div class="panel rule"><h3>📊 Scoring</h3><p>Every category is ranked across the league each week. You get 1 point for every colleague whose pick you beat, ½ for a tie. Your weekly score is the sum of your four categories.</p><p>Drop your worst weeks: one drop unlocks after weeks 6, 12 and 18.</p></div>
+      <div class="panel rule"><h3>❤️ Survivor</h3><p>Everyone starts with ${LEAGUE.lives} lives. Clear at least ${LEAGUE.barsToSurvive} of the ${SLOTS.length} weekly bars (${b.PTS} PTS / ${b.REB} REB / ${b.AST} AST / ${b.WIN} win, the same every week) or lose a life. Last one standing wins the Survivor Belt. You keep playing for points either way.</p></div>
       <div class="panel rule"><h3>🃏 Jokers</h3><ul><li><b>Double Down</b>: double the rank points from one slot, once a season.</li><li><b>Un-burn</b>: get one burned player back in one category, once a season.</li></ul></div>
       <div class="panel rule"><h3>🤖 Autopilot</h3><p>Forgot to pick? At the lock, Autopilot fills empty slots with your best unburned projected week (season average × games). It never leaves you at zero, but it spends your best players first.</p></div>
       <div class="panel rule"><h3>🥊 Rivals</h3><p>Name one coworker as your rival and track your weekly head-to-head record. You can change your rival any time.</p></div>
@@ -923,6 +1008,7 @@ function viewAuth() {
       <form data-form="auth">
         ${signup ? `<label class="field">Display name<input class="input" name="name" required minlength="2" maxlength="24" placeholder="e.g. Maya R." autocomplete="nickname"></label>
         <label class="field">Team<select class="input" name="team">${teamOptions('')}</select></label>` : ''}
+        ${signup ? `<label class="field">Invite code<input class="input" name="invite" value="${esc(params.get('invite') || '')}" autocomplete="off" placeholder="From the commissioner's invite link"></label>` : ''}
         <label class="field">Email<input class="input" name="email" type="email" required autocomplete="email"></label>
         <label class="field">Password<input class="input" name="password" type="password" required minlength="6" autocomplete="${signup ? 'new-password' : 'current-password'}"></label>
         <div class="err" id="auth-err"></div>
@@ -932,12 +1018,12 @@ function viewAuth() {
     </div>`;
   return `<div class="auth-wrap">
     <div class="auth-pitch"><span class="badge">${LEAGUE.season} season · free to play</span>
-      <h1>Pick 3.<br>Burn 'em.<br><em>Outlast the office.</em></h1>
-      <p>Every week, pick a scorer, a rebounder and a passer. Their weekly totals go up against everyone else's. Use a player once per category, then he's gone for the season.</p>
+      <h1>Pick 4.<br>Burn 'em.<br><em>Outlast the office.</em></h1>
+      <p>Every week, pick a scorer, a rebounder, a passer and a team to win. Their weekly totals go up against everyone else's. Use each one once per category, then it's gone for the season.</p>
       <div class="steps">
-        <div class="step"><span class="n">1</span><div><b>Pick by Monday's first tip</b><span>Bucket (PTS), Glass (REB), Dime (AST). Add backups for injuries.</span></div></div>
+        <div class="step"><span class="n">1</span><div><b>Pick by Monday's first tip</b><span>Bucket (PTS), Glass (REB), Dime (AST) and Dub (team wins). Add backups for injuries.</span></div></div>
         <div class="step"><span class="n">2</span><div><b>Beat everyone</b><span>1 point for every colleague your pick beats, in every category.</span></div></div>
-        <div class="step"><span class="n">3</span><div><b>Survive</b><span>Clear 2 of 3 weekly bars or lose one of your 3 lives. Last one standing wins the belt.</span></div></div>
+        <div class="step"><span class="n">3</span><div><b>Survive</b><span>Clear ${LEAGUE.barsToSurvive} of the ${SLOTS.length} weekly bars or lose one of your ${LEAGUE.lives} lives. Last one standing wins the belt.</span></div></div>
       </div>
     </div>
     ${card}
@@ -1002,6 +1088,14 @@ const ACTIONS = {
   'demo-enter': async () => { await S.backend.signIn(); await refresh(); },
   'demo-reset': async () => { S.backend.reset(); location.reload(); },
   'admin-refresh': () => { S.adminData = null; render(); },
+  'copy-invite': async () => {
+    try { await navigator.clipboard.writeText(inviteLink(S.adminData.invite)); toast('Invite link copied.'); }
+    catch { toast('Could not copy. Your browser blocked clipboard access.', true); }
+  },
+  'invite-off': async () => {
+    try { await S.backend.adminSetInvite(''); toast('Invite code turned off.'); } catch (e) { toast(e.message, true); }
+    S.adminData = null; render();
+  },
   'remove-open': el => openRemove(el.dataset.id),
   'remove-confirm': async el => {
     const id = el.dataset.id;
@@ -1059,10 +1153,16 @@ document.addEventListener('submit', async e => {
   btn.disabled = true;
   try {
     if (form.dataset.form === 'auth') {
-      if (S.authMode === 'signup') await S.backend.signUp({ email: f.email, password: f.password, name: f.name, team: f.team });
+      if (S.authMode === 'signup') await S.backend.signUp({ email: f.email, password: f.password, name: f.name, team: f.team, invite: f.invite });
       else await S.backend.signIn({ email: f.email, password: f.password });
     } else if (form.dataset.form === 'setup') {
       await S.backend.createProfile({ name: f.name, team: f.team });
+    } else if (form.dataset.form === 'invite') {
+      const code = (f.code || '').trim();
+      if (!code) throw new Error('Enter a code, or use Turn off.');
+      await S.backend.adminSetInvite(code);
+      toast(`Invite code is now ${code}.`);
+      S.adminData = null;
     } else if (form.dataset.form === 'profile') {
       await S.backend.updateProfile({ display_name: f.name.trim(), fav_team: f.team || null });
       closeModal();
@@ -1070,7 +1170,8 @@ document.addEventListener('submit', async e => {
     }
     await refresh();
   } catch (x) {
-    if (err) err.textContent = x.message || String(x);
+    if (err && form.contains(err)) err.textContent = x.message || String(x);
+    else toast(x.message || String(x), true);
     btn.disabled = false;
   }
 });
@@ -1078,7 +1179,7 @@ document.addEventListener('submit', async e => {
 document.addEventListener('input', e => {
   if (e.target.dataset?.input === 'ledger') {
     S.ledgerQ = e.target.value;
-    $('#ledger-list').innerHTML = ledgerRows(funStats(S.league, S.data.players));
+    $('#ledger-list').innerHTML = ledgerRows(funStats(S.league, S.data.players, S.data.teams));
   }
 });
 

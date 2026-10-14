@@ -10,16 +10,20 @@ export const LEAGUE = {
   supabaseUrl: 'https://miotcbvafwddymqkslyy.supabase.co',
   supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pb3RjYnZhZndkZHltcWtzbHl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5OTEwMjAsImV4cCI6MjEwNzU2NzAyMH0.dfRVbsAlto2GSnNr5V9VKstymrMc4DV9fAjc017jIys',
 
-  slots: ['PTS', 'REB', 'AST'],
+  // Three player categories plus one team category (WIN: the team's wins that week).
+  slots: ['PTS', 'REB', 'AST', 'WIN'],
+  playerSlots: ['PTS', 'REB', 'AST'],
   slotInfo: {
     PTS: { name: 'Bucket', stat: 'Points', short: 'PTS', emoji: '🏀' },
     REB: { name: 'Glass', stat: 'Rebounds', short: 'REB', emoji: '🧱' },
     AST: { name: 'Dime', stat: 'Assists', short: 'AST', emoji: '🎯' },
+    WIN: { name: 'Dub', stat: 'Team wins', short: 'W', emoji: '🏆', team: true },
   },
 
   // Survivor ladder: weekly totals, the same every week (double weeks included).
-  bars: { PTS: 50, REB: 18, AST: 15 },
-  barsToSurvive: 2,
+  // Clear 3 of the 4 bars to keep your lives.
+  bars: { PTS: 50, REB: 18, AST: 15, WIN: 1 },
+  barsToSurvive: 3,
   lives: 3,
 
   // Drop your worst weeks: one drop unlocks every `every` final weeks, up to `max`.

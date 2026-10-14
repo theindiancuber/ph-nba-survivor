@@ -32,5 +32,8 @@ export const TEAMS = {
   CHA: { id: 1610612766, name: 'Hornets', city: 'Charlotte', c1: '#1D1160', c2: '#00788C' },
 };
 
+export const TEAM_BY_ID = Object.fromEntries(Object.entries(TEAMS).map(([tri, t]) => [t.id, tri]));
+export const isTeamId = id => id in TEAM_BY_ID;
+
 export const teamLogo = tri => TEAMS[tri] ? `https://cdn.nba.com/logos/nba/${TEAMS[tri].id}/global/L/logo.svg` : '';
 export const headshot = pid => `https://cdn.nba.com/headshots/nba/latest/260x190/${pid}.png`;

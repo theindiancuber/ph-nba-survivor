@@ -17,8 +17,11 @@ export class SupabaseBackend {
 
   get userId() { return this.user?.id || null; }
 
-  async signUp({ email, password, name, team }) {
-    const { data, error } = await this.sb.auth.signUp({ email, password });
+  async signUp({ email, password, name, team, invite }) {
+    // Check the code first for a clear message; the database enforces it either way.
+    const check = await this.sb.rpc('check_invite', { code: invite || '' });
+    if (!check.error && check.data === false) throw new Error("That invite code isn't right. Ask the commissioner for the invite link.");
+    const { data, error } = await this.sb.auth.signUp({ email, password, options: { data: { invite_code: (invite || '').trim() } } });
     if (error) throw friendly(error);
     if (!data.session) throw new Error('Account created, but email confirmation is switched on. Ask the commissioner to turn off "Confirm email" in Supabase, then sign in.');
     this.user = data.user;
@@ -129,6 +132,15 @@ Object.assign(SupabaseBackend.prototype, {
     const { error } = await this.sb.rpc('admin_unblock', { target_email: email });
     if (error) throw error;
   },
+  async adminGetInvite() {
+    const { data, error } = await this.sb.rpc('admin_get_invite');
+    if (error) throw error;
+    return data;
+  },
+  async adminSetInvite(code) {
+    const { error } = await this.sb.rpc('admin_set_invite', { code });
+    if (error) throw error;
+  },
 });
 
 function friendly(error) {
@@ -136,7 +148,8 @@ function friendly(error) {
   if (/profiles_name_unique/.test(msg)) return new Error('That name is taken. Try adding a last initial.');
   if (/row-level security/.test(msg)) return new Error('Picks for this week are locked.');
   if (/picks_one_double_down/.test(msg)) return new Error('You have already used your Double Down this season.');
-  if (/Database error saving new user|removed from the league/.test(msg)) return new Error("This email can't join the league. Ask the commissioner.");
+  if (/Invalid invite code/.test(msg)) return new Error("That invite code isn't right. Ask the commissioner for the invite link.");
+  if (/Database error saving new user|removed from the league/.test(msg)) return new Error("Sign-up was refused. Check the invite code, or ask the commissioner.");
   if (/unburns_pkey|duplicate key/.test(msg)) return new Error('You have already used your Un-burn this season.');
   return new Error(msg);
 }
@@ -247,6 +260,9 @@ export class DemoBackend {
     this.state.unburns = this.state.unburns.filter(x => x.user_id !== id);
     this.persist();
   }
+
+  async adminGetInvite() { return 'invite' in this.state ? this.state.invite : 'DEMO42'; }
+  async adminSetInvite(code) { this.state.invite = (code || '').trim() || null; this.persist(); }
 
   async adminUnblock(email) {
     this.state.blocked = (this.state.blocked || []).filter(b => b.email !== email);

@@ -1,6 +1,6 @@
 # Peakhill NBA Survivor (concept v0.3)
 
-A free, season-long NBA league for Peakhill. Each week you pick three players: one for **points**, one for **rebounds**, one for **assists**. Once you've used a player in a category, you can't use him in that category again this season. You're ranked against everyone in the league, not against one opponent.
+A free, season-long NBA league for Peakhill. Each week you pick three players (one for **points**, one for **rebounds**, one for **assists**) and one **team** for wins. Once you've used a player or team in a category, you can't use them in that category again this season. You're ranked against everyone in the league, not against one opponent.
 
 It's meant to take about five minutes a week, with no draft, no roster, no waiver wire and no money. You play for bragging rights, and champions get a certificate. Missing a week or joining late shouldn't knock anyone out.
 
@@ -21,21 +21,24 @@ It's meant to take about five minutes a week, with no draft, no roster, no waive
 
 **The week.** Weeks run Monday to Sunday. Picks lock at the first tip-off on Monday.
 
-**The picks.** You fill three slots each week:
+**The picks.** You fill four slots each week:
 
 | Slot | Stat |
 |---|---|
 | 🏀 Bucket | Points |
 | 🧱 Glass | Rebounds |
 | 🎯 Dime | Assists |
+| 🏆 Dub | Team wins (pick a team) |
 
 **What a pick scores: his weekly total.** Your pick scores everything he puts up in that stat from Monday to Sunday. A 50-point night counts in full, and a hot streak keeps adding up. That means the schedule matters: a four-game week beats a two-game week. The pick screen shows each player's **games this week** next to his averages, so that's one more thing to weigh.
 
 **The burn: once per category.** Using a player in a slot burns him **in that slot only**. If Jokić was your Glass pick in week 3, he's gone from Glass, but you can still use him for Dime or Bucket later. Every player can be used up to three times, once in each category. The real question becomes which week to spend him on and in which category. Other people's picks don't affect yours.
 
+**Teams burn too.** Each team can be your Dub pick once a season. With 30 teams and 23 weeks, the question is when to spend the contenders.
+
 **One player, one slot per week.** In any single week, a player can fill only one of your slots.
 
-**Alternates.** Each slot gets an optional backup. If your main pick plays **zero** games that week, the backup scores and is burned in that category instead. Your main pick stays available. If neither one plays, the slot scores 0 and nothing is burned.
+**Alternates.** Each player slot gets an optional backup (Dub doesn't need one, because teams always play). If your main pick plays **zero** games that week, the backup scores and is burned in that category instead. Your main pick stays available. If neither one plays, the slot scores 0 and nothing is burned.
 
 ---
 
@@ -45,7 +48,7 @@ Weekly rebounds and assists run much lower than points (a star's week is about 3
 
 > **In each category, you score 1 point for every colleague whose pick you beat** (½ for a tie).
 
-With 30 players, the top Bucket pick earns 29, the median earns about 15 and the last earns 0. Your weekly score is the sum of your three categories. The season standings add up your weekly scores.
+With 30 players, the top Bucket pick earns 29, the median earns about 15 and the last earns 0. Your weekly score is the sum of your four categories. The season standings add up your weekly scores.
 
 - It's "go against everyone" in the most literal sense.
 - Every category is worth the same.
@@ -62,12 +65,12 @@ Your weekly picks also count toward a second title, with no extra work.
 - Everyone starts with **3 lives** ❤️❤️❤️.
 - The weekly bars are **the same every week**, double weeks included:
 
-  | Bucket | Glass | Dime |
-  |---|---|---|
-  | **50 points** | **18 rebounds** | **15 assists** |
+  | Bucket | Glass | Dime | Dub |
+  |---|---|---|---|
+  | **50 points** | **18 rebounds** | **15 assists** | **1 win** |
 
   These are weekly totals.
-- **Clear at least 2 of the 3 bars** to survive the week. Otherwise you lose a life.
+- **Clear at least 3 of the 4 bars** to survive the week (you can still miss one, as before). Otherwise you lose a life.
 - The last person with a life left wins the **Survivor Belt**. If the final players all go out in the same week, the one with the higher season points wins.
 
 The bars don't move, but your options shrink. In October you clear 50 points with Shai in two games. By March, a two-game week from your 20th-best scorer might come up short. Players who lose all their lives **stay in the points table**, so no one stops playing.
@@ -104,7 +107,7 @@ There's no money, just bragging rights and a **downloadable certificate** for ev
   - 🔥 **Heater**: the biggest single-week total in any category.
   - 🪦 **The Fumble**: a pick who scored 0 (DNP all week, injury).
   - 🧊 **Ice Cold**: the lowest weekly score.
-  - 🐐 **Chalk Merchant**: picked the most popular player in all three slots.
+  - 🐐 **Chalk Merchant**: picked the most popular pick in all four slots.
 - **Two jokers a season:**
   - **Double Down**: one slot earns double rank points this week.
   - **Un-burn**: get back one player in one category, once.
@@ -134,14 +137,14 @@ That's **23 picks per category per person**. By March you'll be picking roughly 
 |---|---|
 | What a pick scores | **Weekly total**. Big nights and hot streaks count in full, and games per week matter. |
 | Burn scope | **Once per category**. A player can be used up to 3 times, once in each slot. |
-| Fourth rotating stat | **Not for now.** We can revisit for next season. |
-| Survivor bars | **The same every week**: 50 PTS / 18 REB / 15 AST weekly totals, double weeks included. |
+| Fourth category | **Dub: pick a team for its weekly wins.** Teams burn once a season like players. |
+| Survivor bars | **The same every week**: 50 PTS / 18 REB / 15 AST / 1 win, double weeks included. Clear 3 of 4. |
+| Who can join | **Invite code** set by the commissioner; the commissioner can remove members and block emails. |
 | Name | **Peakhill NBA Survivor** |
 | Prizes | **Bragging rights.** Champions get a downloadable certificate. |
 
 Still open:
 - The exact bar values, once we've checked them against last season's weekly totals.
-- Whether the jokers and rivals ship in season one or wait for later.
 
 ---
 

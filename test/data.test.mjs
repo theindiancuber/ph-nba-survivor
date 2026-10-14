@@ -46,7 +46,7 @@ test('box scores roll into weekly totals, averages, locks and team game counts',
     '0022600001': parseBox(boxJson('0022600001', 'NYK', 'PHI', [pl(1628973, 'Jalen', 'Brunson', 1, 30, 3, 8)], [pl(1, 'Bench', 'Guy', 0, 0, 0, 0)]), byId['0022600001']),
     '0022600002': parseBox(boxJson('0022600002', 'DEN', 'OKC', [pl(203999, 'Nikola', 'Jokic', 1, 31, 14, 12)], [pl(1628983, 'Shai', 'Gilgeous-Alexander', 1, 35, 5, 6)]), byId['0022600002']),
   };
-  const { weeks, players, totals } = buildData({ schedule, boxes, now: Date.parse('2026-11-05T00:00:00Z') });
+  const { weeks, players, teams, totals } = buildData({ schedule, boxes, now: Date.parse('2026-11-05T00:00:00Z') });
 
   assert.equal(weeks[0].lockAt, '2026-10-20T23:30:00.000Z');
   assert.deepEqual(weeks[0].firstGame, { id: '0022600001', away: 'PHI', home: 'NYK', etDate: '2026-10-20', tipUtc: '2026-10-20T23:30:00Z' });
@@ -64,4 +64,8 @@ test('box scores roll into weekly totals, averages, locks and team game counts',
   assert.equal(players[1].gp, 0);
   assert.equal(players[1].pre, true);
   assert.equal(players[777], undefined); // preseason guest team, not in the league
+
+  // Team wins come from summed player points: NYK 30–0 PHI, OKC 35–31 DEN. Preseason doesn't count.
+  assert.deepEqual(totals[1].t, { NYK: [1, 1], PHI: [1, 0], OKC: [1, 1], DEN: [1, 0] });
+  assert.deepEqual(teams, { NYK: { w: 1, l: 0 }, PHI: { w: 0, l: 1 }, OKC: { w: 1, l: 0 }, DEN: { w: 0, l: 1 } });
 });
