@@ -1,0 +1,85 @@
+// League settings. Shared by the browser app and the data script (Node).
+
+export const LEAGUE = {
+  name: 'Peakhill NBA Survivor',
+  season: '2026-27',
+  commissioner: 'The Commissioner',
+
+  // Supabase project (Settings → API). The anon key is public by design;
+  // row-level security in supabase/schema.sql is what protects the data.
+  supabaseUrl: '',
+  supabaseAnonKey: '',
+
+  slots: ['PTS', 'REB', 'AST'],
+  slotInfo: {
+    PTS: { name: 'Bucket', stat: 'Points', short: 'PTS', emoji: '🏀' },
+    REB: { name: 'Glass', stat: 'Rebounds', short: 'REB', emoji: '🧱' },
+    AST: { name: 'Dime', stat: 'Assists', short: 'AST', emoji: '🎯' },
+  },
+
+  // Survivor ladder: weekly totals, fixed all season. Double weeks double them.
+  bars: { PTS: 75, REB: 30, AST: 20 },
+  barsToSurvive: 2,
+  lives: 3,
+
+  // Drop your worst weeks: one drop unlocks every `every` final weeks, up to `max`.
+  drops: { max: 3, every: 6 },
+};
+
+// Weeks run Monday–Sunday on US Eastern dates. Week 1 and the All-Star week
+// are double weeks (mult 2).
+function addDays(iso, n) {
+  const d = new Date(iso + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+export function buildWeeks() {
+  const weeks = [{ week: 1, start: '2026-10-20', end: '2026-11-01', mult: 2 }];
+  let start = '2026-11-02';
+  for (let w = 2; w <= 16; w++) {
+    weeks.push({ week: w, start, end: addDays(start, 6), mult: 1 });
+    start = addDays(start, 7);
+  }
+  weeks.push({ week: 17, start: '2027-02-15', end: '2027-02-28', mult: 2 });
+  start = '2027-03-01';
+  for (let w = 18; w <= 23; w++) {
+    weeks.push({ week: w, start, end: addDays(start, 6), mult: 1 });
+    start = addDays(start, 7);
+  }
+  return weeks;
+}
+
+// Converts an Eastern wall-clock time to a UTC ISO string (handles DST).
+export function easternToUtc(isoDate, hh = 19, mm = 0) {
+  const guess = Date.UTC(+isoDate.slice(0, 4), +isoDate.slice(5, 7) - 1, +isoDate.slice(8, 10), hh, mm);
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+  for (const offset of [4, 5]) {
+    const t = guess + offset * 3600e3;
+    const parts = Object.fromEntries(fmt.formatToParts(new Date(t)).map(p => [p.type, p.value]));
+    if (+parts.hour % 24 === hh && +parts.minute === mm && `${parts.year}-${parts.month}-${parts.day}` === isoDate) {
+      return new Date(t).toISOString();
+    }
+  }
+  return new Date(guess + 5 * 3600e3).toISOString();
+}
+
+// Fallback lock: 7pm ET on the first day of the week. The data script
+// replaces it with the real first tip-off once the schedule is loaded.
+export function defaultLockAt(week) {
+  return easternToUtc(week.start, 19, 0);
+}
+
+// Month buckets for the Monthly Crown, by the week's end date. April folds into March.
+export function monthKey(week) {
+  const m = week.end.slice(0, 7);
+  return m.endsWith('-04') ? m.slice(0, 5) + '03' : m;
+}
+
+export const MONTH_LABELS = {
+  '2026-11': 'November', '2026-12': 'December', '2027-01': 'January',
+  '2027-02': 'February', '2027-03': 'March/April',
+};

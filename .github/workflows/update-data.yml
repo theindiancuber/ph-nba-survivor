@@ -1,0 +1,40 @@
+name: Update NBA data
+
+on:
+  schedule:
+    # Hourly through US game nights and the Monday lock (UTC hours).
+    - cron: '20 0-8,16-23 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run engine tests
+        run: npm test
+      - name: Pull box scores, sync locks, run Autopilot
+        run: node scripts/update-data.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - name: Commit data
+        run: |
+          git config user.name "survivor-bot"
+          git config user.email "survivor-bot@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then echo "No data changes."; exit 0; fi
+          git commit -m "Update NBA data"
+          for i in 1 2 3; do git pull --rebase && git push && exit 0; sleep 5; done
+          exit 1

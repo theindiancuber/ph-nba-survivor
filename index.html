@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Peakhill NBA Survivor</title>
+  <meta name="description" content="Pick a scorer, a rebounder and a passer every week. Use each player once per category. Outlast the office.">
+  <meta name="theme-color" content="#050b18">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%231d428a'/%3E%3Cpath d='M0 9a9 9 0 0 1 9-9h31L0 40z' fill='%23c8102e'/%3E%3Ccircle cx='20' cy='20' r='10' fill='none' stroke='white' stroke-width='2.4'/%3E%3Cpath d='M10 20h20M20 10v20' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&family=Playfair+Display:ital,wght@1,400;1,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="demo-banner"></div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#week" aria-label="Peakhill NBA Survivor home">
+        <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+          <rect width="40" height="40" rx="9" fill="#1d428a"/>
+          <path d="M0 9a9 9 0 0 1 9-9h31L0 40z" fill="#c8102e"/>
+          <circle cx="20" cy="20" r="10.5" fill="none" stroke="#fff" stroke-width="2.4"/>
+          <path d="M9.5 20h21M20 9.5v21" stroke="#fff" stroke-width="2"/>
+          <path d="M13 12.5c3 2.2 3 12.8 0 15M27 12.5c-3 2.2-3 12.8 0 15" fill="none" stroke="#fff" stroke-width="1.8"/>
+        </svg>
+        <span class="brand-text"><small>PEAKHILL</small><b>NBA <i>Survivor</i></b></span>
+      </a>
+      <div class="topbar-right" id="topbar-right"></div>
+    </div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Sections"></nav>
+  </header>
+  <div class="ticker hide" id="ticker"></div>
+  <main id="app" aria-live="polite">
+    <div class="empty-state"><div class="ic">🏀</div>Loading the league…</div>
+  </main>
+  <footer id="footer"></footer>
+  <div id="modal-root"></div>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

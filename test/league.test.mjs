@@ -1,0 +1,142 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { computeLeague, rankPoints, autopilotPicks, headToHead, blockedReason } from '../src/league.js';
+import { buildWeeks, easternToUtc, monthKey } from '../src/config.js';
+
+const NOW = Date.parse('2027-06-01T00:00:00Z');
+const wk = (week, opts = {}) => ({ week, start: '2026-11-02', end: '2026-11-08', mult: 1, lockAt: '2026-11-03T00:00:00Z', final: true, ...opts });
+const pick = (user_id, week, slot, player_id, extra = {}) => ({ user_id, week, slot, player_id, alt_id: null, double_down: false, ...extra });
+const profiles = ['a', 'b', 'c'].map(id => ({ id, display_name: id.toUpperCase() }));
+
+test('calendar: 23 weeks, double weeks, month buckets, DST-aware lock', () => {
+  const weeks = buildWeeks();
+  assert.equal(weeks.length, 23);
+  assert.deepEqual(weeks.filter(w => w.mult === 2).map(w => w.week), [1, 17]);
+  assert.equal(weeks[1].start, '2026-11-02');
+  assert.equal(weeks[16].end, '2027-02-28');
+  assert.equal(weeks[22].end, '2027-04-11');
+  assert.equal(monthKey(weeks[0]), '2026-11');
+  assert.equal(monthKey(weeks[22]), '2027-03');
+  assert.equal(easternToUtc('2026-10-20', 19, 0), '2026-10-20T23:00:00.000Z');
+  assert.equal(easternToUtc('2026-11-02', 19, 0), '2026-11-03T00:00:00.000Z');
+});
+
+test('rank points: one per colleague beaten, half per tie', () => {
+  assert.deepEqual(rankPoints([10, 20, 20, 5]), [1, 2.5, 2.5, 0]);
+});
+
+test('weekly totals score, burns are per category, and double down doubles one slot', () => {
+  const weeks = [wk(1), wk(2)];
+  const totals = {
+    1: { final: true, p: { 1: [3, 90, 30, 25], 2: [4, 110, 20, 10], 3: [2, 40, 25, 8] } },
+    2: { final: true, p: { 1: [3, 80, 33, 21] } },
+  };
+  const picks = [
+    pick('a', 1, 'PTS', 2, { double_down: true }), pick('a', 1, 'REB', 1), pick('a', 1, 'AST', 3),
+    pick('b', 1, 'PTS', 1), pick('b', 1, 'REB', 3), pick('b', 1, 'AST', 2),
+    // Week 2: a reuses player 1 in a different slot (allowed) and player 2 in PTS again (burned).
+    pick('a', 2, 'AST', 1), pick('a', 2, 'PTS', 2),
+  ];
+  const L = computeLeague({ weeks, totals, picks, profiles, now: NOW });
+  const r1 = L.weeks[0].results;
+  assert.equal(r1.a.slots.PTS.value, 110);
+  assert.equal(r1.a.slots.PTS.rank, 2); // beat b (1 point) doubled
+  assert.equal(r1.a.score, 2 + 1 + 0);
+  assert.equal(r1.b.score, 0 + 0 + 1);
+  assert.equal(L.users.a.doubleDownWeek, 1);
+  const r2 = L.weeks[1].results.a.slots;
+  assert.equal(r2.AST.value, 21);
+  assert.equal(r2.PTS.invalid, true);
+  assert.equal(r2.PTS.value, 0);
+  assert.equal(L.users.a.burns.REB.get(1), 1);
+  assert.equal(L.users.a.burns.AST.get(1), 2);
+});
+
+test('alternate scores only when the main pick plays zero games', () => {
+  const totals = { 1: { final: true, p: { 1: [0, 0, 0, 0], 2: [3, 70, 10, 5] } } };
+  const picks = [pick('a', 1, 'PTS', 1, { alt_id: 2 })];
+  const L = computeLeague({ weeks: [wk(1)], totals, picks, profiles, now: NOW });
+  const s = L.weeks[0].results.a.slots.PTS;
+  assert.equal(s.scorer, 2);
+  assert.equal(s.usedAlt, true);
+  assert.equal(L.users.a.burns.PTS.has(2), true);
+  assert.equal(L.users.a.burns.PTS.has(1), false);
+});
+
+test('both picks DNP: zero, nothing burned, fumble award', () => {
+  const totals = { 1: { final: true, p: { 9: [2, 50, 10, 10] } } };
+  const picks = [pick('a', 1, 'PTS', 1, { alt_id: 2 }), pick('b', 1, 'PTS', 9)];
+  const L = computeLeague({ weeks: [wk(1)], totals, picks, profiles, now: NOW });
+  assert.equal(L.weeks[0].results.a.slots.PTS.fumble, true);
+  assert.equal(L.users.a.burns.PTS.size, 0);
+  assert.ok(L.weeks[0].awards.some(x => x.key === 'fumble' && x.user === 'a'));
+});
+
+test('survivor: clear 2 of 3 bars, double weeks double the bars, 3 lives', () => {
+  const weeks = [wk(1, { mult: 2 }), wk(2), wk(3), wk(4)];
+  const line = [3, 80, 31, 19]; // clears PTS+REB at 1x, nothing at 2x
+  const totals = Object.fromEntries([1, 2, 3, 4].map(w => [w, { final: true, p: { [w * 10 + 1]: line, [w * 10 + 2]: line, [w * 10 + 3]: line } }]));
+  const picks = [];
+  for (const w of [1, 2, 3, 4]) {
+    picks.push(pick('a', w, 'PTS', w * 10 + 1), pick('a', w, 'REB', w * 10 + 2), pick('a', w, 'AST', w * 10 + 3));
+    picks.push(pick('b', w, 'PTS', w * 10 + 3)); // b only fills one slot: loses a life each week
+  }
+  const L = computeLeague({ weeks, totals, picks, profiles, now: NOW });
+  assert.equal(L.weeks[0].results.a.survived, false);
+  assert.equal(L.weeks[1].results.a.survived, true);
+  assert.equal(L.users.a.lives, 2);
+  assert.equal(L.users.b.lives, 0);
+  assert.equal(L.users.b.eliminatedWeek, 3);
+  assert.equal(L.survivor.winner.id, 'a');
+});
+
+test('un-burn frees one player once, then he burns again', () => {
+  const weeks = [wk(1), wk(2), wk(3)];
+  const totals = { 1: { final: true, p: { 1: [3, 90, 9, 9] } }, 2: { final: true, p: { 1: [3, 95, 9, 9] } }, 3: { final: true, p: { 1: [3, 99, 9, 9] } } };
+  const picks = [pick('a', 1, 'PTS', 1), pick('a', 2, 'PTS', 1), pick('a', 3, 'PTS', 1)];
+  const L = computeLeague({ weeks, totals, picks, profiles, now: NOW, unburns: [{ user_id: 'a', slot: 'PTS', player_id: 1, week: 2 }] });
+  assert.equal(L.weeks[1].results.a.slots.PTS.value, 95);
+  assert.equal(L.weeks[2].results.a.slots.PTS.invalid, true);
+});
+
+test('open and live weeks: reserved players, hidden from scoring until locked', () => {
+  const weeks = [wk(1, { final: false }), wk(2, { lockAt: '2099-01-01T00:00:00Z', final: false })];
+  const totals = { 1: { final: false, p: { 1: [1, 30, 5, 5] } } };
+  const picks = [pick('a', 1, 'PTS', 1, { alt_id: 2 }), pick('a', 2, 'PTS', 5, { double_down: true })];
+  const L = computeLeague({ weeks, totals, picks, profiles, now: NOW });
+  assert.equal(L.weeks[0].status, 'live');
+  assert.equal(L.openWeek, 2);
+  assert.equal(blockedReason(L, 'a', 'PTS', 1), 'Locked in wk 1');
+  assert.equal(blockedReason(L, 'a', 'PTS', 2), 'Locked in wk 1');
+  assert.equal(blockedReason(L, 'a', 'REB', 1), null);
+  assert.equal(L.users.a.plannedDoubleDown, 'PTS');
+  assert.equal(L.users.a.lives, 3);
+});
+
+test('drops unlock every 6 final weeks', () => {
+  const weeks = Array.from({ length: 6 }, (_, i) => wk(i + 1));
+  const totals = Object.fromEntries(weeks.map(w => [w.week, { final: true, p: { [w.week]: [1, w.week * 10, 1, 1] } }]));
+  const picks = weeks.flatMap(w => [pick('a', w.week, 'PTS', w.week), pick('b', w.week, 'PTS', 100 + w.week)]);
+  const L = computeLeague({ weeks, totals, picks, profiles, now: NOW });
+  assert.equal(L.dropCount, 1);
+  assert.equal(L.users.b.dropped.length, 1);
+  assert.equal(L.users.a.counted, 5);
+  assert.equal(L.users.a.rank, 1);
+});
+
+test('head to head and autopilot', () => {
+  const weeks = [wk(1), wk(2, { lockAt: '2099-01-01T00:00:00Z', final: false })];
+  const totals = { 1: { final: true, p: { 1: [3, 90, 9, 9], 2: [3, 60, 9, 9] } } };
+  const picks = [pick('a', 1, 'PTS', 1), pick('b', 1, 'PTS', 2)];
+  const L = computeLeague({ weeks, totals, picks, profiles, now: NOW });
+  assert.deepEqual(headToHead(L, 'a', 'b').w, 1);
+  const players = {
+    1: { id: 1, team: 'DEN', avg: [30, 12, 9] },
+    2: { id: 2, team: 'OKC', avg: [32, 5, 6] },
+    3: { id: 3, team: 'BOS', avg: [20, 13, 4] },
+  };
+  const games = { DEN: 4, OKC: 2, BOS: 3 };
+  const auto = autopilotPicks(L, 'a', 2, {}, players, games);
+  // a burned 1 on PTS: best PTS is 2 (64) vs 3 (60); REB 1 (48); AST: 3 left (12)
+  assert.deepEqual(auto, { PTS: 2, REB: 1, AST: 3 });
+});
