@@ -3,6 +3,7 @@ import { computeLeague, headToHead, blockedReason, projection, fmt } from './lea
 import { TEAMS, teamLogo, headshot } from './teams.js';
 import { SupabaseBackend, DemoBackend } from './backend.js';
 import { downloadCertificate } from './certificate.js';
+import { funStats } from './stats.js';
 
 const SLOTS = LEAGUE.slots;
 const INFO = LEAGUE.slotInfo;
@@ -67,7 +68,11 @@ async function boot() {
 
 function viewFromHash() {
   const v = location.hash.slice(1);
-  return VIEWS.some(([k]) => k === v) ? v : 'week';
+  return v === 'admin' || VIEWS.some(([k]) => k === v) ? v : 'week';
+}
+
+function views() {
+  return S.isAdmin ? [...VIEWS, ['admin', 'Commissioner']] : VIEWS;
 }
 
 async function loadData() {
@@ -92,6 +97,11 @@ async function refresh() {
   const weeks = S.data.weeks.map(w => ({ ...w, lockAt: S.db.locks[w.week] || w.lockAt }));
   S.league = computeLeague({ weeks, totals: S.data.totals, picks: S.db.picks, unburns: S.db.unburns, profiles: S.db.profiles, now: now(), players: S.data.players });
   S.me = S.db.profiles.find(p => p.id === myId()) || null;
+  if (S.adminFor !== myId()) {
+    S.adminFor = myId();
+    S.isAdmin = S.me ? await S.backend.isAdmin().catch(() => false) : false;
+    S.adminData = null;
+  }
   if (!S.draft || !S.draft.dirty || S.draft.week !== S.league.openWeek) resetDraft();
   render();
 }
@@ -158,6 +168,7 @@ function render() {
   let html;
   if (signedIn && !S.me) html = viewProfileSetup();
   else if (!signedIn && (S.view === 'week' || S.view === 'rivals')) html = viewAuth();
+  else if (S.view === 'admin') html = S.isAdmin ? viewAdmin() : viewWeek();
   else html = ({ week: viewWeek, standings: viewStandings, survivor: viewSurvivor, results: viewResults, burns: viewBurns, rivals: viewRivals, trophies: viewTrophies, rules: viewRules })[S.view]();
   $('#app').innerHTML = html;
   tick();
@@ -178,7 +189,7 @@ function needsPicks() {
 }
 
 function renderTabs() {
-  $('#tabs').innerHTML = VIEWS.map(([k, label]) => {
+  $('#tabs').innerHTML = views().map(([k, label]) => {
     const dot = (k === 'week' && needsPicks()) || (k === 'results' && liveWeek()) ? '<span class="dot"></span>' : '';
     return `<a class="tab" role="tab" href="#${k}" aria-selected="${S.view === k}">${label}${dot}</a>`;
   }).join('');
@@ -697,6 +708,136 @@ function viewTrophies() {
   </div>`;
 }
 
+// ---------- Commissioner ----------
+
+function loadAdmin() {
+  if (S.adminLoading) return;
+  S.adminLoading = true;
+  const wk = S.league.openWeek;
+  Promise.all([S.backend.adminMembers(), wk != null ? S.backend.adminPickStatus(wk) : []])
+    .then(([members, status]) => { S.adminData = { members, status: Object.fromEntries(status.map(r => [r.user_id, r])), week: wk }; })
+    .catch(e => { S.adminData = { error: e.message || String(e), week: wk }; })
+    .finally(() => { S.adminLoading = false; if (S.view === 'admin') render(); });
+}
+
+function stillToPick() {
+  const d = S.adminData;
+  return (d?.members || []).filter(m => (d.status[m.user_id]?.slots || 0) < SLOTS.length);
+}
+
+function viewAdmin() {
+  const L = S.league;
+  const open = L.openWeek != null ? weekObj(L.openWeek) : null;
+  if (!S.adminData || S.adminData.week !== L.openWeek) loadAdmin();
+  const st = funStats(L, S.data.players);
+  return `<div class="grid">
+    <section class="hero"><span class="badge">🔒 Commissioner only</span><h1>The Commissioner's office</h1>
+      <div class="sub">Only accounts in the admins table can open this. Everyone's picks stay hidden until each lock, including from you.</div></section>
+    ${adminRoster(open)}
+    ${adminTiles(st)}
+    ${adminLedger(st)}
+    <section class="panel"><div class="panel-title"><h2>Most burned</h2><span class="muted">Players the league has already spent</span></div>
+      <div class="own-cols">${SLOTS.map(s => `<div><h3 class="kicker" style="margin:0 0 10px">${INFO[s].emoji} ${INFO[s].name}</h3>${st.mostBurned[s].map(x => `
+        <div class="own-row">${thumb(x.pid, 'sm')}<div><div style="font-weight:600">${esc(shortName(x.pid))}</div><div class="dim" style="font-size:12px">${x.who.map(w => esc(userName(w.id))).join(', ')}</div></div><b class="num">${x.who.length}</b></div>`).join('') || '<p class="dim">Nobody yet.</p>'}</div>`).join('')}</div>
+    </section>
+    <section class="panel"><div class="panel-title"><h2>Untouched gems</h2><span class="muted">Best season averages nobody has burned in that category</span></div>
+      <div class="own-cols">${SLOTS.map(s => `<div><h3 class="kicker" style="margin:0 0 10px">${INFO[s].emoji} ${INFO[s].name}</h3>${st.untouched[s].map(p => `
+        <div class="own-row">${thumb(p.id, 'sm')}<div style="font-weight:600">${esc(shortName(p.id))} <span class="dim">${esc(p.team)}</span></div><b class="num">${fmt(p.avg[STAT_IDX[s]])}</b></div>`).join('')}</div>`).join('')}</div>
+    </section>
+    ${adminFirepower(st)}
+    ${adminStyles(st)}
+  </div>`;
+}
+
+function adminRoster(open) {
+  const d = S.adminData;
+  if (!d) return `<section class="panel"><div class="panel-title"><h2>Members</h2></div><p class="muted">Loading members…</p></section>`;
+  if (d.error) return `<section class="panel"><div class="panel-title"><h2>Members</h2></div><p class="err">${esc(d.error)}</p><p class="note">If this says the function doesn't exist, run supabase/admin.sql in the Supabase SQL editor.</p></section>`;
+  const full = d.members.filter(m => (d.status[m.user_id]?.slots || 0) === SLOTS.length).length;
+  const none = d.members.filter(m => !d.status[m.user_id]).length;
+  const rows = d.members.map(m => {
+    const r = d.status[m.user_id];
+    const n = r?.slots || 0;
+    const tag = n === SLOTS.length ? '<span class="tag green">3/3 ✓</span>' : n ? `<span class="tag gold">${n}/3</span>` : '<span class="tag">Not started</span>';
+    return `<tr class="${m.user_id === myId() ? 'me' : ''}"><td><div class="who">${avatar(m.user_id)}<b>${esc(m.display_name)}</b></div></td>
+      <td class="hide-sm"><span class="muted" style="font-size:13px">${esc(m.email || '')}</span></td>
+      ${open ? `<td>${tag}${r?.backups ? ` <span class="dim" style="font-size:12px">+${r.backups} backup${r.backups > 1 ? 's' : ''}</span>` : ''}</td><td class="hide-sm dim" style="font-size:13px">${r ? ago(r.last_saved) : '—'}</td>` : ''}
+      <td class="hide-sm dim" style="font-size:13px">${m.last_sign_in_at ? ago(m.last_sign_in_at) : '—'}</td>
+      <td class="hide-sm dim" style="font-size:13px">${dshort(m.joined_at.slice(0, 10))}</td></tr>`;
+  }).join('');
+  return `<section class="panel">
+    <div class="panel-title"><h2>${open ? `Week ${open.week} check-in` : 'Members'}</h2>
+      <div class="row-actions">${open ? `<button class="btn small" data-act="copy-emails" ${stillToPick().length ? '' : 'disabled'}>Copy emails still to pick</button>` : ''}<button class="btn small ghost" data-act="admin-refresh">Refresh</button></div></div>
+    <div class="scoreline">
+      <div class="stat"><b>${d.members.length}</b><small>Members</small></div>
+      ${open ? `<div class="stat"><b style="color:var(--green)">${full}</b><small>All 3 picks in</small></div>
+      <div class="stat"><b style="color:var(--orange)">${d.members.length - full - none}</b><small>Partly picked</small></div>
+      <div class="stat"><b style="color:var(--red-hot)">${none}</b><small>Not started</small></div>
+      <div class="stat"><b class="num" style="font-size:18px">${esc(lockText(open.lockAt))}</b><small>Lock</small></div>` : ''}
+    </div>
+    <div class="table-wrap"><table class="board"><thead><tr><th>Member</th><th class="hide-sm">Email</th>${open ? `<th>Wk ${open.week}</th><th class="hide-sm">Last saved</th>` : ''}<th class="hide-sm">Last seen</th><th class="hide-sm">Joined</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="note" style="margin:10px 0 0">Shows how many slots each person has filled, never which players, until the lock.</p>
+  </section>`;
+}
+
+function adminTiles(st) {
+  const t = st.totals;
+  const tiles = [
+    ['Picks made', t.picks], ['Autopilot fills', t.autos], ['Backup saves', t.saves],
+    ['Double Downs played', t.doubleDowns], ['Fumbles', t.fumbles], ['Un-burns used', S.db.unburns.length],
+  ];
+  const rec = (r, label) => r ? `<div class="award"><div class="ic">${label === 'Best pick of the season' ? '🚀' : '🪫'}</div><h4>${label}</h4>
+    <div class="who-line">${esc(userName(r.id))} · ${esc(pname(r.pid))}</div><p>${r.value} ${INFO[r.slot].short} in week ${r.week} (${r.ratio.toFixed(2)}× the bar)</p></div>` : '';
+  return `<section class="panel"><div class="panel-title"><h2>Season so far</h2></div>
+    <div class="scoreline">${tiles.map(([l, v]) => `<div class="stat"><b>${v}</b><small>${l}</small></div>`).join('')}</div>
+    <div class="awards">${rec(st.best, 'Best pick of the season')}${rec(st.worst, 'Worst pick of the season')}</div>
+  </section>`;
+}
+
+function adminLedger(st) {
+  return `<section class="panel"><div class="panel-title"><h2>Burn ledger</h2><span class="muted">Who burned whom, and when</span></div>
+    <input class="input" type="search" placeholder="Search a player, e.g. Jokić" data-input="ledger" value="${esc(S.ledgerQ || '')}" style="margin-bottom:10px">
+    <div id="ledger-list">${ledgerRows(st)}</div></section>`;
+}
+
+function ledgerRows(st) {
+  const q = norm(S.ledgerQ);
+  const rows = Object.entries(st.ledger)
+    .map(([pid, v]) => ({ pid: +pid, v, n: SLOTS.reduce((a, s) => a + v[s].length, 0) }))
+    .filter(r => !q || norm(pname(r.pid)).includes(q))
+    .sort((a, b) => b.n - a.n)
+    .slice(0, 25);
+  if (!rows.length) return `<p class="dim">${Object.keys(st.ledger).length ? 'No burns match.' : 'Nothing burned yet. Burns are recorded once each week is final.'}</p>`;
+  return rows.map(r => `<div class="burn-item" style="align-items:flex-start">${thumb(r.pid, 'sm')}<div style="flex:1;min-width:0"><b>${esc(pname(r.pid))}</b>
+    <div style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:4px;font-size:12.5px">${SLOTS.filter(s => r.v[s].length).map(s => `<span><span class="dim">${INFO[s].emoji} ${INFO[s].name}:</span> ${r.v[s].sort((a, b) => a.week - b.week).map(w => `${esc(userName(w.id))} <span class="dim">wk ${w.week}</span>`).join(', ')}</span>`).join('')}</div></div>
+    <span class="wk">${r.n}×</span></div>`).join('');
+}
+
+function adminFirepower(st) {
+  if (!st.firepower.length) return '';
+  const max = st.firepower[0].score || 1;
+  const min = st.firepower[st.firepower.length - 1].score;
+  // Stretch the bars across the league's spread so small gaps are visible.
+  const width = sc => (max > min ? 12 + 88 * (sc - min) / (max - min) : 100);
+  return `<section class="panel"><div class="panel-title"><h2>Firepower left</h2><span class="muted">Strength of each person's best 5 unburned players per category</span></div>
+    ${st.firepower.map((f, i) => `<div class="h2h-row" style="grid-template-columns:28px minmax(110px,180px) 1fr 44px">
+      <span class="rank ${i < 3 ? 'top' : ''}" style="font-size:16px">${i + 1}</span><div class="who" style="min-width:0">${avatar(f.id)}<b>${esc(userName(f.id))}</b></div>
+      <div><div class="h2h-bar"><i style="width:${width(f.score)}%"></i></div><div class="dim" style="font-size:11.5px;margin-top:4px">${SLOTS.map(s => `${INFO[s].emoji} ${f.left[s][0] ? esc(shortName(f.left[s][0])) : '—'}`).join(' · ')}</div></div>
+      <b class="num" style="text-align:right">${Math.round((f.score / max) * 100)}</b></div>`).join('')}
+  </section>`;
+}
+
+function adminStyles(st) {
+  const list = (arr, fmtFn) => arr.map((x, i) => `<div class="own-row" style="grid-template-columns:28px 1fr auto">${avatar(x.id)}<b style="font-weight:600">${esc(userName(x.id))}</b><span class="num">${fmtFn(x, i)}</span></div>`).join('');
+  const relies = Object.values(st.people).filter(p => p.autos).sort((a, b) => b.autos - a.autos).slice(0, 6);
+  return `<section class="panel"><div class="panel-title"><h2>Playing styles</h2></div>
+    <div class="own-cols">
+      <div><h3 class="kicker" style="margin:0 0 10px">🧠 Most contrarian</h3>${list(st.contrarian.slice(0, 6), x => `${Math.round(x.share * 100)}% overlap`) || '<p class="dim">Not enough weeks yet.</p>'}</div>
+      <div><h3 class="kicker" style="margin:0 0 10px">🐐 Chalkiest</h3>${list([...st.contrarian].reverse().slice(0, 6), x => `${Math.round(x.share * 100)}% overlap`) || '<p class="dim">Not enough weeks yet.</p>'}</div>
+      <div><h3 class="kicker" style="margin:0 0 10px">🤖 Autopilot regulars</h3>${list(relies, x => `${x.autos} slot${x.autos > 1 ? 's' : ''}`) || '<p class="dim">Everyone has picked for themselves.</p>'}</div>
+    </div></section>`;
+}
+
 // ---------- Rules ----------
 
 function viewRules() {
@@ -816,6 +957,12 @@ const ACTIONS = {
   signout: async () => { await S.backend.signOut(); closeModal(); S.draft = null; await refresh(); },
   'demo-enter': async () => { await S.backend.signIn(); await refresh(); },
   'demo-reset': async () => { S.backend.reset(); location.reload(); },
+  'admin-refresh': () => { S.adminData = null; render(); },
+  'copy-emails': async () => {
+    const emails = stillToPick().map(m => m.email).filter(Boolean);
+    try { await navigator.clipboard.writeText(emails.join(', ')); toast(`Copied ${emails.length} email${emails.length === 1 ? '' : 's'}.`); }
+    catch { toast('Could not copy. Your browser blocked clipboard access.', true); }
+  },
   forgot: async () => {
     const email = document.querySelector('[data-form="auth"] [name="email"]').value;
     if (!email) return ($('#auth-err').textContent = 'Enter your email first.');
@@ -863,6 +1010,13 @@ document.addEventListener('submit', async e => {
   } catch (x) {
     if (err) err.textContent = x.message || String(x);
     btn.disabled = false;
+  }
+});
+
+document.addEventListener('input', e => {
+  if (e.target.dataset?.input === 'ledger') {
+    S.ledgerQ = e.target.value;
+    $('#ledger-list').innerHTML = ledgerRows(funStats(S.league, S.data.players));
   }
 });
 
