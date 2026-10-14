@@ -91,6 +91,90 @@ create policy "unburns insert own before lock" on public.unburns for insert to a
 create policy "unburns delete own before lock" on public.unburns for delete to authenticated
   using (user_id = auth.uid() and public.week_open(week));
 
+-- ---- Joker cards ----
+-- Packs are dealt in the browser from a seeded shuffle, so the only things stored
+-- are the card you kept from each pack ('_keep'), duel answers ('_reply'), gifts
+-- and plays. The league engine rebuilds every hand from these rows and ignores
+-- any play for a card you don't actually hold.
+create table if not exists public.card_plays (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  week int not null references public.weeks(week),
+  card text not null check (card in (
+    '_keep', '_reply', 'gift',
+    'jinx', 'load', 'heist', 'blue_shell', 'burn_notice', 'clown', 'nickname', 'charge', 'reverse',
+    'sixth', 'copycat', 'leech', 'switcheroo', 'garbage', 'embargo', 'scout', 'duel')),
+  card_uid text,
+  target_id uuid references public.profiles(id) on delete cascade,
+  slot text check (slot in ('PTS', 'REB', 'AST')),
+  player_id int,
+  params jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+-- Each card (or pack, for '_keep') can be used once.
+create unique index if not exists card_plays_once on public.card_plays (user_id, card_uid) where card_uid is not null;
+create index if not exists card_plays_week on public.card_plays (week);
+
+-- The server sets the id and time, so nobody can backdate a play.
+create or replace function public.card_plays_stamp() returns trigger
+  language plpgsql as $$
+  begin
+    new.id := gen_random_uuid();
+    new.created_at := now();
+    return new;
+  end
+  $$;
+drop trigger if exists card_plays_stamp on public.card_plays;
+create trigger card_plays_stamp before insert on public.card_plays
+  for each row execute function public.card_plays_stamp();
+
+-- When a row can be added or taken back. Hindsight cards rewrite last week, so
+-- they go in after that week locks and before the next one does. An Embargo
+-- has to give everyone a day's notice.
+create or replace function public.card_window(c text, w int) returns boolean
+  language sql stable security definer set search_path = public
+  as $$
+    select case
+      when c in ('switcheroo', 'garbage') then public.week_locked(w) and public.week_open(w + 1)
+      when c = 'embargo' then exists (select 1 from weeks where week = w and lock_at > now() + interval '24 hours')
+      else public.week_open(w)
+    end
+  $$;
+
+alter table public.card_plays enable row level security;
+drop policy if exists "card plays readable" on public.card_plays;
+drop policy if exists "card plays insert own" on public.card_plays;
+drop policy if exists "card plays delete own" on public.card_plays;
+-- Your own rows any time; everyone's once the week locks. Embargoes and kept
+-- cards are public straight away, and a duel is visible to the person challenged.
+create policy "card plays readable" on public.card_plays for select to anon, authenticated
+  using (
+    user_id = auth.uid() or public.week_locked(week) or card in ('embargo', '_keep')
+    or (card in ('duel', '_reply') and target_id = auth.uid())
+  );
+create policy "card plays insert own" on public.card_plays for insert to authenticated
+  with check (user_id = auth.uid() and public.card_window(card, week));
+create policy "card plays delete own" on public.card_plays for delete to authenticated
+  using (user_id = auth.uid() and card <> '_keep' and public.card_window(card, week));
+
+-- Scout Report: the five most-picked players in one slot of the open week, as
+-- counts only. Answers only someone who has played a Scout Report on that slot.
+create or replace function public.scout_report(w int, s text)
+  returns table (player_id int, picks int, entries int)
+  language sql stable security definer set search_path = public
+  as $$
+    select p.player_id, count(*)::int,
+      (select count(distinct x.user_id)::int from picks x where x.week = w)
+    from picks p
+    where p.week = w and p.slot = s and public.week_open(w)
+      and exists (select 1 from card_plays c where c.user_id = auth.uid() and c.week = w and c.card = 'scout' and c.slot = s)
+    group by p.player_id
+    order by count(*) desc, p.player_id
+    limit 5
+  $$;
+revoke execute on function public.scout_report(int, text) from public, anon;
+grant execute on function public.scout_report(int, text) to authenticated;
+
 -- Default locks: 7pm ET on the first day of each week.
 insert into public.weeks (week, lock_at) values
   (1, '2026-10-20T23:00:00.000Z'),

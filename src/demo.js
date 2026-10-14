@@ -3,8 +3,11 @@
 
 import { LEAGUE, buildWeeks, defaultLockAt } from './config.js';
 import { TEAMS } from './teams.js';
+import { computeLeague } from './league.js';
+import { CARDS, NICKNAMES, TAUNTS } from './cards.js';
 
 export const DEMO_NOW = Date.parse('2026-12-02T17:00:00Z'); // Wed of week 6
+const CARDS_FROM = 5; // the demo league switched cards on in week 5
 
 // [personId, first, last, team, pos, num, pts, reb, ast]
 const ROSTER = [
@@ -115,15 +118,21 @@ export function makeDemo() {
       const played = Math.round(games * frac);
       if (!w.final) w.leftByTeam[pl.team] = games - played;
       if (rand() < 0.05) continue; // sat out the week
-      const line = [0, 0, 0, 0];
+      // [games, pts, reb, ast, best game pts/reb/ast, worst game pts/reb/ast, team]
+      const line = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, pl.team];
       for (let g = 0; g < played; g++) {
         line[0]++;
-        pl.avg.forEach((a, i) => { line[i + 1] += Math.max(0, Math.round(a * (0.55 + rand() * 0.9))); });
+        pl.avg.forEach((a, i) => {
+          const v = Math.max(0, Math.round(a * (0.55 + rand() * 0.9)));
+          line[i + 1] += v;
+          line[i + 4] = Math.max(line[i + 4], v);
+          line[i + 7] = g ? Math.min(line[i + 7], v) : v;
+        });
       }
       if (line[0]) {
         p[pl.id] = line;
         const acc = seasonAcc[pl.id] ||= [0, 0, 0, 0];
-        line.forEach((v, i) => { acc[i] += v; });
+        for (let i = 0; i < 4; i++) acc[i] += line[i];
       }
     }
     const t = {};
@@ -186,5 +195,66 @@ export function makeDemo() {
     }
   }
   const unburns = [{ user_id: 'demo-4', slot: 'REB', player_id: 203999, week: 5 }];
-  return { version: 4, now, players, teams, weeks, totals, profiles, picks, unburns, meId };
+  const plays = demoPlays({ weeks, totals, picks, unburns, profiles, players, now, meId, rand });
+  return { version: 5, now, players, teams, weeks, totals, profiles, picks, unburns, plays, meId, cardsFrom: CARDS_FROM };
+}
+
+// The colleagues keep the spiciest card from each pack and play one a week,
+// with "You" as their favourite target. Week 5 is final, week 6 is live, and in
+// week 7 you can already see the duels aimed at you and any Embargo.
+const DRAMA = ['duel', 'jinx', 'embargo', 'reverse', 'blue_shell', 'heist', 'clown', 'nickname', 'load', 'burn_notice', 'leech', 'copycat', 'charge', 'sixth', 'scout'];
+
+function demoPlays({ weeks, totals, picks, unburns, profiles, players, now, meId, rand }) {
+  const plays = [];
+  const others = profiles.filter(p => p.id !== meId).map(p => p.id);
+  const lockOf = w => Date.parse(weeks.find(x => x.week === w).lockAt);
+  let seq = 0;
+  // Step 7 is still open, so its rows have to be in the past: just after week 6 locked.
+  const stamp = (step, hoursBefore) => new Date(Math.min(lockOf(step) - hoursBefore * 3600e3, now - 3600e3) + (seq++) * 1000).toISOString();
+  const compute = () => computeLeague({ weeks, totals, picks, unburns, plays, profiles, now, players, cardsFrom: CARDS_FROM });
+  const pickOne = arr => arr[Math.floor(rand() * arr.length)];
+  const STAT = { PTS: 0, REB: 1, AST: 2 };
+  const stars = slot => Object.values(players).sort((a, b) => b.avg[STAT[slot]] - a.avg[STAT[slot]]).slice(0, 6);
+
+  for (const step of [5, 6, 7]) {
+    let L = compute();
+    for (const id of others) {
+      for (const pk of L.users[id].cards.packs.filter(p => p.step === step && p.keep == null)) {
+        const pick = pk.cards.map((c, i) => [DRAMA.indexOf(c) < 0 ? 99 : DRAMA.indexOf(c), i]).sort((a, b) => a[0] - b[0])[0][1];
+        plays.push({ id: `seed-${seq}`, user_id: id, week: step, card: '_keep', card_uid: `pack:${pk.key}`, params: { pick }, created_at: stamp(step, 160) });
+      }
+    }
+    L = compute();
+    const wk = L.weeks.find(w => w.week === step);
+    for (const id of others) {
+      const hand = L.users[id].cards.hand.filter(h => h.step <= step && DRAMA.includes(h.card))
+        .sort((a, b) => DRAMA.indexOf(a.card) - DRAMA.indexOf(b.card));
+      const inst = hand[0];
+      if (!inst || rand() < 0.15) continue;
+      const card = inst.card;
+      const target = rand() < 0.55 ? meId : pickOne(others.filter(x => x !== id));
+      const slot = pickOne(card === 'sixth' ? LEAGUE.playerSlots : LEAGUE.slots);
+      const row = { id: `seed-${seq}`, user_id: id, week: step, card, card_uid: inst.uid, target_id: null, slot: null, player_id: null, params: {}, created_at: stamp(step, 30 + Math.floor(rand() * 100)) };
+      const needs = CARDS[card].needs;
+      if (needs.includes('target')) row.target_id = target;
+      if (needs.includes('slot')) row.slot = slot;
+      if (needs.includes('nickname')) row.params.nick = Math.floor(rand() * NICKNAMES.length);
+      if (['attack', 'prank', 'duel'].includes(CARDS[card].type) && rand() < 0.7) row.params.taunt = Math.floor(rand() * TAUNTS.length);
+      if (needs.includes('player')) {
+        // Jinx where it hurts: their real pick when the week has locked, a star otherwise.
+        const r = wk.results?.[row.target_id];
+        const theirs = r ? LEAGUE.slots.map(s => r.slots[s].scorer).filter(x => x != null) : [];
+        const s2 = row.slot || slot;
+        row.player_id = card === 'jinx' && theirs.length && rand() < 0.7 ? pickOne(theirs)
+          : s2 === 'WIN' ? pickOne(Object.values(TEAMS)).id : pickOne(stars(s2)).id;
+      }
+      if (card === 'heist') {
+        const above = L.standings.filter(u => u.id !== id).slice(0, 4);
+        row.target_id = pickOne(above).id;
+      }
+      if (card === 'embargo') row.created_at = stamp(step, 140);
+      plays.push(row);
+    }
+  }
+  return plays;
 }

@@ -113,6 +113,31 @@ There's no money, just bragging rights and a **downloadable certificate** for ev
 - **Two jokers a season:**
   - **Double Down**: one slot earns double rank points this week.
   - **Un-burn**: get back one player in one category, once.
+- **Joker cards** (Monopoly Go meets Uno). You earn packs of three cards, keep one, and the other two burn. You can play one card a week. Traps and gifts don't count toward that.
+  - **Where packs come from:**
+    - a Starter Pack when you join;
+    - a Locker Room Pack every week you picked for yourself (not Autopilot);
+    - Award Packs for Galaxy Brain, Heater, Ice Cold or the Fumble;
+    - a Revenge Pack when you lose a life;
+    - an Album Pack for each NBA division you complete in your sticker album. Every player who scores for you adds his team.
+  - **Comeback odds:** the top quarter of the standings pulls mostly commons. Only the bottom half can pull Heist and Blue Shell.
+  - **The deck (17 cards):**
+
+    | Kind | Cards |
+    |---|---|
+    | Attacks (blind, before the lock) | Jinx, Load Management, Heist, Blue Shell, Burn Notice |
+    | Pranks | Clown Nose, Nickname |
+    | Traps, armed face-down | Charge Taken, Uno Reverse |
+    | Boosts | Sixth Man, Copycat, Leech |
+    | Hindsight, rewriting last week | Switcheroo, Garbage Time |
+    | Chaos | Embargo, Scout Report |
+    | Head to head | Duel (decline and you wear 🐔) |
+
+  - **Guardrails:**
+    - Each person takes at most 2 attacks or pranks a week. Extras fizzle and the card goes back to its owner.
+    - Hand limit 4. The oldest card goes first.
+    - Cards move rank points but never touch the Survivor Belt: the bars only look at your own picks.
+  - **The reveal:** everything is revealed at the lock as a card table, with taunts.
 - **Rivals.** Name one coworker as your rival and see your weekly head-to-head record next to the standings.
 - **Playoff Burn** (April to June): a separate mini-game with a fresh burn list. Each round you make one pick per category, and the score is that player's total for the round.
 
@@ -154,7 +179,7 @@ Still open:
 
 Built (see the README for setup):
 - **The app:** a static site with an NBA arena look. It covers sign-up and sign-in, picks with backups, a player picker with projections, a live week view, results with the lock reveal, standings, the survivor ladder, a burn book, rivals, trophies and certificates, and rules.
-- **Jokers and Rivals:** live from day one.
+- **Jokers, Joker cards and Rivals:** live from day one. Cards come with pack opening, the reveal, the sticker album, and card effects on the results board.
 - **Weekly awards and Monthly Crowns:** calculated automatically.
 - **Storage:** Supabase (free tier). Row-level security handles locks and keeps picks hidden until the lock.
 - **Hourly GitHub Action:** pulls NBA.com box scores, syncs locks to the real first tip-off, and runs Autopilot.

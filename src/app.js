@@ -1,17 +1,19 @@
 import { LEAGUE, buildWeeks, defaultLockAt, MONTH_LABELS } from './config.js';
 import { computeLeague, headToHead, blockedReason, projection, teamProjection, fmt } from './league.js';
-import { TEAMS, TEAM_BY_ID, isTeamId, teamLogo, headshot } from './teams.js';
+import { TEAMS, TEAM_BY_ID, DIVISIONS, isTeamId, teamLogo, headshot } from './teams.js';
 import { SupabaseBackend, DemoBackend } from './backend.js';
 import { downloadCertificate } from './certificate.js';
 import { funStats, perfectPlay } from './stats.js';
 import { UPDATES, LATEST_UPDATE } from './updates.js';
 import { seasonAwards } from './awards.js';
+import { CARDS, RARITY, TYPES, NICKNAMES, TAUNTS, isTrap, isHindsight, countsAsPlay, dealPack } from './cards.js';
+import { cardFace, cardBack, packArt, openPack, initHolo } from './pack.js';
 
 const SLOTS = LEAGUE.slots;
 const INFO = LEAGUE.slotInfo;
 const STAT_IDX = { PTS: 0, REB: 1, AST: 2 };
 const VIEWS = [
-  ['week', 'This Week'], ['standings', 'Standings'], ['survivor', 'Survivor'], ['results', 'Results'],
+  ['week', 'This Week'], ['cards', 'Cards'], ['standings', 'Standings'], ['survivor', 'Survivor'], ['results', 'Results'],
   ['burns', 'Burn Book'], ['rivals', 'Rivals'], ['trophies', 'Trophies'], ['rules', 'Rules'],
 ];
 
@@ -21,10 +23,10 @@ const DEMO = params.has('demo') || !LEAGUE.supabaseUrl;
 const S = {
   backend: null, clockOffset: 0,
   data: { weeks: [], players: {}, totals: {}, meta: null },
-  db: { profiles: [], picks: [], unburns: [], locks: {} },
+  db: { profiles: [], picks: [], unburns: [], plays: [], locks: {} },
   league: null, me: null,
   view: 'week', resultsWeek: null, burnUser: null, month: null,
-  draft: null, picker: null, authMode: 'signup', busy: false,
+  draft: null, picker: null, play: null, cardsWeek: null, authMode: 'signup', busy: false,
 };
 
 const now = () => Date.now() + S.clockOffset;
@@ -49,13 +51,14 @@ async function boot() {
       const seed = makeDemo();
       S.clockOffset = seed.now - Date.now();
       S.backend = new DemoBackend(seed, now);
-      S.data = { weeks: seed.weeks, players: seed.players, teams: seed.teams, totals: seed.totals, meta: { updatedAt: new Date(seed.now).toISOString(), demo: true } };
+      S.data = { weeks: seed.weeks, players: seed.players, teams: seed.teams, totals: seed.totals, cardsFrom: seed.cardsFrom, meta: { updatedAt: new Date(seed.now).toISOString(), demo: true } };
       $('#demo-banner').innerHTML = `<div class="demo-banner">Demo league · made-up colleagues and simulated stats, frozen in early December. <button data-act="demo-reset">Reset demo</button></div>`;
     } else {
       S.backend = new SupabaseBackend();
       S.data = await loadData();
     }
     await S.backend.init();
+    initHolo();
     S.view = viewFromHash();
     await refresh();
   } catch (e) {
@@ -101,7 +104,10 @@ async function loadData() {
 async function refresh() {
   S.db = await S.backend.load();
   const weeks = S.data.weeks.map(w => ({ ...w, lockAt: S.db.locks[w.week] || w.lockAt }));
-  S.league = computeLeague({ weeks, totals: S.data.totals, picks: S.db.picks, unburns: S.db.unburns, profiles: S.db.profiles, now: now(), players: S.data.players });
+  S.league = computeLeague({
+    weeks, totals: S.data.totals, picks: S.db.picks, unburns: S.db.unburns, plays: S.db.plays || [], profiles: S.db.profiles,
+    now: now(), players: S.data.players, cardsFrom: S.data.cardsFrom ?? LEAGUE.cards.startWeek,
+  });
   S.me = S.db.profiles.find(p => p.id === myId()) || null;
   if (S.adminFor !== myId()) {
     S.adminFor = myId();
@@ -177,9 +183,9 @@ function render() {
   const signedIn = !!myId();
   let html;
   if (signedIn && !S.me) html = viewProfileSetup();
-  else if (!signedIn && (S.view === 'week' || S.view === 'rivals')) html = viewAuth();
+  else if (!signedIn && (S.view === 'week' || S.view === 'rivals' || S.view === 'cards')) html = viewAuth();
   else if (S.view === 'admin') html = S.isAdmin ? viewAdmin() : viewWeek();
-  else html = ({ week: viewWeek, standings: viewStandings, survivor: viewSurvivor, results: viewResults, burns: viewBurns, rivals: viewRivals, trophies: viewTrophies, rules: viewRules })[S.view]();
+  else html = ({ week: viewWeek, cards: viewCards, standings: viewStandings, survivor: viewSurvivor, results: viewResults, burns: viewBurns, rivals: viewRivals, trophies: viewTrophies, rules: viewRules })[S.view]();
   $('#app').innerHTML = html;
   tick();
 }
@@ -200,7 +206,8 @@ function needsPicks() {
 
 function renderTabs() {
   $('#tabs').innerHTML = views().map(([k, label]) => {
-    const dot = (k === 'week' && needsPicks()) || (k === 'results' && liveWeek()) ? '<span class="dot"></span>' : '';
+    const cardsDot = k === 'cards' && S.me && (waitingPacks().length || unansweredDuels().length);
+    const dot = (k === 'week' && needsPicks()) || (k === 'results' && liveWeek()) || cardsDot ? '<span class="dot"></span>' : '';
     return `<a class="tab" role="tab" href="#${k}" aria-selected="${S.view === k}">${label}${dot}</a>`;
   }).join('');
   const sel = $('#tabs [aria-selected="true"]');
@@ -223,6 +230,14 @@ function renderTicker() {
   for (const a of lastFinal?.awards || []) {
     if (a.key === 'fumble') continue;
     items.push(`${a.icon} <b>${a.title.toUpperCase()}</b> ${esc(userName(a.user))}${a.pid ? ` · ${esc(shortName(a.pid))}` : ''} · ${esc(a.text)}`);
+  }
+  const lastLocked = [...lockedWeeks()].pop();
+  if (lastLocked) {
+    const drama = (L.cards.weeks[lastLocked.week]?.plays || []).filter(p => p.ok && (p.outcome === 'reversed' || p.outcome === 'blocked' || p.hits?.length || p.burned || ['won', 'lost', 'declined'].includes(p.outcome)));
+    for (const p of drama.slice(0, 4)) {
+      const st = playStory(p, lastLocked);
+      items.push(`${st.icon} <b>CARD TABLE</b> ${st.text} · ${st.res}`);
+    }
   }
   if (L.survivor.order.length) items.push(`❤️ <b>SURVIVOR</b> ${L.survivor.alive} of ${L.survivor.order.length} still alive`);
   if (L.standings[0] && lockedWeeks().length) items.push(`🏆 <b>TOP OF THE TABLE</b> ${esc(L.standings[0].name)} · ${fmt(L.standings[0].counted)} pts`);
@@ -288,6 +303,7 @@ function viewWeek() {
     parts.push(`<section class="hero"><span class="badge final">Season complete</span><h1>That's a wrap</h1><div class="sub">Head to Trophies for the champions and their certificates.</div></section>`);
   }
 
+  if (S.me) parts.push(weekCallouts());
   if (lw) parts.push(viewLive(lw));
   if (open) parts.push(viewPicks(open));
   return `<div class="grid">${parts.join('')}</div>`;
@@ -303,17 +319,17 @@ function viewLive(w) {
   }
   const cards = SLOTS.map(s => {
     const x = r.slots[s];
-    const pid = x.scorer ?? x.pid;
+    const pid = x.copy ? x.copyPid : x.scorer ?? x.pid;
     const bar = LEAGUE.bars[s];
-    const pct = Math.min(100, (x.value / bar) * 100);
+    const pct = Math.min(100, (x.base / bar) * 100);
     const team = isTeamId(pid) ? TEAM_BY_ID[pid] : player(pid)?.team;
     const left = w.leftByTeam?.[team] ?? 0;
     return `<div class="live-slot" data-slot="${s}">
-      <div class="live-top">${thumb(pid)}<div><div class="kicker">${INFO[s].emoji} ${INFO[s].name}</div><b>${esc(pname(pid))}</b>
-        <div class="dim" style="font-size:12px">${esc(team || '')} · ${x.gp} played${left ? ` · ${left} left` : ''}${x.usedAlt ? ' · backup in' : ''}${x.auto ? ' · autopilot' : ''}</div></div></div>
-      <div class="big-num">${x.value}<small>${INFO[s].short}</small></div>
-      <div class="meter ${x.value >= bar ? 'ok' : ''}"><i style="width:${pct}%"></i></div>
-      <div class="meter-cap"><span>Survival bar ${bar}</span><span>${x.value >= bar ? 'Cleared ✓' : `${bar - x.value} to go`}</span></div>
+      <div class="live-top">${thumb(pid)}<div><div class="kicker">${INFO[s].emoji} ${INFO[s].name}</div><b>${x.copy ? `🐱 Copying ${esc(userName(x.copy))}` : esc(pname(pid))}</b>
+        <div class="dim" style="font-size:12px">${x.copy ? esc(pname(pid)) : `${esc(team || '')} · ${x.gp} played${left ? ` · ${left} left` : ''}${x.usedAlt ? ' · backup in' : ''}${x.auto ? ' · autopilot' : ''}`}</div></div></div>
+      <div class="big-num">${x.value}<small>${INFO[s].short}</small>${fxIcons(x)}</div>
+      <div class="meter ${x.base >= bar ? 'ok' : ''}"><i style="width:${pct}%"></i></div>
+      <div class="meter-cap"><span>Survival bar ${bar}${x.base !== x.value ? ` · your pick has ${x.base}` : ''}</span><span>${x.base >= bar ? 'Cleared ✓' : `${bar - x.base} to go`}</span></div>
       <div class="meter-cap"><span>${fmt(x.rank)} rank pts${x.dd ? ' · 🔥 Double Down' : ''}</span><span>${x.owned > 1 ? `${x.owned} picked him` : 'Unique pick'}</span></div>
     </div>`;
   }).join('');
@@ -326,7 +342,16 @@ function viewLive(w) {
       <div class="stat"><b style="color:${onTrack ? 'var(--green)' : 'var(--orange)'}">${r.cleared}/${SLOTS.length}</b><small>${onTrack ? 'Bars cleared · safe' : 'Bars cleared · in danger'}</small></div>
     </div>
     <div class="live-grid">${cards}</div>
+    ${liveCards(w)}
   </section>`;
+}
+
+// The card plays that touch you this week.
+function liveCards(w) {
+  const rows = cardTableRows(w, p => p.user_id === myId() || p.target_id === myId() || p.target === myId());
+  const adj = w.results[myId()]?.adj || [];
+  if (!rows.length && !adj.length) return '';
+  return `<h3 class="kicker" style="margin:16px 0 8px">Cards in play</h3><div class="ct-list">${rows.join('')}</div>`;
 }
 
 function viewPicks(open) {
@@ -349,6 +374,13 @@ function viewPicks(open) {
 function slotCard(s, open, u, d) {
   const sel = d.slots[s];
   const head = `<div class="slot-head"><b>${INFO[s].emoji} ${INFO[s].name}</b><span>${INFO[s].stat}</span></div>`;
+  const copy = (openCw()?.plays || []).find(p => p.ok && p.user_id === myId() && p.card === 'copycat' && p.slot === s);
+  if (copy) {
+    return `<div class="slot-card" data-slot="${s}">${head}
+      <div class="slot-empty"><div><div style="font-size:46px">🐱</div><b class="display" style="font-size:20px">Copying ${esc(userName(copy.target_id))}</b>
+        <p class="muted" style="font-size:13px;margin:6px 0 0">This slot scores whatever they picked here. Nothing burns, and it counts 0 toward the survival bars.${sel?.player_id ? ' Your own pick here is ignored.' : ''}</p></div></div>
+    </div>`;
+  }
   if (!sel?.player_id) {
     return `<div class="slot-card" data-slot="${s}">${head}
       <div class="slot-empty"><button class="add-big" data-act="pick" data-slot="${s}" data-which="main"><span class="plus">+</span><b>Choose your ${INFO[s].name.toLowerCase()} pick</b><span>Best ${INFO[s].stat.toLowerCase()} total this week</span></button></div>
@@ -389,7 +421,8 @@ function slotCard(s, open, u, d) {
       <span class="mono">${esc(initials(p?.name))}</span>
       <img class="shot" src="${headshot(sel.player_id)}" alt="" onerror="this.remove()">
     </div>
-    <div class="player-info"><div class="pname">${esc(pname(sel.player_id))}</div><div class="pmeta">${esc(t ? `${t.city} ${t.name}` : p?.team || '')}${p?.pos ? ` · ${esc(p.pos)}` : ''}</div></div>
+    <div class="player-info"><div class="pname">${esc(pname(sel.player_id))}</div><div class="pmeta">${esc(t ? `${t.city} ${t.name}` : p?.team || '')}${p?.pos ? ` · ${esc(p.pos)}` : ''}</div>
+      ${openCw()?.embargo[s].has(sel.player_id) ? `<div class="err" style="margin-top:6px">🚫 Embargoed this week by ${esc(userName(openCw().embargo[s].get(sel.player_id).user_id))}. He can't score here: change the pick or add a backup.</div>` : ''}</div>
     <div class="statline">
       <div><b>${fmt(avg)}</b><small>${INFO[s].short}/game</small></div>
       <div><b>${games}</b><small>Games</small></div>
@@ -534,7 +567,7 @@ function choose(pid) {
   render();
 }
 
-function closeModal() { $('#modal-root').innerHTML = ''; S.picker = null; }
+function closeModal() { $('#modal-root').innerHTML = ''; S.picker = null; S.play = null; }
 
 async function save() {
   const d = S.draft;
@@ -577,6 +610,481 @@ async function unburn(slot, pid) {
   await refresh();
 }
 
+// ---------- Cards ----------
+
+const cardName = c => CARDS[c]?.name || c;
+const cardMini = c => CARDS[c] ? `<span class="card-mini r-${CARDS[c].rarity}">${CARDS[c].icon} ${esc(CARDS[c].name)}</span>` : '';
+const slotName = s => s ? `${INFO[s].emoji} ${INFO[s].name}` : '';
+const byName = (a, b) => a.name.localeCompare(b.name);
+const you = (id, cap = false) => id === myId() ? (cap ? 'You' : 'you') : userName(id);
+function cw(week) { return S.league.cards.weeks[week] || null; }
+function openCw() { return S.league.openWeek != null ? cw(S.league.openWeek) : null; }
+
+function waitingPacks() {
+  const u = meU(), ow = S.league.openWeek;
+  return u?.cards && ow != null ? u.cards.packs.filter(p => p.step === ow && p.keep == null && !p.auto) : [];
+}
+function myMainPlay(week) { return (cw(week)?.plays || []).find(p => p.user_id === myId() && p.ok && countsAsPlay(p.card)); }
+function hindsightWeek() {
+  const ow = S.league.openWeek;
+  const w = ow != null ? weekObj(ow - 1) : null;
+  return w && w.status === 'final' && w.week >= S.league.cards.from ? w : null;
+}
+function replyTo(duelId) { return S.db.plays.find(p => p.card === '_reply' && p.user_id === myId() && p.params?.duel === duelId); }
+function incomingDuels() { return (openCw()?.plays || []).filter(p => p.ok && p.card === 'duel' && p.target_id === myId()); }
+function unansweredDuels() { return incomingDuels().filter(p => !replyTo(p.id)); }
+// Season-points order before this week: what Blue Shell and Heist look at.
+function pointsOrder() { return Object.values(S.league.users).filter(u => Object.keys(u.weekly).length).sort((a, b) => b.total - a.total || byName(a, b)); }
+
+// Whether a card in your hand can be played now, and on which week.
+function cardUse(inst) {
+  const ow = S.league.openWeek;
+  if (ow == null) return { why: 'The season is over.' };
+  const c = inst.card;
+  if (isHindsight(c)) {
+    const hw = hindsightWeek();
+    if (!hw) return { why: `Works on a finished week. Week ${ow - 1} isn't final yet.` };
+    if (inst.step > hw.week) return { why: `New this week, so it can rewrite Week ${ow} once that's final.` };
+    const used = myMainPlay(hw.week);
+    if (used) return { why: `You already played ${cardName(used.card)} on Week ${hw.week}.` };
+    if (!weekObj(hw.week).results[myId()]) return { why: `You had no picks in Week ${hw.week}.` };
+    return { week: hw.week };
+  }
+  if (countsAsPlay(c)) {
+    const used = myMainPlay(ow);
+    if (used) return { why: `One card a week: you've played ${cardName(used.card)}.` };
+  }
+  if (c === 'embargo' && Date.parse(weekObj(ow).lockAt) - now() < LEAGUE.cards.embargoHours * 3600e3) return { why: `An Embargo needs ${LEAGUE.cards.embargoHours} hours' notice before the lock.` };
+  return { week: ow };
+}
+
+function fxTitle(f) {
+  return `${CARDS[f.card]?.name || ''}${f.who ? ` · ${userName(f.who)}` : ''}${f.reversed ? ' (bounced back)' : ''}${f.note ? ` · ${f.note}` : ''}`;
+}
+function fxIcons(x) {
+  return (x.fx || []).map(f => `<span class="fx" title="${esc(fxTitle(f))}">${CARDS[f.card]?.icon || ''}</span>`).join('');
+}
+function adjChip(r) {
+  if (!r.adj?.length) return '';
+  const sum = r.adj.reduce((a, x) => a + x.pts, 0);
+  const title = r.adj.map(x => `${CARDS[x.card].name} ${x.pts > 0 ? '+' : ''}${fmt(x.pts)}${x.who ? ` (${userName(x.who)})` : ''}`).join(', ');
+  return `<span class="adj ${sum >= 0 ? 'up' : 'down'}" title="${esc(title)}">${sum > 0 ? '+' : ''}${fmt(sum)} 🃏</span>`;
+}
+// Clown nose, nickname and the duel chicken, for one week.
+function decor(id, week, inline = false) {
+  const c = cw(week);
+  if (!c) return '';
+  const cos = c.cosmetics[id];
+  let h = '';
+  if (cos?.clown) h += `<span class="cos" title="Clown Nose from ${esc(userName(cos.clown))}">🤡</span>`;
+  if (c.chickens.has(id)) h += '<span class="cos" title="Ducked a duel">🐔</span>';
+  if (cos?.nickname) h += `<span class="nick" ${inline ? 'style="display:inline;margin-left:6px"' : ''} title="Nickname from ${esc(userName(cos.nickname.by))}">“${esc(NICKNAMES[cos.nickname.nick])}”</span>`;
+  return h;
+}
+
+const FIZZ = {
+  cap: 'Fizzled: they were already hit twice. Card returned',
+  'not-above': "Fizzled: they weren't above you. Card returned",
+  'you-lead': 'Fizzled: you were the leader. Card returned',
+  'no-target': 'Fizzled: no target. Card returned',
+  burned: 'Fizzled: a player was burned in his new slot. Card returned',
+  'bad-swap': 'Fizzled. Card returned',
+  'one-game': 'Fizzled: needs a pick with 2+ games. Card returned',
+  'already-picked': 'Fizzled: he was already one of your picks. Card returned',
+};
+
+// One line of the card table: what was played, on whom, and what happened.
+function playStory(p, w) {
+  const d = CARDS[p.card];
+  const A = `<b>${esc(you(p.user_id, true))}</b>`;
+  const T = id => `<b>${esc(you(id))}</b>`;
+  const Tp = id => `<b>${esc(id === myId() ? 'your' : `${userName(id)}'s`)}</b>`;
+  const P = pid => `<b>${esc(pname(pid))}</b>`;
+  const hit = h => `${INFO[h.slot].name} ${fmt(h.before)} → ${fmt(h.after)}`;
+  if (p.why === 'not-in-hand') return { icon: '🚨', text: `${A} tried to play ${esc(d?.name || p.card)} without holding it. Nice try.`, res: 'No effect', cls: 'bad' };
+  if (p.card === 'gift') return { icon: '🎁', text: `${A} gifted ${T(p.target_id)} ${cardMini(p.gift)}`, res: w.status === 'open' ? 'Arrives next week' : 'Delivered', cls: 'good' };
+  const text = {
+    jinx: () => `${A} jinxed ${Tp(p.target_id)} ${P(p.player_id)}`,
+    load: () => `${A} put ${Tp(p.target_id)} ${slotName(p.slot)} pick on load management`,
+    heist: () => `${A} pulled a heist on ${T(p.target_id)}`,
+    blue_shell: () => `${A} fired a Blue Shell${p.target ? ` at the leader, ${T(p.target)}` : ''}`,
+    burn_notice: () => `${A} served ${T(p.target_id)} a Burn Notice: ${P(p.player_id)} in ${slotName(p.slot)}`,
+    clown: () => `${A} put a clown nose on ${T(p.target_id)}`,
+    nickname: () => `${A} renamed ${T(p.target_id)} “${esc(NICKNAMES[p.params?.nick] || '')}”`,
+    sixth: () => `${A} brought ${P(p.player_id)} off the bench`,
+    copycat: () => `${A} copied ${Tp(p.target_id)} ${slotName(p.slot)} pick`,
+    leech: () => `${A} latched onto ${Tp(p.target_id)} ${slotName(p.slot)}`,
+    switcheroo: () => `${A} pulled a Switcheroo`,
+    garbage: () => `${A} called Garbage Time on ${slotName(p.slot)}`,
+    embargo: () => `${A} embargoed ${P(p.player_id)} in ${slotName(p.slot)} for everyone`,
+    scout: () => `${A} scouted the ${slotName(p.slot)} board`,
+    duel: () => `${A} challenged ${T(p.target_id)} to a duel on ${slotName(p.slot)}`,
+    charge: () => `${A} has a trap set`,
+    reverse: () => `${A} has a trap set`,
+  }[p.card]?.() || `${A} played ${esc(d?.name)}`;
+
+  let res = '', cls = '';
+  const live = w.status === 'live' ? ' (so far)' : '';
+  if (w.status === 'open') res = p.card === 'embargo' ? 'Live now' : p.card === 'duel' ? 'Settles after the week' : 'Revealed at the lock';
+  else if (p.outcome === 'blocked') { res = `🛡️ ${esc(userName(p.target))} took the charge`; cls = 'gold'; }
+  else if (p.outcome === 'fizzled') res = FIZZ[p.why] || 'Fizzled';
+  else {
+    const rev = p.outcome === 'reversed' ? `🔄 Bounced back by ${esc(you(p.target))}! ` : '';
+    if (rev) cls = 'gold';
+    switch (p.card) {
+      case 'jinx': res = p.hits?.length ? `${rev}Hit · ${p.hits.map(hit).join(', ')}` : `${rev}Air ball`; cls ||= p.hits?.length ? 'bad' : ''; break;
+      case 'load': res = p.hits?.length ? `${rev}${hit(p.hits[0])}` : `${rev}No effect`; cls ||= p.hits?.length ? 'bad' : ''; break;
+      case 'heist': res = p.pts ? `${rev}${p.pts} pts stolen` : `${rev}Came up empty`; cls ||= 'bad'; break;
+      case 'blue_shell': res = p.hits?.length ? `${rev}${INFO[p.hits[0].slot].name} ${fmt(p.hits[0].before)} → ${fmt(p.hits[0].after)} rank pts` : `${rev}Missed`; cls ||= 'bad'; break;
+      case 'burn_notice': res = p.burned ? `${rev}Burned for the season` : `${rev}He was already burned`; cls ||= p.burned ? 'bad' : ''; break;
+      case 'clown': case 'nickname': res = rev ? `${rev}They wear it` : 'Landed'; break;
+      case 'sixth': res = p.outcome === 'played' ? `Subbed into ${INFO[p.slot].name}: ${fmt(p.before)} → ${fmt(p.after)}${live}` : 'Stayed on the bench'; cls = p.outcome === 'played' ? 'good' : ''; break;
+      case 'copycat': res = `${fmt(p.value ?? 0)} ${INFO[p.slot].short}${live}`; cls = 'good'; break;
+      case 'leech': res = `+${fmt(p.pts || 0)} pts${live}`; cls = 'good'; break;
+      case 'switcheroo': res = (p.moves || []).filter(m => m.from !== m.to).map(m => `${esc(shortName(m.pid))} → ${INFO[m.to].name} (${m.value})`).join(', '); cls = 'good'; break;
+      case 'garbage': res = `${fmt(p.before)} → ${fmt(p.after)}`; cls = 'good'; break;
+      case 'embargo': res = `${p.victims?.length || 0} pick${p.victims?.length === 1 ? '' : 's'} blocked`; break;
+      case 'scout': res = 'Intel gathered'; break;
+      case 'duel':
+        res = p.outcome === 'declined' ? '🐔 Declined' : p.outcome === 'push' ? 'Push' : p.outcome === 'void' ? 'No contest'
+          : `${esc(you(p.outcome === 'won' ? p.user_id : p.target_id, true))} ${(p.outcome === 'won' ? p.user_id : p.target_id) === myId() ? 'take' : 'takes'} ${p.pts}${live}`;
+        cls = p.outcome === 'declined' ? 'gold' : ''; break;
+    }
+  }
+  return { icon: d?.icon || '🃏', text, res, cls };
+}
+
+function cardTableRows(w, filter = () => true) {
+  const c = cw(w.week);
+  if (!c) return [];
+  return c.plays.filter(p => {
+    if (!filter(p)) return false;
+    if (p.why === 'not-in-hand') return w.status !== 'open';
+    if (!p.ok || isTrap(p.card)) return false; // traps show up with the attack they stopped
+    if (w.status === 'open') return p.user_id === myId() || p.card === 'embargo' || (p.card === 'duel' && p.target_id === myId());
+    return true;
+  }).map(p => {
+    const st = playStory(p, w);
+    const taunt = p.params?.taunt != null && TAUNTS[p.params.taunt] ? `<q>${esc(TAUNTS[p.params.taunt])}</q>` : '';
+    const me = [p.user_id, p.target_id, p.target].includes(myId());
+    return `<div class="ct-row ${me ? 'me' : ''}"><div class="ic">${st.icon}</div><div class="txt">${st.text}${taunt}</div><div class="res ${st.cls}">${st.res}</div></div>`;
+  });
+}
+
+function cardTablePanel(w) {
+  if (w.week < S.league.cards.from) return '';
+  const rows = cardTableRows(w);
+  return `<section class="panel"><div class="panel-title"><h2>Card table · Week ${w.week}</h2><span class="muted">${w.status === 'live' ? 'Live: points can still swing' : 'Every card played, and what it did'}</span></div>
+    ${rows.length ? `<div class="ct-list">${rows.join('')}</div>` : '<p class="muted" style="margin:0">Nobody played a card this week. Suspiciously peaceful.</p>'}</section>`;
+}
+
+function weekCallouts() {
+  const out = [];
+  const packs = waitingPacks();
+  if (packs.length) out.push(`<div class="callout gold"><span class="ic">📦</span><div class="txt"><b>${packs.length} pack${packs.length > 1 ? 's' : ''} waiting.</b> Open ${packs.length > 1 ? 'them' : 'it'} before the lock, or the first card is kept for you.</div><a class="btn small gold" href="#cards">Open</a></div>`);
+  for (const d of unansweredDuels()) out.push(`<div class="callout purple"><span class="ic">⚔️</span><div class="txt"><b>${esc(userName(d.user_id))}</b> challenged you to a duel on ${slotName(d.slot)}. No answer by the lock means you accepted.</div><a class="btn small" href="#cards">Answer</a></div>`);
+  const emb = (openCw()?.plays || []).filter(p => p.ok && p.card === 'embargo');
+  if (emb.length) out.push(`<div class="callout red"><span class="ic">🚫</span><div class="txt">Embargo this week: ${emb.map(e => `<b>${esc(pname(e.player_id))}</b> can't be used for ${INFO[e.slot].name} (thanks, ${esc(userName(e.user_id))})`).join('; ')}.</div></div>`);
+  return out.length ? `<div class="grid" style="gap:10px">${out.join('')}</div>` : '';
+}
+
+function viewCards() {
+  const L = S.league, u = meU(), ow = L.openWeek;
+  const packs = waitingPacks();
+  const hand = u.cards.hand;
+  const main = ow != null ? myMainPlay(ow) : null;
+  const parts = [];
+  parts.push(`<section class="hero cards-hero">
+    <span class="badge gold">Joker cards</span>
+    <h1>The card table</h1>
+    <div class="sub">Open packs, keep one card from each, and play one card a week (traps are free). Attacks and pranks are revealed at the lock.</div>
+    <div class="stats">
+      <span class="bar-pill">🃏 Hand <b>${hand.length}/${LEAGUE.cards.handLimit}</b></span>
+      <span class="bar-pill">This week's card <b>${main ? esc(cardName(main.card)) : ow != null ? 'Not played yet' : '—'}</b></span>
+      <span class="bar-pill">🪤 Traps armed <b>${u.cards.armed.length}</b></span>
+      <span class="bar-pill">📒 Album <b>${u.cards.album.size}/30</b></span>
+    </div>
+    ${ow != null && ow < L.cards.from ? `<p class="sub" style="margin:12px 0 0">Cards switch on in Week ${L.cards.from}. Everyone gets a Starter Pack then.</p>` : ''}
+    ${packs.length ? `<div class="packs-row">${packs.map(p => `<button class="pack-mini" data-act="pack-open" data-key="${esc(p.key)}" aria-label="Open pack"><div class="shell">${packArt(p)}</div><span class="btn small gold">Open</span></button>`).join('')}</div>` : ''}
+    ${DEMO ? '<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn small" data-act="pack-practice">Rip a practice pack</button><span style="font-size:12px;color:#dbe4f7">Demo only. Nothing is saved.</span></div>' : ''}
+  </section>`);
+
+  const over = hand.length - LEAGUE.cards.handLimit;
+  parts.push(`<section class="panel"><div class="panel-title"><h2>Your hand</h2><span class="muted">Tap a card to play or gift it</span></div>
+    ${over > 0 ? `<div class="callout red" style="margin-bottom:14px"><span class="ic">⚠️</span><div class="txt">You're over the ${LEAGUE.cards.handLimit}-card limit. At the lock your oldest ${over === 1 ? 'card is' : `${over} cards are`} discarded, so play or gift something first.</div></div>` : ''}
+    ${hand.length ? `<div class="hand">${hand.map(h => {
+      const use = cardUse(h);
+      const note = use.why || (isTrap(h.card) ? 'Ready to arm' : isHindsight(h.card) ? `Ready for Week ${use.week}` : 'Ready to play');
+      return `<button class="hand-card" data-act="card-open" data-uid="${esc(h.uid)}">${cardFace(h.card, { cls: 'tilt' })}<span class="why">${esc(note)}${h.from === 'gift' ? ` · 🎁 from ${esc(userName(h.by))}` : ''}</span></button>`;
+    }).join('')}</div>`
+      : `<div class="empty-state"><div class="ic">🃏</div>${packs.length ? 'Open a pack to get started.' : 'No cards yet. You get a Locker Room Pack every week you make your own picks.'}</div>`}
+    ${u.cards.armed.length ? `<div class="armed">${u.cards.armed.map(a => `<div class="armed-item">${cardBack()}<div><b>${esc(cardName(a.card))}</b><div class="dim">Armed face-down since Week ${a.armedWeek}. Springs on the next attack or prank.</div></div></div>`).join('')}</div>` : ''}
+  </section>`);
+
+  if (ow != null) parts.push(thisWeekCards(ow));
+
+  const weeks = lockedWeeks().filter(w => w.week >= L.cards.from);
+  if (weeks.length) {
+    const w = weeks.find(x => x.week === S.cardsWeek) || weeks[weeks.length - 1];
+    const rows = cardTableRows(w);
+    parts.push(`<section class="panel"><div class="panel-title"><h2>The reveal</h2>
+        <div class="pills">${weeks.map(x => `<button class="pill ${x.status === 'live' ? 'live' : ''}" data-act="cards-week" data-week="${x.week}" aria-pressed="${x.week === w.week}">Wk ${x.week}</button>`).join('')}</div></div>
+      ${rows.length ? `<div class="ct-list">${rows.join('')}</div>` : '<p class="muted" style="margin:0">Nobody played a card that week.</p>'}</section>`);
+  }
+  parts.push(albumPanel(u));
+  parts.push(deckPanel());
+  return `<div class="grid">${parts.join('')}</div>`;
+}
+
+function thisWeekCards(ow) {
+  const c = openCw();
+  const hw = hindsightWeek();
+  const mine = [...(c?.plays || []), ...(hw ? cw(hw.week)?.plays || [] : [])].filter(p => p.user_id === myId() && (p.week === ow || isHindsight(p.card)));
+  const rows = mine.map(p => {
+    const st = playStory(p, weekObj(p.week));
+    const note = p.ok ? '' : ` <span class="dim">(${p.why === 'limit' ? "doesn't count: one card a week" : p.why === 'not-in-hand' ? 'card not in your hand' : 'not valid'})</span>`;
+    const extra = p.card === 'scout' && p.ok ? `<button class="btn small" data-act="scout-view" data-week="${p.week}" data-slot="${p.slot}">See report</button>` : '';
+    const what = isTrap(p.card) ? `You armed ${esc(cardName(p.card))} face-down${p.sprung ? `. It sprang in Week ${p.sprung}` : ''}` : st.text;
+    return `<div class="ct-row me"><div class="ic">${st.icon}</div><div class="txt">${what}${note}</div><div style="display:flex;gap:8px;align-items:center">${extra}<button class="link danger" data-act="play-undo" data-id="${esc(p.id)}">Take back</button></div></div>`;
+  });
+  const duels = incomingDuels().map(p => {
+    const r = replyTo(p.id);
+    const taunt = p.params?.taunt != null ? ` <i class="muted">“${esc(TAUNTS[p.params.taunt])}”</i>` : '';
+    return `<div class="duel-card"><span style="font-size:26px">⚔️</span><div class="txt"><b>${esc(userName(p.user_id))}</b> challenged you on ${slotName(p.slot)}. Winner takes ${LEAGUE.cards.duelStake} points.${taunt}</div>
+      ${r ? `<span class="tag ${r.params?.accept ? 'green' : 'gold'}">${r.params?.accept ? 'Accepted' : 'Declined 🐔'}</span><button class="link" data-act="play-undo" data-id="${esc(r.id)}">Change</button>`
+        : `<button class="btn small gold" data-act="duel-reply" data-id="${esc(p.id)}" data-to="${p.user_id}" data-accept="1">Accept</button><button class="btn small" data-act="duel-reply" data-id="${esc(p.id)}" data-to="${p.user_id}" data-accept="0">Decline 🐔</button>`}</div>`;
+  });
+  const embargoes = (c?.plays || []).filter(p => p.ok && p.card === 'embargo' && p.user_id !== myId())
+    .map(p => `<div class="callout red"><span class="ic">🚫</span><div class="txt"><b>${esc(userName(p.user_id))}</b> embargoed <b>${esc(pname(p.player_id))}</b> in ${slotName(p.slot)}. Nobody can use him there this week.</div></div>`);
+  return `<section class="panel"><div class="panel-title"><h2>Week ${ow} at the table</h2><span class="muted">Locks ${esc(lockText(weekObj(ow).lockAt))}. You can take a card back until then.</span></div>
+    <div class="grid" style="gap:10px">${duels.join('')}${embargoes.join('')}
+    ${rows.length ? `<div class="ct-list">${rows.join('')}</div>` : `<p class="muted" style="margin:0">You haven't played a card this week.${hw ? ` Hindsight cards can still rewrite Week ${hw.week}.` : ''}</p>`}</div>
+  </section>`;
+}
+
+function albumPanel(u) {
+  const album = u.cards.album;
+  return `<section class="panel"><div class="panel-title"><h2>Sticker album</h2><span class="muted">Every player who scores for you adds his team. Finish a division for an Album Pack.</span></div>
+    <div class="album">${Object.entries(DIVISIONS).map(([div, teams]) => {
+      const done = u.cards.divisions.includes(div);
+      return `<div class="album-div ${done ? 'done' : ''}"><h4><span>${div}</span><span class="${done ? '' : 'dim'}">${done ? '✓ Pack earned' : `${teams.filter(t => album.has(t)).length}/5`}</span></h4>
+        <div class="stickers">${teams.map(t => `<span class="sticker ${album.has(t) ? '' : 'off'}" title="${esc(`${TEAMS[t].city} ${TEAMS[t].name}`)}"><img src="${teamLogo(t)}" alt="${t}" loading="lazy" onerror="this.outerHTML='${t}'"></span>`).join('')}</div></div>`;
+    }).join('')}</div></section>`;
+}
+
+function deckPanel() {
+  const order = Object.keys(RARITY);
+  const list = Object.keys(CARDS).sort((a, b) => order.indexOf(CARDS[a].rarity) - order.indexOf(CARDS[b].rarity));
+  const C = LEAGUE.cards;
+  return `<section class="panel"><div class="panel-title"><h2>The deck</h2><span class="muted">${list.length} cards · ★ common to ★★★★ legendary</span></div>
+    <div class="deck">${list.map(c => cardFace(c, { cls: 'tilt' })).join('')}</div>
+    <div class="odds">
+      <div><b>Packs</b>Three cards each. Keep one; the other two burn. A pack you don't open by the lock keeps its first card for you.</div>
+      <div><b>Where packs come from</b>A Starter Pack when you join, a Locker Room Pack every week you picked for yourself, Award Packs for Galaxy Brain, Heater, Ice Cold or the Fumble, a Revenge Pack when you lose a life, and an Album Pack per finished division.</div>
+      <div><b>Comeback odds</b>The top quarter pulls mostly commons. Only the bottom half can pull Heist and Blue Shell, and it has the best shot at a legendary.</div>
+      <div><b>Limits</b>One card a week; traps and gifts are free. Hand limit ${C.handLimit}, oldest card out first. Each person takes at most ${C.attackCap} attacks or pranks a week; extras fizzle back to the sender.</div>
+      <div><b>The belt is safe</b>Cards move rank points, never lives. The survival bars only look at your own picks.</div>
+    </div></section>`;
+}
+
+// ---------- Opening packs ----------
+
+async function openWaitingPack(key) {
+  const pack = waitingPacks().find(p => p.key === key);
+  if (!pack) return;
+  const kept = await openPack({
+    pack, cards: pack.cards,
+    onKeep: pick => S.backend.savePlay({ week: pack.step, card: '_keep', card_uid: `pack:${pack.key}`, params: { pick } }),
+  });
+  if (kept != null) toast(`${cardName(pack.cards[kept])} is in your hand.`);
+  await refresh();
+}
+
+async function practicePack() {
+  const kinds = ['starter', 'locker', 'award', 'revenge', 'album'];
+  const kind = kinds[Math.floor(Math.random() * kinds.length)];
+  const pack = { key: 'practice', kind, step: S.league.openWeek ?? 1, label: kind === 'album' ? 'Atlantic' : 'Heater' };
+  const cards = dealPack(`practice-${Date.now()}-${Math.random()}`, 'practice', Math.random() < 0.4 ? 'album' : 'revenge', 'trail');
+  await openPack({ pack, cards, practice: true, onKeep: async () => {} });
+}
+
+// ---------- Playing a card ----------
+
+function openPlay(uid) {
+  const inst = meU()?.cards.hand.find(h => h.uid === uid);
+  if (!inst) return;
+  S.play = { uid, card: inst.card, inst, mode: 'play', target: '', slot: '', player: null, q: '', nick: '', taunt: '', map: { PTS: 'PTS', REB: 'REB', AST: 'AST' }, giftTo: '' };
+  renderPlay();
+}
+
+function renderPlay() {
+  const P = S.play;
+  const d = CARDS[P.card];
+  const use = cardUse(P.inst);
+  const gift = P.mode === 'gift';
+  const body = gift ? giftForm() : use.why ? `<p style="margin:0;color:#c7d3ee">${esc(d.text)}</p><div class="callout"><span class="ic">⏳</span><div class="txt">${esc(use.why)}</div></div>` : playForm(use);
+  $('#modal-root').innerHTML = `<div class="modal-bg" data-act="close-modal-bg"><div class="modal" role="dialog" aria-modal="true" aria-label="${esc(d.name)}">
+    <div class="modal-head"><div class="ttl"><div><div class="kicker">${TYPES[d.type].label} · ${RARITY[d.rarity].label}</div><h3>${d.icon} ${esc(d.name)}</h3></div><button class="close-x" data-act="close-modal" aria-label="Close">×</button></div>
+      <div class="seg" style="margin:0"><button data-act="play-mode" data-mode="play" aria-pressed="${!gift}">${isTrap(P.card) ? 'Arm it' : 'Play it'}</button><button data-act="play-mode" data-mode="gift" aria-pressed="${gift}">Gift it</button></div></div>
+    <div class="modal-body pad"><div class="play-wrap">${cardFace(P.card, { cls: 'tilt' })}<div class="play-form">${body}<div class="err" id="play-err"></div></div></div></div>
+  </div></div>`;
+}
+
+function giftForm() {
+  const P = S.play;
+  const others = Object.values(S.league.users).filter(u => u.id !== myId()).sort(byName);
+  return `<p style="margin:0;color:#c7d3ee">Give this card to a colleague. It lands in their hand next week, and it doesn't use up your card for the week. Alliances are allowed. Betrayal is encouraged.</p>
+    <label class="field">Who gets it<select class="input" data-change="play-gift"><option value="">Choose…</option>${others.map(u => `<option value="${u.id}" ${P.giftTo === u.id ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></label>
+    <button class="btn primary" data-act="play-submit">Gift ${esc(CARDS[P.card].name)}</button>`;
+}
+
+function playForm(use) {
+  const P = S.play, d = CARDS[P.card], L = S.league;
+  const f = [`<p style="margin:0;color:#c7d3ee">${esc(d.text)}</p>`];
+  if (isTrap(P.card)) f.push('<p class="note" style="margin:0">Arming is free: it doesn\'t use up your card for the week. Nobody sees it until it springs.</p>');
+  if (isHindsight(P.card)) f.push(`<p class="note" style="margin:0">This rewrites <b>Week ${use.week}</b>, which is final. You can take it back until the Week ${use.week + 1} lock.</p>`);
+  if (P.card === 'blue_shell') {
+    const leader = pointsOrder()[0];
+    f.push(`<div class="callout"><span class="ic">🐢</span><div class="txt">It homes in on whoever leads the season points at the lock. Right now that's <b>${esc(leader?.name || 'nobody')}</b>${leader?.id === myId() ? '. That\'s you: it fizzles if you still lead' : ''}.</div></div>`);
+  }
+  if (d.needs.includes('target')) {
+    let list = Object.values(L.users).filter(u => u.id !== myId()).sort(byName);
+    let label = { heist: 'Who to rob (above you in season points)', copycat: 'Whose pick to copy', leech: 'Who to leech off', duel: 'Who to challenge', burn_notice: 'Who gets the notice' }[P.card] || 'Target';
+    if (P.card === 'heist') {
+      const order = pointsOrder();
+      const mine = meU().total;
+      list = order.filter(u => u.id !== myId() && u.total > mine);
+    }
+    f.push(`<label class="field">${label}<select class="input" data-change="play-target"><option value="">Choose…</option>${list.map(u => `<option value="${u.id}" ${P.target === u.id ? 'selected' : ''}>${esc(u.name)}${P.card === 'heist' ? ` · ${fmt(u.total)} pts` : ''}</option>`).join('')}</select></label>`);
+    if (P.card === 'heist' && !list.length) f.push('<p class="note" style="margin:0">Nobody is above you. Hold onto it.</p>');
+  }
+  if (d.needs.includes('slot')) {
+    const note = s => {
+      if (P.card !== 'garbage') return '';
+      const x = weekObj(use.week).results[myId()]?.slots[s];
+      const hi = x?.line?.[4 + STAT_IDX[s]], lo = x?.line?.[7 + STAT_IDX[s]];
+      return x?.scorer != null && x.gp > 1 && hi != null ? ` · ${lo} → ${hi}` : ' · n/a';
+    };
+    f.push(`<div class="field">${P.card === 'garbage' ? `Which Week ${use.week} pick (worst → best game)` : 'Category'}<div class="pills">${SLOTS.map(s => `<button class="pill" data-act="play-slot" data-slot="${s}" aria-pressed="${P.slot === s}">${INFO[s].emoji} ${INFO[s].name}${note(s)}</button>`).join('')}</div></div>`);
+  }
+  if (d.needs.includes('player')) {
+    f.push(`<div class="field">${P.card === 'sixth' ? 'Your sixth man' : 'Player'}${P.player != null
+      ? `<div class="chip-pick">${thumb(P.player, 'sm')}<span>${esc(pname(P.player))}</span><button class="link" data-act="play-player-clear">Change</button></div>`
+      : `<input id="play-q" class="input" type="search" placeholder="Search players" value="${esc(P.q)}" autocomplete="off" data-input="play-q"><div class="play-list" id="play-list">${playPlayerRows()}</div>`}</div>`);
+  }
+  if (d.needs.includes('nickname')) {
+    f.push(`<label class="field">Nickname<select class="input" data-change="play-nick"><option value="">Choose…</option>${NICKNAMES.map((n, i) => `<option value="${i}" ${P.nick === String(i) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>`);
+  }
+  if (P.card === 'switcheroo') f.push(swapForm(use.week));
+  if (['attack', 'prank', 'duel'].includes(d.type)) {
+    f.push(`<label class="field">Taunt (optional, shown at the reveal)<select class="input" data-change="play-taunt"><option value="">No taunt</option>${TAUNTS.map((t, i) => `<option value="${i}" ${P.taunt === String(i) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`);
+  }
+  if (P.card === 'embargo') f.push('<p class="note" style="margin:0">Everyone sees an Embargo the moment you play it, so they can change their picks.</p>');
+  const verb = isTrap(P.card) ? 'Arm' : 'Play';
+  f.push(`<button class="btn primary" data-act="play-submit">${verb} ${esc(d.name)}</button>`);
+  return f.join('');
+}
+
+function swapForm(week) {
+  const P = S.play;
+  const r = weekObj(week).results[myId()];
+  const u = meU();
+  const rows = SLOTS.map(s => {
+    const x = r.slots[s];
+    if (x.scorer == null || x.copy) return `<div class="swap-row"><span class="dim">${slotName(s)}: nothing to move</span><span></span></div>`;
+    const line = S.data.totals[week]?.p?.[x.scorer] || [];
+    const opts = SLOTS.map(t => {
+      const burned = t !== s && (u.burns[t].get(x.scorer) ?? Infinity) < week;
+      return `<option value="${t}" ${P.map[s] === t ? 'selected' : ''} ${burned ? 'disabled' : ''}>${INFO[t].name}: ${line[STAT_IDX[t] + 1] ?? 0} ${INFO[t].short}${burned ? ' (burned)' : ''}</option>`;
+    }).join('');
+    return `<div class="swap-row"><span>${slotName(s)}: <b>${esc(shortName(x.scorer))}</b> <span class="dim">${x.value} ${INFO[s].short}</span></span><select class="input" style="width:auto" data-change="play-swap" data-from="${s}">${opts}</select></div>`;
+  }).join('');
+  return `<div class="field">Move each player to his new slot<div style="display:grid;gap:8px">${rows}</div></div>`;
+}
+
+function playPlayerRows() {
+  const P = S.play, L = S.league;
+  const q = norm(P.q);
+  const slot = P.slot || 'PTS';
+  const d = S.draft;
+  const mine = new Set(SLOTS.flatMap(s => [d?.slots[s]?.player_id, d?.slots[s]?.alt_id]).filter(x => x != null));
+  const rows = Object.values(S.data.players)
+    .filter(p => !q || norm(p.name).includes(q) || norm(p.team).includes(q))
+    .sort((a, b) => (b.avg?.[STAT_IDX[slot]] || 0) - (a.avg?.[STAT_IDX[slot]] || 0))
+    .slice(0, 30)
+    .map(p => {
+      let why = null;
+      if (P.card === 'burn_notice') {
+        if (!P.target || !P.slot) why = 'Pick a target and category first';
+        else if (L.users[P.target]?.burns[P.slot].has(p.id)) why = 'Already burned for them';
+      }
+      if (P.card === 'embargo' && !P.slot) why = 'Pick a category first';
+      if (P.card === 'sixth') {
+        if (mine.has(p.id)) why = 'Already one of your picks';
+        else if (SLOTS.every(s => blockedReason(L, myId(), s, p.id))) why = 'Burned everywhere';
+      }
+      return `<button class="prow" data-act="play-player" data-pid="${p.id}" ${why ? 'disabled' : ''}>${thumb(p.id)}<div><div class="nm">${esc(p.name)}</div><div class="mt">${esc(p.team)} · ${SLOTS.map(s => `${fmt(p.avg?.[STAT_IDX[s]] || 0)} ${INFO[s].short}`).join(' / ')}${why ? ` <span class="blocked">${esc(why)}</span>` : ''}</div></div><div></div></button>`;
+    });
+  return rows.join('') || '<div class="empty-state">No players match.</div>';
+}
+
+async function submitPlay(btn) {
+  const P = S.play, d = CARDS[P.card];
+  const err = m => { $('#play-err').textContent = m; };
+  let row, msg;
+  if (P.mode === 'gift') {
+    if (!P.giftTo) return err('Choose who gets it.');
+    if (S.league.openWeek == null) return err('The season is over.');
+    row = { week: S.league.openWeek, card: 'gift', card_uid: P.uid, target_id: P.giftTo };
+    msg = `${d.name} is on its way to ${userName(P.giftTo)}. It arrives next week.`;
+  } else {
+    const use = cardUse(P.inst);
+    if (use.why) return err(use.why);
+    if (d.needs.includes('target') && !P.target) return err('Choose a colleague.');
+    if (d.needs.includes('slot') && !P.slot) return err('Choose a category.');
+    if (d.needs.includes('player') && P.player == null) return err('Choose a player.');
+    if (d.needs.includes('nickname') && P.nick === '') return err('Choose a nickname.');
+    row = { week: use.week, card: P.card, card_uid: P.uid, target_id: P.target || null, slot: P.slot || null, player_id: P.player ?? null, params: {} };
+    if (P.card === 'nickname') row.params.nick = +P.nick;
+    if (P.taunt !== '') row.params.taunt = +P.taunt;
+    if (P.card === 'switcheroo') {
+      const moved = Object.fromEntries(SLOTS.filter(s => P.map[s] !== s).map(s => [s, P.map[s]]));
+      const to = Object.values(moved);
+      if (!to.length) return err('Move at least one player.');
+      if (new Set(to).size !== to.length || !to.every(t => t in moved)) return err('Each slot needs exactly one player. Swap them in pairs or rotate all three.');
+      row.params.map = moved;
+    }
+    msg = isTrap(P.card) ? `${d.name} is armed. Nobody can see it.`
+      : P.card === 'embargo' ? 'Embargo is live. Everyone can see it now.'
+      : P.card === 'duel' ? `Challenge sent to ${userName(P.target)}.`
+      : isHindsight(P.card) ? `Week ${use.week} rewritten.`
+      : P.card === 'scout' ? null
+      : `${d.name} played. It's revealed at the lock.`;
+  }
+  btn.disabled = true;
+  try {
+    await S.backend.savePlay(row);
+    closeModal();
+    if (msg) toast(msg);
+  } catch (e) {
+    btn.disabled = false;
+    return err(e.message || String(e));
+  }
+  await refresh();
+  if (row.card === 'scout') showScout(row.week, row.slot);
+}
+
+async function showScout(week, slot) {
+  let rows;
+  try { rows = await S.backend.scout(week, slot); } catch (e) { return toast(e.message || String(e), true); }
+  const n = rows[0]?.entries || 0;
+  $('#modal-root').innerHTML = `<div class="modal-bg" data-act="close-modal-bg"><div class="modal narrow" role="dialog" aria-modal="true" aria-label="Scout report">
+    <div class="modal-head"><div class="ttl"><div><div class="kicker">🔭 Scout report · Week ${week}</div><h3>${slotName(slot)} board</h3></div><button class="close-x" data-act="close-modal" aria-label="Close">×</button></div></div>
+    <div class="modal-body pad">${rows.length ? rows.map(r => `<div class="scout-row">${thumb(r.player_id, 'sm')}<div><div style="font-weight:600">${esc(pname(r.player_id))}</div><div class="own-bar"><i style="width:${(r.picks / Math.max(1, n)) * 100}%"></i></div></div><b class="num">${Math.round((r.picks / Math.max(1, n)) * 100)}%</b></div>`).join('')
+      : '<p class="muted">Nobody has picked this slot yet.</p>'}
+      <p class="note" style="margin:10px 0 0">Based on the ${n} ${n === 1 ? 'person' : 'people'} with picks saved so far. Picks can change until the lock. Check again any time this week.</p></div></div></div>`;
+}
+
 // ---------- Standings ----------
 
 function viewStandings() {
@@ -586,7 +1094,7 @@ function viewStandings() {
   const rows = L.standings.filter(u => Object.keys(u.weekly).length || u.id === myId()).map(u => `
     <tr class="${u.id === myId() ? 'me' : ''}">
       <td class="rank ${u.rank <= 3 ? 'top' : ''}">${u.rank}</td>
-      <td><div class="who">${avatar(u.id)}<div><b>${esc(u.name)}</b>${u.id === myId() ? '<span class="tag blue">You</span>' : ''}${u.id === rival ? '<span class="tag">Rival</span>' : ''}${u.lives === 0 ? '<span class="tag gold">Out of lives</span>' : ''}
+      <td><div class="who">${avatar(u.id)}<div><b>${esc(u.name)}</b>${lw ? decor(u.id, lw.week, true) : ''}${u.id === myId() ? '<span class="tag blue">You</span>' : ''}${u.id === rival ? '<span class="tag">Rival</span>' : ''}${u.lives === 0 ? '<span class="tag gold">Out of lives</span>' : ''}
         <div class="dim" style="font-size:12px">${u.team ? esc(u.team) + ' fan' : ''}</div></div></div></td>
       <td class="hide-sm">${hearts(u.lives)}</td>
       ${lw ? `<td class="r num">${u.weekly[lw.week] != null ? fmt(u.weekly[lw.week]) : '—'}${lw.status === 'live' ? ' <span class="dim">·live</span>' : ''}</td>` : ''}
@@ -655,20 +1163,21 @@ function viewResults() {
     const cells = SLOTS.map(s => {
       const x = r.slots[s];
       if (x.missing) return '<td><span class="dim">—</span></td>';
-      const pid = x.scorer ?? x.pid;
+      const pid = x.copy ? x.copyPid : x.scorer ?? x.pid;
       const bar = LEAGUE.bars[s];
-      return `<td><div class="cell-pick">${thumb(pid, 'sm')}<div><div class="v" style="color:${x.value >= bar ? 'var(--text)' : 'var(--muted)'}">${x.value}${x.dd ? ' 🔥' : ''}</div><div class="n">${esc(shortName(pid))}${x.usedAlt ? ' (B)' : ''}${x.auto ? ' · auto' : ''}</div><div class="rp">+${fmt(x.rank)}</div></div></div></td>`;
+      return `<td><div class="cell-pick">${thumb(pid, 'sm')}<div><div class="v" style="color:${x.base >= bar ? 'var(--text)' : 'var(--muted)'}">${x.value}${x.dd ? ' 🔥' : ''}${fxIcons(x)}</div><div class="n">${x.copy ? `🐱 ${esc(userName(x.copy))}'s` : esc(shortName(pid))}${x.usedAlt ? ' (B)' : ''}${x.auto ? ' · auto' : ''}</div><div class="rp">+${fmt(x.rank)}</div></div></div></td>`;
     }).join('');
     const surv = w.status === 'final' ? (r.survived ? '<span class="trend-up">✓</span>' : '<span class="trend-down">✗ ❤️</span>') : `<span class="dim">${r.cleared}/${SLOTS.length}</span>`;
-    return `<tr class="${id === myId() ? 'me' : ''}"><td class="rank ${rank <= 3 ? 'top' : ''}">${rank}</td><td><div class="who">${avatar(id)}<b>${esc(userName(id))}</b></div></td>${cells}<td class="r"><span class="pts">${fmt(r.score)}</span></td><td class="c">${surv}</td></tr>`;
+    return `<tr class="${id === myId() ? 'me' : ''}"><td class="rank ${rank <= 3 ? 'top' : ''}">${rank}</td><td><div class="who">${avatar(id)}<div><b>${esc(userName(id))}</b>${decor(id, w.week)}</div></div></td>${cells}<td class="r"><span class="pts">${fmt(r.score)}</span>${adjChip(r)}</td><td class="c">${surv}</td></tr>`;
   }).join('');
   return `<div class="grid">
     <section class="panel">
       <div class="panel-title"><h2>Week ${w.week} ${w.status === 'live' ? '<span class="badge live">Live</span>' : '<span class="badge final">Final</span>'}</h2>
         <div class="pills">${weeks.map(x => `<button class="pill ${x.status === 'live' ? 'live' : ''}" data-act="results-week" data-week="${x.week}" aria-pressed="${x.week === w.week}">Wk ${x.week}</button>`).join('')}</div></div>
-      <p class="muted" style="margin:-6px 0 12px;font-size:13px">${weekRange(w)} · bars ${SLOTS.map(s => `${LEAGUE.bars[s]} ${INFO[s].short}`).join(' / ')} · (B) backup scored · 🔥 Double Down</p>
+      <p class="muted" style="margin:-6px 0 12px;font-size:13px">${weekRange(w)} · bars ${SLOTS.map(s => `${LEAGUE.bars[s]} ${INFO[s].short}`).join(' / ')} · (B) backup scored · 🔥 Double Down · card icons show what hit a pick (hover for who)</p>
       <div class="table-wrap"><table class="board"><thead><tr><th>#</th><th>Player</th>${SLOTS.map(s => `<th>${INFO[s].emoji} ${INFO[s].name}</th>`).join('')}<th class="r">Pts</th><th class="c">Bars</th></tr></thead><tbody>${body}</tbody></table></div>
     </section>
+    ${cardTablePanel(w)}
     ${ownershipPanel(w)}
     ${w.awards?.length ? `<section class="panel"><div class="panel-title"><h2>Week ${w.week} awards</h2></div><div class="awards">${w.awards.map(a => `
       <div class="award"><div class="ic">${a.icon}</div><h4>${esc(a.title)}</h4><div class="who-line">${esc(userName(a.user))}${a.pid ? ` · ${esc(pname(a.pid))}` : ''}</div><p>${esc(a.text)}</p></div>`).join('')}</div></section>` : ''}
@@ -1003,6 +1512,7 @@ function viewRules() {
       <div class="panel rule"><h3>📊 Scoring</h3><p>Every category is ranked across the league each week. You get 1 point for every colleague whose pick you beat, ½ for a tie. Your weekly score is the sum of your four categories.</p><p>Drop your worst weeks: one drop unlocks after weeks 6, 12 and 18.</p></div>
       <div class="panel rule"><h3>❤️ Survivor</h3><p>Everyone starts with ${LEAGUE.lives} lives. Clear at least ${LEAGUE.barsToSurvive} of the ${SLOTS.length} weekly bars (${b.PTS} PTS / ${b.REB} REB / ${b.AST} AST / ${b.WIN} win, the same every week) or lose a life. Last one standing wins the Survivor Belt. You keep playing for points either way.</p></div>
       <div class="panel rule"><h3>🃏 Jokers</h3><ul><li><b>Double Down</b>: double the rank points from one slot, once a season.</li><li><b>Un-burn</b>: get one burned player back in one category, once a season.</li></ul></div>
+      <div class="panel rule"><h3>🎴 Joker cards</h3><p>Earn packs, keep one card from each, and play one card a week: jinxes, traps, duels, heists, Blue Shells and pranks. Attacks are revealed at the lock. Cards move points but never cost a life.</p><p><a href="#cards">Open the card table and the full deck →</a></p></div>
       <div class="panel rule"><h3>🤖 Autopilot</h3><p>Forgot to pick? At the lock, Autopilot fills empty slots with your best unburned projected week (season average × games). It never leaves you at zero, but it spends your best players first.</p></div>
       <div class="panel rule"><h3>🥊 Rivals</h3><p>Name one coworker as your rival and track your weekly head-to-head record. You can change your rival any time.</p></div>
       <div class="panel rule"><h3>🏆 Titles and awards</h3><ul><li><b>Season Champion</b></li><li><b>Title belts:</b> Survivor Belt, plus Scoring, Rebounding, Assists and Dub Champions (most of each from your picks over the season)</li><li><b>Monthly Crowns:</b> Nov, Dec, Jan, Feb, Mar/Apr</li><li><b>Hall of Fame</b> and <b>Hall of Shame:</b> fun season awards</li><li><b>Playoff Burn</b> (April–June)</li></ul><p>Every award comes with a downloadable certificate. The Trophies tab shows who's leading each race and where you stand.</p></div>
@@ -1193,6 +1703,28 @@ const ACTIONS = {
   'unburn-choose': el => unburn(el.dataset.slot, +el.dataset.pid),
   'unburn-undo': async () => { try { await S.backend.setUnburn(null); toast('Un-burn returned to your hand.'); } catch (e) { toast(e.message, true); } await refresh(); },
   'results-week': el => { S.resultsWeek = +el.dataset.week; render(); },
+  'pack-open': el => openWaitingPack(el.dataset.key),
+  'pack-practice': () => practicePack(),
+  'card-open': el => openPlay(el.dataset.uid),
+  'play-mode': el => { S.play.mode = el.dataset.mode; renderPlay(); },
+  'play-slot': el => { S.play.slot = el.dataset.slot; if (S.play.card === 'burn_notice') S.play.player = null; renderPlay(); },
+  'play-player': el => { S.play.player = +el.dataset.pid; renderPlay(); },
+  'play-player-clear': () => { S.play.player = null; renderPlay(); },
+  'play-submit': el => submitPlay(el),
+  'play-undo': async el => {
+    try { await S.backend.deletePlay(el.dataset.id); toast('Taken back.'); } catch (e) { toast(e.message || String(e), true); }
+    await refresh();
+  },
+  'duel-reply': async el => {
+    const accept = el.dataset.accept === '1';
+    try {
+      await S.backend.savePlay({ week: S.league.openWeek, card: '_reply', target_id: el.dataset.to, params: { duel: el.dataset.id, accept } });
+      toast(accept ? "Duel accepted. Don't choke." : 'Declined. Enjoy the chicken. 🐔');
+    } catch (e) { toast(e.message || String(e), true); }
+    await refresh();
+  },
+  'scout-view': el => showScout(+el.dataset.week, el.dataset.slot),
+  'cards-week': el => { S.cardsWeek = +el.dataset.week; render(); },
   month: el => { S.month = el.dataset.key; render(); },
   cert: async el => {
     const A = S.awards || seasonAwards(S.league, pname);
@@ -1266,6 +1798,14 @@ document.addEventListener('change', async e => {
   const el = e.target.closest('[data-change]');
   if (!el) return;
   if (el.dataset.change === 'burn-user') { S.burnUser = el.value; render(); }
+  if (S.play) {
+    const k = el.dataset.change;
+    if (k === 'play-target') { S.play.target = el.value; if (S.play.card === 'burn_notice') S.play.player = null; renderPlay(); }
+    if (k === 'play-nick') S.play.nick = el.value;
+    if (k === 'play-taunt') S.play.taunt = el.value;
+    if (k === 'play-gift') S.play.giftTo = el.value;
+    if (k === 'play-swap') { S.play.map[el.dataset.from] = el.value; }
+  }
   if (el.dataset.change === 'rival') {
     try { await S.backend.updateProfile({ rival_id: el.value || null }); toast(el.value ? `Rivalry on: ${userName(el.value)}` : 'Rival cleared.'); } catch (err) { toast(err.message, true); }
     await refresh();
@@ -1306,6 +1846,10 @@ document.addEventListener('submit', async e => {
 });
 
 document.addEventListener('input', e => {
+  if (e.target.dataset?.input === 'play-q' && S.play) {
+    S.play.q = e.target.value;
+    $('#play-list').innerHTML = playPlayerRows();
+  }
   if (e.target.dataset?.input === 'ledger') {
     S.ledgerQ = e.target.value;
     $('#ledger-list').innerHTML = ledgerRows(funStats(S.league, S.data.players, S.data.teams));

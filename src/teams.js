@@ -34,6 +34,15 @@ export const TEAMS = {
 
 export const TEAM_BY_ID = Object.fromEntries(Object.entries(TEAMS).map(([tri, t]) => [t.id, tri]));
 export const isTeamId = id => id in TEAM_BY_ID;
+// For the sticker album: complete a division to earn an Album Pack.
+export const DIVISIONS = {
+  Atlantic: ['BOS', 'BKN', 'NYK', 'PHI', 'TOR'],
+  Central: ['CHI', 'CLE', 'DET', 'IND', 'MIL'],
+  Southeast: ['ATL', 'CHA', 'MIA', 'ORL', 'WAS'],
+  Northwest: ['DEN', 'MIN', 'OKC', 'POR', 'UTA'],
+  Pacific: ['GSW', 'LAC', 'LAL', 'PHX', 'SAC'],
+  Southwest: ['DAL', 'HOU', 'MEM', 'NOP', 'SAS'],
+};
 
 export const teamLogo = tri => TEAMS[tri] ? `https://cdn.nba.com/logos/nba/${TEAMS[tri].id}/global/L/logo.svg` : '';
 export const headshot = pid => `https://cdn.nba.com/headshots/nba/latest/260x190/${pid}.png`;
