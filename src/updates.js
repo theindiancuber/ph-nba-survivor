@@ -4,6 +4,16 @@
 
 export const UPDATES = [
   {
+    id: 6,
+    date: '2026-10-14',
+    title: "The Commissioner's Decree",
+    items: [
+      'Up to 3 times a season the commissioner sets a one-week twist: Prime Time (a category counts double), Opposite Day, Bounty, Mercy Rule, Sudden Death, Amnesty, Ceasefire, Free-for-all or Pack Day.',
+      'Sometimes you get a vote instead. Watch for the ballot on This Week; most votes wins.',
+      'Decrees go up, and votes close, at least 24 hours before the lock. The Rules tab lists every twist.',
+    ],
+  },
+  {
     id: 5,
     date: '2026-10-14',
     title: 'Second thoughts and practice packs',

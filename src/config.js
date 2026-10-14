@@ -32,6 +32,10 @@ export const LEAGUE = {
   // Joker cards. startWeek is the first week packs are dealt. A card played on
   // someone counts as an attack; each person takes at most attackCap a week.
   cards: { startWeek: 1, handLimit: 4, attackCap: 2, duelStake: 5, heist: 3, embargoHours: 24 },
+
+  // Commissioner's Decree: a one-week rule twist, posted at least noticeHours before
+  // the lock (votes close then too). perSeason must match supabase/upgrade-decree.sql.
+  decree: { perSeason: 3, noticeHours: 24, bounty: 5 },
 };
 
 // Weeks run Monday–Sunday on US Eastern dates. Week 1 and the All-Star week

@@ -126,6 +126,7 @@ export const PACKS = {
   award: { name: 'Award Pack', blurb: 'Earned on last week’s awards', c1: '#8a5a00', c2: '#f2c14e' },
   revenge: { name: 'Revenge Pack', blurb: 'You lost a life. Get even.', c1: '#3a0710', c2: '#ef2b4d' },
   album: { name: 'Album Pack', blurb: 'You completed a division', c1: '#3b1780', c2: '#1fc8b4' },
+  decree: { name: 'Decree Pack', blurb: 'By order of the Commissioner', c1: '#1a1a1a', c2: '#d4af37' },
 };
 
 // Awards that hand out a pack. Ice Cold and The Fumble are pity packs.
@@ -213,12 +214,13 @@ function newSlotMaps() { return Object.fromEntries(SLOTS.map(s => [s, new Map()]
 // One change of mind per pack is allowed before the lock: a second '_keep' row with `repick:<pack key>`.
 // The league engine calls begin() before scoring a week and end() after it.
 export class CardTable {
-  constructor({ users, plays, weeks, byWeek, from, dealer }) {
+  constructor({ users, plays, weeks, byWeek, from, dealer, decrees = {} }) {
     this.users = users;
     this.byWeek = byWeek;
     this.from = from;
     this.weeks = weeks;
     this.deal = dealer || dealPack;
+    this.decrees = decrees;
     this.keeps = {};
     this.repicks = {};
     this.replies = {};
@@ -268,6 +270,7 @@ export class CardTable {
       if (W === Math.max(this.from, this.joinStep(u))) stubs.push({ key: `w${W}:starter`, kind: 'starter' });
       if (W > this.from && this.pickedOwn(W - 1, u.id)) stubs.push({ key: `w${W}:locker`, kind: 'locker' });
       stubs.push(...(this.bonus[W]?.[u.id] || []));
+      if (this.decrees[W] === 'pack_day' && W >= this.joinStep(u)) stubs.push({ key: `w${W}:decree`, kind: 'decree' });
       for (const st of stubs) {
         const tier = st.kind === 'revenge' ? 'trail' : tierFor(snapPrev2, u.id);
         const cards = this.deal(u.id, st.key, st.kind, tier);
@@ -327,7 +330,9 @@ export class CardTable {
     if (def.needs.includes('player') && def.needs.includes('slot') && (p.slot === 'WIN') !== isTeamId(p.player_id)) return 'player';
     if (p.card === 'sixth' && isTeamId(p.player_id)) return 'player';
     if (def.needs.includes('nickname') && !NICKNAMES[p.params?.nick]) return 'nickname';
-    if (countsAsPlay(p.card) && used[p.user_id]) return 'limit';
+    const decree = this.decrees[wk.week];
+    if (decree === 'ceasefire' && p.week === wk.week) return 'ceasefire';
+    if (countsAsPlay(p.card) && (used[p.user_id] || 0) >= (decree === 'free_for_all' ? 2 : 1)) return 'limit';
     return null;
   }
 
