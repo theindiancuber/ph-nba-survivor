@@ -77,31 +77,35 @@ export function buildData({ schedule, boxes, now = Date.now() }) {
   const weeks = buildWeeks().map(w => {
     const games = schedule.filter(g => g.kind === 'reg' && g.etDate >= w.start && g.etDate <= w.end);
     const gamesByTeam = {}, leftByTeam = {};
-    let firstTip = null;
+    let first = null;
     for (const g of games) {
       const done = (boxes[g.id]?.status ?? g.status) === 3;
       for (const t of [g.home, g.away]) {
         gamesByTeam[t] = (gamesByTeam[t] || 0) + 1;
         if (!done) leftByTeam[t] = (leftByTeam[t] || 0) + 1;
       }
-      if (g.tipUtc && (!firstTip || g.tipUtc < firstTip)) firstTip = g.tipUtc;
+      if (g.tipUtc && (!first || g.tipUtc < first.tipUtc)) first = g;
     }
     const allDone = games.length > 0 && games.every(g => (boxes[g.id]?.status ?? g.status) === 3);
     const endPassed = now > Date.parse(w.end + 'T12:00:00Z') + 24 * 3600e3;
     return {
       ...w,
-      lockAt: firstTip ? new Date(firstTip).toISOString() : defaultLockAt(w),
+      lockAt: first ? new Date(first.tipUtc).toISOString() : defaultLockAt(w),
+      firstGame: first ? { id: first.id, away: first.away, home: first.home, etDate: first.etDate, tipUtc: first.tipUtc } : null,
       games: games.length,
       final: allDone && endPassed,
       gamesByTeam, leftByTeam,
     };
   });
 
+  // Preseason games can include non-NBA opponents: keep only the league's 30 teams.
+  const leagueTeams = new Set(schedule.filter(g => g.kind === 'reg').flatMap(g => [g.home, g.away]));
   const ordered = Object.values(boxes).sort((a, b) => (a.tipUtc || a.etDate).localeCompare(b.tipUtc || b.etDate));
   const players = {};
   const acc = {};
   for (const box of ordered) {
     for (const [pid, team, played, pts, reb, ast, first, last, pos, num] of box.players) {
+      if (leagueTeams.size && !leagueTeams.has(team)) continue;
       const pl = players[pid] ||= { id: pid };
       Object.assign(pl, { first, last, name: `${first} ${last}`.trim(), team, pos: pos || pl.pos || '', num: num || pl.num || '' });
       const a = acc[pid] ||= { reg: [0, 0, 0, 0], pre: [0, 0, 0, 0] };
