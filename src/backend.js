@@ -62,12 +62,13 @@ export class SupabaseBackend {
   }
 
   async load() {
-    const [profiles, picks, unburns, weeks, plays] = await Promise.all([
+    const [profiles, picks, unburns, weeks, plays, seeds] = await Promise.all([
       this.all('profiles', 'created_at'), this.all('picks', 'week'), this.all('unburns', 'created_at'), this.all('weeks', 'week'),
-      // Until supabase/schema.sql is re-run there is no cards table: play without cards.
+      // Until supabase/upgrade-cards.sql is run there are no cards: play without them.
       this.all('card_plays', 'created_at').catch(() => []),
+      this.sb.rpc('pack_seeds').then(r => r.error ? null : Object.fromEntries(r.data.map(x => [`${x.user_id}|${x.week}`, x.seed]))),
     ]);
-    return { profiles, picks, unburns, plays, locks: Object.fromEntries(weeks.map(w => [w.week, new Date(w.lock_at).toISOString()])) };
+    return { profiles, picks, unburns, plays, seeds, locks: Object.fromEntries(weeks.map(w => [w.week, new Date(w.lock_at).toISOString()])) };
   }
 
   // slots: { PTS: {player_id, alt_id} | null, ... }, dd: slot or null
@@ -222,7 +223,7 @@ export class DemoBackend {
     const locks = Object.fromEntries(this.seed.weeks.map(w => [w.week, w.lockAt]));
     // Same visibility as the real database: other people's picks appear once the week locks.
     const visible = r => r.user_id === this.userId || this.now() >= Date.parse(locks[r.week]);
-    const playVisible = r => visible(r) || r.card === 'embargo' || r.card === '_keep' || (['duel', '_reply'].includes(r.card) && r.target_id === this.userId);
+    const playVisible = r => visible(r) || r.card === 'embargo' || (['duel', '_reply'].includes(r.card) && r.target_id === this.userId);
     return structuredClone({ profiles: this.state.profiles, picks: this.state.picks.filter(visible), unburns: this.state.unburns.filter(visible), plays: this.state.plays.filter(playVisible), locks });
   }
 
@@ -249,6 +250,7 @@ export class DemoBackend {
     const p = this.state.plays.find(x => x.id === id && x.user_id === this.userId);
     if (!p) return;
     if (p.card === '_keep') throw new Error("A kept card can't be swapped.");
+    if (p.card === 'scout') throw new Error("A Scout Report can't be taken back once you've seen it.");
     this.assertCardWindow(p.card, p.week);
     this.state.plays = this.state.plays.filter(x => x !== p);
     this.persist();

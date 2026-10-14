@@ -6,7 +6,7 @@ import { downloadCertificate } from './certificate.js';
 import { funStats, perfectPlay } from './stats.js';
 import { UPDATES, LATEST_UPDATE } from './updates.js';
 import { seasonAwards } from './awards.js';
-import { CARDS, RARITY, TYPES, NICKNAMES, TAUNTS, isTrap, isHindsight, countsAsPlay, dealPack } from './cards.js';
+import { CARDS, RARITY, TYPES, NICKNAMES, TAUNTS, isTrap, isHindsight, countsAsPlay, dealPack, seededDealer } from './cards.js';
 import { cardFace, cardBack, packArt, openPack, initHolo } from './pack.js';
 
 const SLOTS = LEAGUE.slots;
@@ -106,7 +106,10 @@ async function refresh() {
   const weeks = S.data.weeks.map(w => ({ ...w, lockAt: S.db.locks[w.week] || w.lockAt }));
   S.league = computeLeague({
     weeks, totals: S.data.totals, picks: S.db.picks, unburns: S.db.unburns, plays: S.db.plays || [], profiles: S.db.profiles,
-    now: now(), players: S.data.players, cardsFrom: S.data.cardsFrom ?? LEAGUE.cards.startWeek,
+    now: now(), players: S.data.players,
+    // The real league deals from the database's secret seeds; without them (cards SQL not run yet) cards stay off.
+    cardsFrom: DEMO ? (S.data.cardsFrom ?? LEAGUE.cards.startWeek) : S.db.seeds ? LEAGUE.cards.startWeek : Infinity,
+    dealer: S.db.seeds ? seededDealer(S.db.seeds) : undefined,
   });
   S.me = S.db.profiles.find(p => p.id === myId()) || null;
   if (S.adminFor !== myId()) {
@@ -804,7 +807,8 @@ function viewCards() {
       <span class="bar-pill">🪤 Traps armed <b>${u.cards.armed.length}</b></span>
       <span class="bar-pill">📒 Album <b>${u.cards.album.size}/30</b></span>
     </div>
-    ${ow != null && ow < L.cards.from ? `<p class="sub" style="margin:12px 0 0">Cards switch on in Week ${L.cards.from}. Everyone gets a Starter Pack then.</p>` : ''}
+    ${L.cards.from === Infinity ? `<p class="sub" style="margin:12px 0 0">Cards switch on once the commissioner finishes setting them up. Everyone gets a Starter Pack then.</p>`
+      : ow != null && ow < L.cards.from ? `<p class="sub" style="margin:12px 0 0">Cards switch on in Week ${L.cards.from}. Everyone gets a Starter Pack then.</p>` : ''}
     ${packs.length ? `<div class="packs-row">${packs.map(p => `<button class="pack-mini" data-act="pack-open" data-key="${esc(p.key)}" aria-label="Open pack"><div class="shell">${packArt(p)}</div><span class="btn small gold">Open</span></button>`).join('')}</div>` : ''}
     ${DEMO ? '<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn small" data-act="pack-practice">Rip a practice pack</button><span style="font-size:12px;color:#dbe4f7">Demo only. Nothing is saved.</span></div>' : ''}
   </section>`);
@@ -845,7 +849,7 @@ function thisWeekCards(ow) {
     const note = p.ok ? '' : ` <span class="dim">(${p.why === 'limit' ? "doesn't count: one card a week" : p.why === 'not-in-hand' ? 'card not in your hand' : 'not valid'})</span>`;
     const extra = p.card === 'scout' && p.ok ? `<button class="btn small" data-act="scout-view" data-week="${p.week}" data-slot="${p.slot}">See report</button>` : '';
     const what = isTrap(p.card) ? `You armed ${esc(cardName(p.card))} face-down${p.sprung ? `. It sprang in Week ${p.sprung}` : ''}` : st.text;
-    return `<div class="ct-row me"><div class="ic">${st.icon}</div><div class="txt">${what}${note}</div><div style="display:flex;gap:8px;align-items:center">${extra}<button class="link danger" data-act="play-undo" data-id="${esc(p.id)}">Take back</button></div></div>`;
+    return `<div class="ct-row me"><div class="ic">${st.icon}</div><div class="txt">${what}${note}</div><div style="display:flex;gap:8px;align-items:center">${extra}${p.card === 'scout' ? '' : `<button class="link danger" data-act="play-undo" data-id="${esc(p.id)}">Take back</button>`}</div></div>`;
   });
   const duels = incomingDuels().map(p => {
     const r = replyTo(p.id);

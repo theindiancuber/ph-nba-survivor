@@ -12,6 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LEAGUE, buildWeeks, defaultLockAt } from '../src/config.js';
 import { computeLeague, autopilotPicks } from '../src/league.js';
+import { seededDealer } from '../src/cards.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA = path.join(ROOT, 'data');
@@ -245,10 +246,14 @@ async function syncSupabase({ weeks, players, teams, totals, now }) {
     sb.all('profiles?select=id,display_name,rival_id,fav_team,created_at'),
     sb.all('picks?select=*'),
     sb.all('unburns?select=*'),
-    sb.all('card_plays?select=*').catch(() => []), // before schema.sql adds the cards table
+    sb.all('card_plays?select=*').catch(() => []), // before upgrade-cards.sql adds the cards table
   ]);
+  // Secret pack seeds, so hands (and so Copycat plays) can be checked. No seeds, no cards.
+  const seedRows = await sb('POST', 'rpc/pack_seeds', {}).catch(() => null);
+  const seeds = seedRows ? Object.fromEntries(seedRows.map(x => [`${x.user_id}|${x.week}`, x.seed])) : null;
+  const cardArgs = seeds ? { plays, dealer: seededDealer(seeds) } : { plays: [], cardsFrom: Infinity };
   for (const w of due) {
-    const league = computeLeague({ weeks: merged, totals, picks, unburns, plays, profiles, now: Date.parse(w.lockAt) + 1, players });
+    const league = computeLeague({ weeks: merged, totals, picks, unburns, profiles, now: Date.parse(w.lockAt) + 1, players, ...cardArgs });
     const copycats = league.cards.weeks[w.week]?.copy || new Map();
     const rows = [];
     for (const pr of profiles) {

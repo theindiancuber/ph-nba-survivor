@@ -1,10 +1,12 @@
 // Joker cards: the deck, packs and hands. Pure data and functions, shared by the
 // app, the data script and the tests.
 //
-// Packs are dealt from a seeded shuffle of (season, person, pack), so every
-// browser deals the same cards and nobody can re-roll. The database only stores
-// which card you kept from each pack and what you played. Hands are rebuilt from
-// that history every time the league is computed.
+// Packs are dealt from a seeded shuffle, so every browser deals the same cards
+// and nobody can re-roll. In the real league the seed comes from a secret in the
+// database (pack_seeds): you get your own seeds up to the open week and everyone
+// else's once a week locks, so nobody can work out a colleague's hand early. The
+// database only stores which card you kept from each pack and what you played.
+// Hands are rebuilt from that history every time the league is computed.
 
 import { LEAGUE } from './config.js';
 import { DIVISIONS, isTeamId } from './teams.js';
@@ -177,6 +179,19 @@ export function dealPack(userId, key, kind, tier, rand = rng(hash(`${LEAGUE.seas
   return out;
 }
 
+// Pack keys start with the week they're dealt in: "w7:locker", "w7:album:Pacific".
+export const packWeek = key => +(/^w(\d+):/.exec(key)?.[1] ?? NaN);
+
+// Deals from the league's secret seeds (seeds['<user>|<week>'] from the database).
+// Without a seed, which is someone else's pack before its week locks, the pack
+// stays face-down: the dealer returns null and the hand rebuilds without it.
+export function seededDealer(seeds) {
+  return (userId, key, kind, tier) => {
+    const sd = seeds[`${userId}|${packWeek(key)}`];
+    return sd ? dealPack(userId, key, kind, tier, rng(hash(`${sd}|${key}`))) : null;
+  };
+}
+
 const RANK = { common: 0, rare: 1, epic: 2, legendary: 3 };
 export const bestRarity = cards => cards.reduce((b, c) => RANK[CARDS[c].rarity] > RANK[b] ? CARDS[c].rarity : b, 'common');
 
@@ -249,6 +264,7 @@ export class CardTable {
       for (const st of stubs) {
         const tier = st.kind === 'revenge' ? 'trail' : tierFor(snapPrev2, u.id);
         const cards = this.deal(u.id, st.key, st.kind, tier);
+        if (!cards) continue; // face-down: someone else's pack before its week locks
         const k = this.keeps[`${u.id}|${st.key}`];
         const okKeep = k && k.week === W && Number.isInteger(k.params?.pick) && k.params.pick >= 0 && k.params.pick < cards.length
           && (!k.created_at || Date.parse(k.created_at) < lockT);
