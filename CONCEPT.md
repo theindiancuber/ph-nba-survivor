@@ -102,10 +102,11 @@ The regular season runs from **Tue Oct 20, 2026** to **Sun Apr 11, 2027**. Notab
 | Week | Dates | Note |
 |---|---|---|
 | 1 | Tue Oct 20 – Sun Nov 1 | Opening "double week" so people have time to sign up |
-| 2–17 | Mon Nov 2 – Sun Feb 21 | All-Star week (Feb 16–21) is light, so it's merged into week 17 |
-| 18–24 | Mon Feb 22 – Sun Apr 11 | Stretch run, with tanking and resting stars to watch for |
+| 2–16 | Mon Nov 2 – Sun Feb 14 | Regular weeks |
+| 17 | Mon Feb 15 – Sun Feb 28 | All-Star week is light, so it's merged with the next week into a double week |
+| 18–23 | Mon Mar 1 – Sun Apr 11 | Stretch run, with tanking and resting stars to watch for |
 
-That's **24 weeks × 3 = 72 burns per person**, which uses up most real stars. Your 50th-best rebounder is a real question by March, and that's the intended endgame.
+That's **23 weeks × 3 = 69 burns per person**, which uses up most real stars. Your 50th-best rebounder is a real question by March, and that's the intended endgame.
 
 ---
 
