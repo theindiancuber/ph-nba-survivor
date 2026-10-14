@@ -128,10 +128,13 @@ export function buildData({ schedule, boxes, now = Date.now() }) {
     const p = {};
     for (const box of ordered) {
       if (box.kind !== 'reg' || box.etDate < w.start || box.etDate > w.end) continue;
-      for (const [pid, , played, pts, reb, ast] of box.players) {
+      for (const [pid, team, played, pts, reb, ast] of box.players) {
         if (!played) continue;
-        const t = p[pid] ||= [0, 0, 0, 0];
+        // [games, pts, reb, ast, best game pts/reb/ast, worst game pts/reb/ast, team]
+        const t = p[pid] ||= [0, 0, 0, 0, pts, reb, ast, pts, reb, ast, team];
         t[0]++; t[1] += pts; t[2] += reb; t[3] += ast;
+        [pts, reb, ast].forEach((v, i) => { t[4 + i] = Math.max(t[4 + i], v); t[7 + i] = Math.min(t[7 + i], v); });
+        t[10] = team;
       }
     }
     if (Object.keys(p).length) totals[w.week] = { final: w.final, p };
@@ -217,17 +220,21 @@ async function syncSupabase({ weeks, players, totals, now }) {
   const merged = weeks.map(w => ({ ...w, lockAt: serverLock[w.week] ? new Date(serverLock[w.week]).toISOString() : w.lockAt }));
   const due = merged.filter(w => Date.parse(w.lockAt) <= now && now - Date.parse(w.lockAt) < 3 * 86400e3);
   if (!due.length) return;
-  const [profiles, picks, unburns] = await Promise.all([
+  const [profiles, picks, unburns, plays] = await Promise.all([
     sb.all('profiles?select=id,display_name,rival_id,fav_team,created_at'),
     sb.all('picks?select=*'),
     sb.all('unburns?select=*'),
+    sb.all('card_plays?select=*').catch(() => []), // before schema.sql adds the cards table
   ]);
   for (const w of due) {
-    const league = computeLeague({ weeks: merged, totals, picks, unburns, profiles, now: Date.parse(w.lockAt) + 1 });
+    const league = computeLeague({ weeks: merged, totals, picks, unburns, plays, profiles, now: Date.parse(w.lockAt) + 1, players });
+    const copycats = league.cards.weeks[w.week]?.copy || new Map();
     const rows = [];
     for (const pr of profiles) {
       if (Date.parse(pr.created_at) > Date.parse(w.lockAt)) continue;
       const current = Object.fromEntries(picks.filter(p => p.user_id === pr.id && p.week === w.week).map(p => [p.slot, p]));
+      // A Copycat slot is meant to stay empty: nothing to fill.
+      for (const slot of LEAGUE.slots) if (!current[slot] && copycats.has(`${pr.id}|${slot}`)) current[slot] = { copycat: true };
       if (Object.keys(current).length === LEAGUE.slots.length) continue;
       const chosen = autopilotPicks(league, pr.id, w.week, current, players, w.gamesByTeam);
       for (const [slot, pid] of Object.entries(chosen)) {

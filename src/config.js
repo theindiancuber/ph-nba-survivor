@@ -24,6 +24,10 @@ export const LEAGUE = {
 
   // Drop your worst weeks: one drop unlocks every `every` final weeks, up to `max`.
   drops: { max: 3, every: 6 },
+
+  // Joker cards. startWeek is the first week packs are dealt. A card played on
+  // someone counts as an attack; each person takes at most attackCap a week.
+  cards: { startWeek: 1, handLimit: 4, attackCap: 2, duelStake: 5, heist: 3, embargoHours: 24 },
 };
 
 // Weeks run Monday–Sunday on US Eastern dates. Week 1 and the All-Star week
