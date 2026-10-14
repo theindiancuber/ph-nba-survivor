@@ -5,7 +5,15 @@ import { LEAGUE } from './config.js';
 const W = 2000, H = 1414;
 const NAVY = '#0b1a33', RED = '#c8102e', BLUE = '#1d428a', GOLD = '#c9a227', PAPER = '#fbf7ee';
 
-export async function drawCertificate({ title, name, detail, date }) {
+// kind: 'champion' (titles and crowns), 'award' (Hall of Fame) or 'shame' (Hall of Shame).
+const KINDS = {
+  champion: { header: 'CERTIFICATE OF CHAMPIONSHIP', seal: 'CHAMPION', tagline: 'For bragging rights in perpetuity. No refunds.' },
+  award: { header: 'CERTIFICATE OF ACHIEVEMENT', seal: 'HONOREE', tagline: 'Recognised by the league, envied by the office.' },
+  shame: { header: 'CERTIFICATE OF DUBIOUS DISTINCTION', seal: 'OOPS', tagline: 'Awarded with love. To be framed and never spoken of again.' },
+};
+
+export async function drawCertificate({ title, name, detail, date, kind = 'champion' }) {
+  const K = KINDS[kind] || KINDS.champion;
   await Promise.all([
     document.fonts.load('700 120px Oswald'), document.fonts.load('italic 700 150px "Playfair Display"'),
     document.fonts.load('500 36px Inter'),
@@ -39,7 +47,7 @@ export async function drawCertificate({ title, name, detail, date }) {
   spaced(g, LEAGUE.name.toUpperCase(), W / 2, 340, 10);
   g.fillStyle = RED;
   g.font = '600 30px Inter';
-  spaced(g, `CERTIFICATE OF CHAMPIONSHIP · ${LEAGUE.season} SEASON`, W / 2, 395, 6);
+  spaced(g, `${K.header} · ${LEAGUE.season} SEASON`, W / 2, 395, 6);
 
   g.fillStyle = NAVY;
   g.font = '700 128px Oswald';
@@ -60,10 +68,10 @@ export async function drawCertificate({ title, name, detail, date }) {
   fit(g, detail, W / 2, 940, W - 420);
   g.fillStyle = '#5b6680';
   g.font = '400 30px Inter';
-  g.fillText('For bragging rights in perpetuity. No refunds.', W / 2, 995);
+  g.fillText(K.tagline, W / 2, 995);
 
   // Seal
-  seal(g, W / 2, 1160);
+  seal(g, W / 2, 1160, K.seal);
 
   // Signature and date
   g.textAlign = 'center';
@@ -119,7 +127,7 @@ function ball(g, x, y, r) {
   g.restore();
 }
 
-function seal(g, x, y) {
+function seal(g, x, y, label) {
   g.save();
   const spikes = 28, outer = 118, inner = 104;
   g.beginPath();
@@ -135,6 +143,6 @@ function seal(g, x, y) {
   g.beginPath(); g.arc(x, y, 84, 0, Math.PI * 2); g.stroke();
   g.fillStyle = NAVY; g.textAlign = 'center';
   g.font = '700 54px Oswald'; g.fillText('PH', x, y + 4);
-  g.font = '600 18px Inter'; spaced(g, 'CHAMPION', x, y + 38, 4);
+  g.font = '600 18px Inter'; spaced(g, label, x, y + 38, 4);
   g.restore();
 }
