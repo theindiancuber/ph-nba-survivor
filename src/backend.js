@@ -66,7 +66,10 @@ export class SupabaseBackend {
       this.all('profiles', 'created_at'), this.all('picks', 'week'), this.all('unburns', 'created_at'), this.all('weeks', 'week'),
       // Until supabase/upgrade-cards.sql is run there are no cards: play without them.
       this.all('card_plays', 'created_at').catch(() => []),
-      this.sb.rpc('pack_seeds').then(r => r.error ? null : Object.fromEntries(r.data.map(x => [`${x.user_id}|${x.week}`, x.seed]))),
+      // Secret pack seeds. Any problem (SQL not run yet, network) just means no cards.
+      this.sb.rpc('pack_seeds')
+        .then(r => (r.error || !Array.isArray(r.data) ? null : Object.fromEntries(r.data.map(x => [`${x.user_id}|${x.week}`, x.seed]))))
+        .catch(() => null),
     ]);
     return { profiles, picks, unburns, plays, seeds, locks: Object.fromEntries(weeks.map(w => [w.week, new Date(w.lock_at).toISOString()])) };
   }
