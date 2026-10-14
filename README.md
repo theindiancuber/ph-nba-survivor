@@ -53,7 +53,7 @@ The database only answers these requests for accounts in the `admins` table. Bef
 
 ## Tour and "What's new"
 
-- **First login:** everyone sees a seven-step tour of the rules: picks, burns, backups, scoring and survival, jokers and Autopilot, and Joker cards. It's replayable from the Rules tab. Members who joined before the tour existed see it on their next visit.
+- **First login:** everyone gets a guided tour of the real app (`TOUR` in `src/app.js`). Each step opens a page and spotlights what it describes: the lock countdown, the pick slots, backups, survival bars, Save, Jokers, the Burn Book, Standings and Results tabs, the card dashboard, the Card Dex, Rivals and Rules. On a phone the text sits in a bottom sheet, which moves to the top when the target is low on the screen. Steps list fallback targets, so a missing element (for example, no open week) just shows a centred card. It's replayable from the Rules tab. Members who joined before the tour existed see it on their next visit.
 - **Updates:** player-facing changes are listed in `src/updates.js`. Each member sees the entries they haven't read, once, on their next visit. Everyone can reopen them from **What's new** in the footer. Commissioner-only changes aren't listed.
 - Run `supabase/upgrade-onboarding.sql` once so this is remembered per account across devices. Without it, it's remembered per browser.
 ## Joker cards
