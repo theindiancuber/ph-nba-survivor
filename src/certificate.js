@@ -7,9 +7,9 @@ const NAVY = '#0b1a33', RED = '#c8102e', BLUE = '#1d428a', GOLD = '#c9a227', PAP
 
 // kind: 'champion' (titles and crowns), 'award' (Hall of Fame) or 'shame' (Hall of Shame).
 const KINDS = {
-  champion: { header: 'CERTIFICATE OF CHAMPIONSHIP', seal: 'CHAMPION', tagline: 'For bragging rights in perpetuity. No refunds.' },
-  award: { header: 'CERTIFICATE OF ACHIEVEMENT', seal: 'HONOREE', tagline: 'Recognised by the league, envied by the office.' },
-  shame: { header: 'CERTIFICATE OF DUBIOUS DISTINCTION', seal: 'OOPS', tagline: 'Awarded with love. To be framed and never spoken of again.' },
+  champion: { header: 'CERTIFICATE OF CHAMPIONSHIP', seal: 'CHAMPION', to: 'is proudly awarded to', tagline: 'For bragging rights in perpetuity. No refunds.' },
+  award: { header: 'CERTIFICATE OF ACHIEVEMENT', seal: 'HONOREE', to: 'is proudly awarded to', tagline: 'Recognised by the league, envied by the office.' },
+  shame: { header: 'CERTIFICATE OF DUBIOUS DISTINCTION', seal: 'OOPS', to: 'is reluctantly awarded to', tagline: 'Awarded with love. To be framed and never spoken of again.' },
 };
 
 export async function drawCertificate({ title, name, detail, date, kind = 'champion' }) {
@@ -55,7 +55,7 @@ export async function drawCertificate({ title, name, detail, date, kind = 'champ
 
   g.fillStyle = '#5b6680';
   g.font = 'italic 400 40px "Playfair Display", Georgia, serif';
-  g.fillText('is proudly awarded to', W / 2, 650);
+  g.fillText(K.to, W / 2, 650);
 
   g.fillStyle = BLUE;
   g.font = 'italic 700 150px "Playfair Display", Georgia, serif';
