@@ -813,6 +813,8 @@ function viewCards() {
     ${DEMO ? '<div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn small" data-act="pack-practice">Rip a practice pack</button><span style="font-size:12px;color:#dbe4f7">Demo only. Nothing is saved.</span></div>' : ''}
   </section>`);
 
+  parts.push(primerPanel(u));
+
   const over = hand.length - LEAGUE.cards.handLimit;
   parts.push(`<section class="panel"><div class="panel-title"><h2>Your hand</h2><span class="muted">Tap a card to play or gift it</span></div>
     ${over > 0 ? `<div class="callout red" style="margin-bottom:14px"><span class="ic">⚠️</span><div class="txt">You're over the ${LEAGUE.cards.handLimit}-card limit. At the lock your oldest ${over === 1 ? 'card is' : `${over} cards are`} discarded, so play or gift something first.</div></div>` : ''}
@@ -876,19 +878,107 @@ function albumPanel(u) {
     }).join('')}</div></section>`;
 }
 
+// The FYI: everything about cards in one place. Open until you've played your first card.
+function primerPanel(u) {
+  const C = LEAGUE.cards;
+  const played = S.db.plays?.some(p => p.user_id === myId() && p.card !== '_keep');
+  const open = S.primerOpen ?? !played;
+  const byType = Object.fromEntries(Object.keys(TYPES).map(t => [t, Object.keys(CARDS).filter(c => CARDS[c].type === t)]));
+  const typeRow = (t, when) => `<tr><td><span class="type-chip" style="--tc:${TYPES[t].color}">${esc(TYPES[t].label)}</span></td>
+    <td>${byType[t].map(c => `${CARDS[c].icon} ${esc(CARDS[c].name)}`).join(', ')}</td><td class="hide-sm">${when}</td></tr>`;
+  return `<section class="panel primer" id="primer">
+    <details ${open ? 'open' : ''} data-primer>
+      <summary><span class="primer-badge">FYI</span><span class="primer-title">Card primer</span><span class="muted hide-sm">Everything about Joker cards in a two-minute read</span><span class="chev">▾</span></summary>
+      <div class="primer-body">
+        <div class="primer-quick">
+          <div><b>1</b><span>Earn packs</span><small>Mostly by making your own picks each week</small></div>
+          <div><b>2</b><span>Keep 1 of 3</span><small>The other two burn. Max ${C.handLimit} in hand</small></div>
+          <div><b>3</b><span>Play 1 a week</span><small>Before the lock. Traps and gifts are free</small></div>
+          <div><b>4</b><span>Reveal</span><small>Everything is shown on the board at the lock</small></div>
+        </div>
+
+        <div class="primer-grid">
+          <div><h4>📦 Getting packs</h4><ul>
+            <li><b>Starter Pack:</b> your first week with cards.</li>
+            <li><b>Locker Room Pack:</b> every week after you made at least one pick yourself (Autopilot doesn't count).</li>
+            <li><b>Award Pack:</b> for winning Galaxy Brain or Heater, and a pity pack for Ice Cold or The Fumble.</li>
+            <li><b>Revenge Pack:</b> when you lose a life. Better odds.</li>
+            <li><b>Album Pack:</b> for each NBA division you complete in your sticker album. Every player who scores for you, and every Dub team, adds a sticker.</li>
+          </ul><p class="dim">Packs arrive at the start of the week. Open them before the lock; an unopened pack keeps its first card for you.</p></div>
+
+          <div><h4>🃏 Playing a card</h4><ul>
+            <li>Tap a card in <b>Your hand</b>, choose the colleague, slot or player it asks for, and confirm.</li>
+            <li><b>One card a week.</b> Arming a trap and gifting a card don't count.</li>
+            <li>You can <b>take a card back</b> until the lock, except a Scout Report once you've read it.</li>
+            <li><b>Gift</b> a card instead and it lands in a colleague's hand next week.</li>
+            <li>Holding more than ${C.handLimit}? Your oldest card is discarded at the lock.</li>
+          </ul></div>
+
+          <div><h4>⏱️ When cards can be played</h4><ul>
+            <li><b>Most cards:</b> any time before the week's lock.</li>
+            <li><b>Embargo:</b> at least ${C.embargoHours} hours before the lock, and it's announced to everyone straight away.</li>
+            <li><b>Hindsight cards</b> (Switcheroo, Garbage Time): after a week ends and before the next lock. They rewrite that finished week.</li>
+            <li><b>Traps</b> sit face-down until the next attack or prank on you.</li>
+            <li><b>Duels</b> show up for your opponent right away so they can accept or decline. No answer by the lock counts as accepted.</li>
+          </ul></div>
+
+          <div><h4>🛡️ Defence and fair play</h4><ul>
+            <li><b>Charge Taken</b> blocks the next attack or prank on you; <b>Uno Reverse</b> bounces it back onto the sender.</li>
+            <li>Nobody takes more than <b>${C.attackCap} attacks or pranks a week</b>. Extras fizzle and the card goes back to its owner.</li>
+            <li>A Heist only works on someone above you in the standings; a Blue Shell always hits the leader.</li>
+            <li>A play for a card you don't hold doesn't count, and it's shown at the reveal.</li>
+          </ul></div>
+
+          <div><h4>🤫 What's secret, and when it's revealed</h4><ul>
+            <li>Packs are dealt from a secret only the league's database knows, so nobody can see what's in your packs before that week locks.</li>
+            <li>Plays are hidden until the lock, then everything appears on <b>The reveal</b> and on the Results board.</li>
+            <li>Only an Embargo (public straight away) and a duel (shown to your opponent) are visible early.</li>
+          </ul></div>
+
+          <div><h4>❤️ What cards can't do</h4><ul>
+            <li>Cards move <b>rank points</b> (and so the standings and awards). They <b>never cost a life</b>: the survival bars only look at your own picks' real totals.</li>
+            <li>A Copycat slot counts 0 toward the survival bars, so copy carefully.</li>
+            <li>Burn Notice is the one card with a lasting effect: it burns a player for a colleague for the rest of the season.</li>
+          </ul></div>
+
+          <div><h4>🏆 Cards and Dub</h4><ul>
+            <li>Name a team instead of a player when a card targets Dub.</li>
+            <li>Load Management in Dub takes off one win; Garbage Time turns one loss into a win.</li>
+            <li>Sixth Man and Switcheroo only work in Bucket, Glass and Dime.</li>
+          </ul></div>
+
+          <div><h4>🎲 Rarity and comeback odds</h4><ul>
+            <li>★ Common, ★★ Rare, ★★★ Epic, ★★★★ Legendary.</li>
+            <li>The top quarter of the standings pulls mostly commons and has the lowest legendary odds.</li>
+            <li>Epic cards (Heist, Blue Shell) only come to the bottom half of the standings, or from a Revenge Pack.</li>
+            <li>Revenge and Album packs have better odds than weekly packs.</li>
+          </ul></div>
+        </div>
+
+        <h4 style="margin:18px 0 8px">🗂️ The seven kinds of card</h4>
+        <div class="table-wrap"><table class="board primer-types"><thead><tr><th>Kind</th><th>Cards</th><th class="hide-sm">When</th></tr></thead><tbody>
+          ${typeRow('attack', 'Before the lock, aimed at a colleague')}
+          ${typeRow('prank', 'Before the lock; cosmetic only')}
+          ${typeRow('trap', 'Arm any time; springs on the next attack or prank')}
+          ${typeRow('boost', 'Before the lock, for your own score')}
+          ${typeRow('hindsight', 'After a week ends, before the next lock')}
+          ${typeRow('chaos', `Embargo ${C.embargoHours}h before the lock; Scout any time before it`)}
+          ${typeRow('duel', 'Before the lock; your opponent can accept or decline')}
+        </tbody></table></div>
+        <p class="note" style="margin:10px 0 0">Every card's exact wording is in <b>The deck</b> at the bottom of this page. Tap a card in your hand for the play form.</p>
+      </div>
+    </details>
+  </section>`;
+}
+
 function deckPanel() {
   const order = Object.keys(RARITY);
   const list = Object.keys(CARDS).sort((a, b) => order.indexOf(CARDS[a].rarity) - order.indexOf(CARDS[b].rarity));
   const C = LEAGUE.cards;
   return `<section class="panel"><div class="panel-title"><h2>The deck</h2><span class="muted">${list.length} cards · ★ common to ★★★★ legendary</span></div>
     <div class="deck">${list.map(c => cardFace(c, { cls: 'tilt' })).join('')}</div>
-    <div class="odds">
-      <div><b>Packs</b>Three cards each. Keep one; the other two burn. A pack you don't open by the lock keeps its first card for you.</div>
-      <div><b>Where packs come from</b>A Starter Pack when you join, a Locker Room Pack every week you picked for yourself, Award Packs for Galaxy Brain, Heater, Ice Cold or the Fumble, a Revenge Pack when you lose a life, and an Album Pack per finished division.</div>
-      <div><b>Comeback odds</b>The top quarter pulls mostly commons. Only the bottom half can pull Heist and Blue Shell, and it has the best shot at a legendary.</div>
-      <div><b>Limits</b>One card a week; traps and gifts are free. Hand limit ${C.handLimit}, oldest card out first. Each person takes at most ${C.attackCap} attacks or pranks a week; extras fizzle back to the sender.</div>
-      <div><b>The belt is safe</b>Cards move rank points, never lives. The survival bars only look at your own picks.</div>
-    </div></section>`;
+    <p class="note" style="margin:12px 0 0">How packs, odds, timing and traps work: see the <button class="link" data-act="primer">card primer</button>.</p>
+  </section>`;
 }
 
 // ---------- Opening packs ----------
@@ -966,15 +1056,16 @@ function playForm(use) {
     const note = s => {
       if (P.card !== 'garbage') return '';
       const x = weekObj(use.week).results[myId()]?.slots[s];
+      if (s === 'WIN') return x?.scorer != null && x.gp > 1 ? (x.line[2] && x.line[1] ? ' · a loss → a win' : ' · n/a') : ' · n/a';
       const hi = x?.line?.[4 + STAT_IDX[s]], lo = x?.line?.[7 + STAT_IDX[s]];
       return x?.scorer != null && x.gp > 1 && hi != null ? ` · ${lo} → ${hi}` : ' · n/a';
     };
     f.push(`<div class="field">${P.card === 'garbage' ? `Which Week ${use.week} pick (worst → best game)` : 'Category'}<div class="pills">${SLOTS.map(s => `<button class="pill" data-act="play-slot" data-slot="${s}" aria-pressed="${P.slot === s}">${INFO[s].emoji} ${INFO[s].name}${note(s)}</button>`).join('')}</div></div>`);
   }
   if (d.needs.includes('player')) {
-    f.push(`<div class="field">${P.card === 'sixth' ? 'Your sixth man' : 'Player'}${P.player != null
+    f.push(`<div class="field">${P.card === 'sixth' ? 'Your sixth man' : P.slot === 'WIN' ? 'Team' : P.card === 'jinx' ? 'Player or team' : 'Player'}${P.player != null
       ? `<div class="chip-pick">${thumb(P.player, 'sm')}<span>${esc(pname(P.player))}</span><button class="link" data-act="play-player-clear">Change</button></div>`
-      : `<input id="play-q" class="input" type="search" placeholder="Search players" value="${esc(P.q)}" autocomplete="off" data-input="play-q"><div class="play-list" id="play-list">${playPlayerRows()}</div>`}</div>`);
+      : `<input id="play-q" class="input" type="search" placeholder="Search ${P.slot === 'WIN' ? 'teams' : 'players'}" value="${esc(P.q)}" autocomplete="off" data-input="play-q"><div class="play-list" id="play-list">${playPlayerRows()}</div>`}</div>`);
   }
   if (d.needs.includes('nickname')) {
     f.push(`<label class="field">Nickname<select class="input" data-change="play-nick"><option value="">Choose…</option>${NICKNAMES.map((n, i) => `<option value="${i}" ${P.nick === String(i) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>`);
@@ -993,11 +1084,11 @@ function swapForm(week) {
   const P = S.play;
   const r = weekObj(week).results[myId()];
   const u = meU();
-  const rows = SLOTS.map(s => {
+  const rows = LEAGUE.playerSlots.map(s => {
     const x = r.slots[s];
     if (x.scorer == null || x.copy) return `<div class="swap-row"><span class="dim">${slotName(s)}: nothing to move</span><span></span></div>`;
     const line = S.data.totals[week]?.p?.[x.scorer] || [];
-    const opts = SLOTS.map(t => {
+    const opts = LEAGUE.playerSlots.map(t => {
       const burned = t !== s && (u.burns[t].get(x.scorer) ?? Infinity) < week;
       return `<option value="${t}" ${P.map[s] === t ? 'selected' : ''} ${burned ? 'disabled' : ''}>${INFO[t].name}: ${line[STAT_IDX[t] + 1] ?? 0} ${INFO[t].short}${burned ? ' (burned)' : ''}</option>`;
     }).join('');
@@ -1012,6 +1103,19 @@ function playPlayerRows() {
   const slot = P.slot || 'PTS';
   const d = S.draft;
   const mine = new Set(SLOTS.flatMap(s => [d?.slots[s]?.player_id, d?.slots[s]?.alt_id]).filter(x => x != null));
+  // Dub takes a team; a Jinx can name a team too.
+  const teamRows = (P.slot === 'WIN' || P.card === 'jinx') && P.card !== 'sixth' ? Object.entries(TEAMS)
+    .filter(([tri, t]) => !q || norm(`${t.city} ${t.name} ${tri}`).includes(q))
+    .map(([tri, t]) => {
+      let why = null;
+      if (P.card === 'burn_notice') {
+        if (!P.target) why = 'Pick a target first';
+        else if (L.users[P.target]?.burns.WIN.has(t.id)) why = 'Already burned for them';
+      }
+      const rec = S.data.teams?.[tri] || { w: 0, l: 0 };
+      return `<button class="prow" data-act="play-player" data-pid="${t.id}" ${why ? 'disabled' : ''}>${thumb(t.id)}<div><div class="nm">${esc(t.city)} ${esc(t.name)}</div><div class="mt">${rec.w}–${rec.l}${why ? ` <span class="blocked">${esc(why)}</span>` : ''}</div></div><div></div></button>`;
+    }) : [];
+  if (P.slot === 'WIN') return teamRows.join('') || '<div class="empty-state">No teams match.</div>';
   const rows = Object.values(S.data.players)
     .filter(p => !q || norm(p.name).includes(q) || norm(p.team).includes(q))
     .sort((a, b) => (b.avg?.[STAT_IDX[slot]] || 0) - (a.avg?.[STAT_IDX[slot]] || 0))
@@ -1025,11 +1129,11 @@ function playPlayerRows() {
       if (P.card === 'embargo' && !P.slot) why = 'Pick a category first';
       if (P.card === 'sixth') {
         if (mine.has(p.id)) why = 'Already one of your picks';
-        else if (SLOTS.every(s => blockedReason(L, myId(), s, p.id))) why = 'Burned everywhere';
+        else if (LEAGUE.playerSlots.every(s => blockedReason(L, myId(), s, p.id))) why = 'Burned everywhere';
       }
-      return `<button class="prow" data-act="play-player" data-pid="${p.id}" ${why ? 'disabled' : ''}>${thumb(p.id)}<div><div class="nm">${esc(p.name)}</div><div class="mt">${esc(p.team)} · ${SLOTS.map(s => `${fmt(p.avg?.[STAT_IDX[s]] || 0)} ${INFO[s].short}`).join(' / ')}${why ? ` <span class="blocked">${esc(why)}</span>` : ''}</div></div><div></div></button>`;
+      return `<button class="prow" data-act="play-player" data-pid="${p.id}" ${why ? 'disabled' : ''}>${thumb(p.id)}<div><div class="nm">${esc(p.name)}</div><div class="mt">${esc(p.team)} · ${LEAGUE.playerSlots.map(s => `${fmt(p.avg?.[STAT_IDX[s]] || 0)} ${INFO[s].short}`).join(' / ')}${why ? ` <span class="blocked">${esc(why)}</span>` : ''}</div></div><div></div></button>`;
     });
-  return rows.join('') || '<div class="empty-state">No players match.</div>';
+  return [...rows, ...(q ? teamRows : [])].join('') || '<div class="empty-state">No players match.</div>';
 }
 
 async function submitPlay(btn) {
@@ -1516,7 +1620,7 @@ function viewRules() {
       <div class="panel rule"><h3>📊 Scoring</h3><p>Every category is ranked across the league each week. You get 1 point for every colleague whose pick you beat, ½ for a tie. Your weekly score is the sum of your four categories.</p><p>Drop your worst weeks: one drop unlocks after weeks 6, 12 and 18.</p></div>
       <div class="panel rule"><h3>❤️ Survivor</h3><p>Everyone starts with ${LEAGUE.lives} lives. Clear at least ${LEAGUE.barsToSurvive} of the ${SLOTS.length} weekly bars (${b.PTS} PTS / ${b.REB} REB / ${b.AST} AST / ${b.WIN} win, the same every week) or lose a life. Last one standing wins the Survivor Belt. You keep playing for points either way.</p></div>
       <div class="panel rule"><h3>🃏 Jokers</h3><ul><li><b>Double Down</b>: double the rank points from one slot, once a season.</li><li><b>Un-burn</b>: get one burned player back in one category, once a season.</li></ul></div>
-      <div class="panel rule"><h3>🎴 Joker cards</h3><p>Earn packs, keep one card from each, and play one card a week: jinxes, traps, duels, heists, Blue Shells and pranks. Attacks are revealed at the lock. Cards move points but never cost a life.</p><p><a href="#cards">Open the card table and the full deck →</a></p></div>
+      <div class="panel rule"><h3>🎴 Joker cards</h3><p>Earn packs, keep one card from each, and play one card a week: jinxes, traps, duels, heists, Blue Shells and pranks. Attacks are revealed at the lock. Cards move points but never cost a life.</p><p><button class="link" data-act="primer">Read the card primer →</button></p></div>
       <div class="panel rule"><h3>🤖 Autopilot</h3><p>Forgot to pick? At the lock, Autopilot fills empty slots with your best unburned projected week (season average × games). It never leaves you at zero, but it spends your best players first.</p></div>
       <div class="panel rule"><h3>🥊 Rivals</h3><p>Name one coworker as your rival and track your weekly head-to-head record. You can change your rival any time.</p></div>
       <div class="panel rule"><h3>🏆 Titles and awards</h3><ul><li><b>Season Champion</b></li><li><b>Title belts:</b> Survivor Belt, plus Scoring, Rebounding, Assists and Dub Champions (most of each from your picks over the season)</li><li><b>Monthly Crowns:</b> Nov, Dec, Jan, Feb, Mar/Apr</li><li><b>Hall of Fame</b> and <b>Hall of Shame:</b> fun season awards</li><li><b>Playoff Burn</b> (April–June)</li></ul><p>Every award comes with a downloadable certificate. The Trophies tab shows who's leading each race and where you stand.</p></div>
@@ -1654,6 +1758,12 @@ const TOUR = [
         <li><b>After the lock</b> everyone's picks are revealed on <b>Results</b>.</li>
       </ul>`,
   },
+  {
+    icon: '🎴', kicker: 'Joker cards', title: 'Packs, cards and chaos',
+    body: () => `<p>You also earn <b>packs of Joker cards</b>, mostly by making your own picks each week. Keep one card from each pack and play <b>one card a week</b>: jinx a colleague's pick, set a trap, challenge someone to a duel, or copy a rival's pick.</p>
+      <p>Cards move points but <b>never cost a life</b>. Everything is revealed at the lock.</p>
+      <p>The <b>Cards</b> tab has a short primer with all the rules.</p>`,
+  },
 ];
 
 function openTour(i) {
@@ -1711,7 +1821,12 @@ const ACTIONS = {
   'pack-practice': () => practicePack(),
   'card-open': el => openPlay(el.dataset.uid),
   'play-mode': el => { S.play.mode = el.dataset.mode; renderPlay(); },
-  'play-slot': el => { S.play.slot = el.dataset.slot; if (S.play.card === 'burn_notice') S.play.player = null; renderPlay(); },
+  'play-slot': el => {
+    S.play.slot = el.dataset.slot;
+    // Dub takes a team, the other slots a player: drop a choice that no longer fits.
+    if (S.play.card === 'burn_notice' || (S.play.player != null && (S.play.slot === 'WIN') !== isTeamId(S.play.player))) S.play.player = null;
+    renderPlay();
+  },
   'play-player': el => { S.play.player = +el.dataset.pid; renderPlay(); },
   'play-player-clear': () => { S.play.player = null; renderPlay(); },
   'play-submit': el => submitPlay(el),
@@ -1750,6 +1865,11 @@ const ACTIONS = {
     if (S.me) location.hash = '#week';
   },
   'tour-replay': () => openTour(0),
+  primer: () => {
+    S.primerOpen = true;
+    const go = () => { const el = $('#primer'); if (el) { el.querySelector('details').open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } };
+    if (S.view === 'cards') go(); else { location.hash = '#cards'; setTimeout(go, 60); }
+  },
   'whats-new': () => openWhatsNew(0),
   'whats-new-done': async () => { closeModal(); if (S.me) await markSeen({ updates_seen: LATEST_UPDATE }); },
   'close-whats-new-bg': async (el, e) => { if (e.target === el) { closeModal(); if (S.me) await markSeen({ updates_seen: LATEST_UPDATE }); } },
@@ -1859,6 +1979,9 @@ document.addEventListener('input', e => {
     $('#ledger-list').innerHTML = ledgerRows(funStats(S.league, S.data.players, S.data.teams));
   }
 });
+
+// Remember whether the primer is open across re-renders ('toggle' doesn't bubble).
+document.addEventListener('toggle', e => { if (e.target.matches?.('[data-primer]')) S.primerOpen = e.target.open; }, true);
 
 document.addEventListener('keydown', e => {
   // The tour is short and finishes with a button, so Escape doesn't skip it.

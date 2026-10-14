@@ -138,6 +138,9 @@ There's no money, just bragging rights and a **downloadable certificate** for ev
     - Hand limit 4. The oldest card goes first.
     - Cards move rank points but never touch the Survivor Belt: the bars only look at your own picks.
   - **The reveal:** everything is revealed at the lock as a card table, with taunts.
+  - **Secret hands:** packs are dealt from a secret seed held by the database, so nobody can work out a colleague's cards before the lock.
+  - **Dub:** cards that name a slot take a team in Dub (Load Management takes off a win, Garbage Time turns a loss into a win). Sixth Man and Switcheroo stay in the player slots.
+  - **Card primer:** a plain-language FYI at the top of the Cards tab.
 - **Rivals.** Name one coworker as your rival and see your weekly head-to-head record next to the standings.
 - **Playoff Burn** (April to June): a separate mini-game with a fresh burn list. Each round you make one pick per category, and the score is that player's total for the round.
 
