@@ -2,14 +2,23 @@
 // Pure functions over plain data, shared by the browser app and the data script.
 
 import { LEAGUE, monthKey, MONTH_LABELS } from './config.js';
+import { TEAMS, TEAM_BY_ID } from './teams.js';
 
 const STAT = { PTS: 1, REB: 2, AST: 3 };
 const SLOTS = LEAGUE.slots;
-const EMPTY = [0, 0, 0, 0];
 
-export function statLine(totals, week, pid) {
-  return totals[week]?.p?.[pid] || EMPTY;
+// [games played, value] for a pick in a slot. Player slots read data `p`
+// (gp, pts, reb, ast); the WIN slot reads team data `t` (finished games, wins).
+export function slotLine(totals, week, slot, id) {
+  if (slot === 'WIN') {
+    const t = totals[week]?.t?.[TEAM_BY_ID[id]];
+    return t ? [t[0], t[1]] : [0, 0];
+  }
+  const l = totals[week]?.p?.[id];
+  return l ? [l[0], l[STAT[slot]]] : [0, 0];
 }
+
+export const unit = (slot, v) => slot === 'WIN' ? `${v} win${v === 1 ? '' : 's'}` : `${v} ${LEAGUE.slotInfo[slot].short}`;
 
 export function weekStatus(week, now) {
   if (now < Date.parse(week.lockAt)) return 'open';
@@ -80,15 +89,15 @@ export function computeLeague({ weeks, totals, picks, unburns = [], profiles, no
         if (mainOk) usedThisWeek.add(p.player_id);
         const altOk = p.alt_id != null && p.alt_id !== p.player_id && ok(p.alt_id);
         if (altOk) usedThisWeek.add(p.alt_id);
-        const gp = pid => statLine(totals, wk.week, pid)[0];
+        const gp = pid => slotLine(totals, wk.week, slot, pid)[0];
 
         let scorer = null, pending = false;
         if (mainOk && gp(p.player_id) > 0) scorer = p.player_id;
         else if (status === 'final') scorer = altOk && gp(p.alt_id) > 0 ? p.alt_id : null;
         else { scorer = mainOk ? p.player_id : altOk ? p.alt_id : null; pending = true; }
 
-        const line = scorer != null ? statLine(totals, wk.week, scorer) : EMPTY;
-        const value = line[STAT[slot]];
+        const line = scorer != null ? slotLine(totals, wk.week, slot, scorer) : [0, 0];
+        const value = line[1];
         let dd = false;
         if (p.double_down && u.doubleDownWeek == null) { u.doubleDownWeek = wk.week; dd = true; }
 
@@ -235,9 +244,10 @@ function weekAwards(w, users) {
   const scored = all.filter(p => p.scorer != null && p.value > 0);
   if (scored.length) {
     const gb = [...scored].sort((a, b) => a.owned - b.owned || b.rank - a.rank)[0];
-    if (gb.rank > 0) awards.push({ key: 'galaxy', icon: '🧠', title: 'Galaxy Brain', user: gb.id, slot: gb.slot, pid: gb.scorer, text: `${gb.value} ${LEAGUE.slotInfo[gb.slot].short}, picked by ${gb.owned === 1 ? 'nobody else' : gb.owned + ' people'}` });
-    const heat = [...scored].sort((a, b) => b.value / LEAGUE.bars[b.slot] - a.value / LEAGUE.bars[a.slot])[0];
-    awards.push({ key: 'heater', icon: '🔥', title: 'Heater', user: heat.id, slot: heat.slot, pid: heat.scorer, text: `${heat.value} ${LEAGUE.slotInfo[heat.slot].short} (${(heat.value / LEAGUE.bars[heat.slot]).toFixed(1)}× the bar)` });
+    if (gb.rank > 0) awards.push({ key: 'galaxy', icon: '🧠', title: 'Galaxy Brain', user: gb.id, slot: gb.slot, pid: gb.scorer, text: `${unit(gb.slot, gb.value)}, picked by ${gb.owned === 1 ? 'nobody else' : gb.owned + ' people'}` });
+    // Heater is a player award: team wins against a 1-win bar would always top it.
+    const heat = scored.filter(p => p.slot !== 'WIN').sort((a, b) => b.value / LEAGUE.bars[b.slot] - a.value / LEAGUE.bars[a.slot])[0];
+    if (heat) awards.push({ key: 'heater', icon: '🔥', title: 'Heater', user: heat.id, slot: heat.slot, pid: heat.scorer, text: `${unit(heat.slot, heat.value)} (${(heat.value / LEAGUE.bars[heat.slot]).toFixed(1)}× the bar)` });
   }
   for (const f of all.filter(p => p.fumble)) {
     awards.push({ key: 'fumble', icon: '🪦', title: 'The Fumble', user: f.id, slot: f.slot, pid: f.pid, text: `${LEAGUE.slotInfo[f.slot].name} pick never took the floor` });
@@ -280,17 +290,25 @@ export function projection(player, slot, games) {
   return (player?.avg?.[STAT[slot] - 1] || 0) * (games || 0);
 }
 
+// Expected wins this week from the season record (smoothed so 0-0 reads as .500).
+export function teamProjection(record, games) {
+  const w = record?.w || 0, l = record?.l || 0;
+  return (games || 0) * (w + 1) / (w + l + 2);
+}
+
 // Autopilot: fill empty slots with the best unburned projected week.
-export function autopilotPicks(league, userId, week, current, players, gamesByTeam) {
+export function autopilotPicks(league, userId, week, current, players, gamesByTeam, teams = {}) {
   const used = new Set(Object.values(current).flatMap(p => [p.player_id, p.alt_id]).filter(x => x != null));
   const chosen = {};
   for (const slot of SLOTS) {
     if (current[slot]) continue;
-    const best = Object.values(players)
-      .filter(pl => !used.has(pl.id) && !blockedReason(league, userId, slot, pl.id))
-      .map(pl => ({ pl, proj: projection(pl, slot, gamesByTeam[pl.team]) }))
-      .sort((a, b) => b.proj - a.proj || (b.pl.avg?.[STAT[slot] - 1] || 0) - (a.pl.avg?.[STAT[slot] - 1] || 0) || a.pl.id - b.pl.id)[0];
-    if (best) { chosen[slot] = best.pl.id; used.add(best.pl.id); }
+    const pool = slot === 'WIN'
+      ? Object.entries(TEAMS).map(([tri, t]) => ({ id: t.id, proj: teamProjection(teams[tri], gamesByTeam[tri]), tie: 0 }))
+      : Object.values(players).map(pl => ({ id: pl.id, proj: projection(pl, slot, gamesByTeam[pl.team]), tie: pl.avg?.[STAT[slot] - 1] || 0 }));
+    const best = pool
+      .filter(c => !used.has(c.id) && !blockedReason(league, userId, slot, c.id))
+      .sort((a, b) => b.proj - a.proj || b.tie - a.tie || a.id - b.id)[0];
+    if (best) { chosen[slot] = best.id; used.add(best.id); }
   }
   return chosen;
 }

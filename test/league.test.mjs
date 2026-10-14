@@ -72,21 +72,26 @@ test('both picks DNP: zero, nothing burned, fumble award', () => {
   assert.ok(L.weeks[0].awards.some(x => x.key === 'fumble' && x.user === 'a'));
 });
 
-test('survivor: clear 2 of 3 bars (50/18/15, the same in double weeks), 3 lives', () => {
+test('survivor: clear 3 of 4 bars (50 PTS / 18 REB / 15 AST / 1 W, same in double weeks), 3 lives', () => {
+  const DEN = 1610612743, OKC = 1610612760, BOS = 1610612738, LAL = 1610612747;
   const weeks = [wk(1, { mult: 2 }), wk(2), wk(3), wk(4)];
   const line = [3, 52, 18, 14]; // clears PTS and REB, misses AST
-  const thin = [2, 49, 10, 15]; // clears only AST
-  const totals = Object.fromEntries([1, 2, 3, 4].map(w => [w, { final: true, p: { [w * 10 + 1]: line, [w * 10 + 2]: line, [w * 10 + 3]: line, [w * 10 + 4]: thin } }]));
+  const t = { DEN: [3, 2], OKC: [3, 2], BOS: [3, 2], LAL: [3, 0] };
+  const totals = Object.fromEntries([1, 2, 3, 4].map(w => [w, { final: true, p: { [w * 10 + 1]: line, [w * 10 + 2]: line, [w * 10 + 3]: line }, t }]));
+  const aTeams = [DEN, OKC, BOS, DEN]; // DEN again in week 4: burned, so it scores 0
   const picks = [];
   for (const w of [1, 2, 3, 4]) {
-    picks.push(pick('a', w, 'PTS', w * 10 + 1), pick('a', w, 'REB', w * 10 + 2), pick('a', w, 'AST', w * 10 + 3));
-    picks.push(pick('b', w, 'PTS', w * 10 + 4), pick('b', w, 'REB', w * 10 + 1), pick('b', w, 'AST', w * 10 + 2));
+    picks.push(pick('a', w, 'PTS', w * 10 + 1), pick('a', w, 'REB', w * 10 + 2), pick('a', w, 'AST', w * 10 + 3), pick('a', w, 'WIN', aTeams[w - 1]));
+    picks.push(pick('b', w, 'PTS', w * 10 + 1), pick('b', w, 'REB', w * 10 + 2), pick('b', w, 'AST', w * 10 + 3), pick('b', w, 'WIN', LAL));
   }
   const L = computeLeague({ weeks, totals, picks, profiles, now: NOW });
+  assert.equal(L.weeks[0].results.a.slots.WIN.value, 2);
+  assert.equal(L.weeks[0].results.a.cleared, 3);
   assert.equal(L.weeks[0].results.a.survived, true); // double week, same bars
-  assert.equal(L.weeks[0].results.a.cleared, 2);
-  assert.equal(L.weeks[0].results.b.cleared, 1); // 49 PTS misses 50, 18 REB clears, 14 AST misses
-  assert.equal(L.users.a.lives, 3);
+  assert.equal(L.weeks[0].results.b.cleared, 2); // winless team
+  assert.equal(L.weeks[3].results.a.slots.WIN.invalid, true);
+  assert.equal(L.users.a.burns.WIN.get(DEN), 1);
+  assert.equal(L.users.a.lives, 2);
   assert.equal(L.users.b.lives, 0);
   assert.equal(L.users.b.eliminatedWeek, 3);
   assert.equal(L.survivor.winner.id, 'a');
@@ -138,9 +143,10 @@ test('head to head and autopilot', () => {
     3: { id: 3, team: 'BOS', avg: [20, 13, 4] },
   };
   const games = { DEN: 4, OKC: 2, BOS: 3 };
-  const auto = autopilotPicks(L, 'a', 2, {}, players, games);
-  // a burned 1 on PTS: best PTS is 2 (64) vs 3 (60); REB 1 (48); AST: 3 left (12)
-  assert.deepEqual(auto, { PTS: 2, REB: 1, AST: 3 });
+  const auto = autopilotPicks(L, 'a', 2, {}, players, games, { DEN: { w: 1, l: 5 }, BOS: { w: 5, l: 1 }, OKC: { w: 6, l: 0 } });
+  // a burned 1 on PTS: best PTS is 2 (64) vs 3 (60); REB 1 (48); AST: 3 left (12).
+  // WIN: BOS 3 games × 6/8 = 2.25 beats OKC 2 × 7/8 = 1.75 and DEN 4 × 2/8 = 1.
+  assert.deepEqual(auto, { PTS: 2, REB: 1, AST: 3, WIN: 1610612738 });
 });
 
 test('commissioner stats: burn ledger, firepower, contrarians, records', async () => {

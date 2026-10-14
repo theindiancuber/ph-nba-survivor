@@ -2,12 +2,16 @@
 // Built from post-lock data only, so nothing here leaks picks before a lock.
 
 import { LEAGUE } from './config.js';
+import { TEAMS } from './teams.js';
+import { slotLine } from './league.js';
 
 const SLOTS = LEAGUE.slots;
+const PSLOTS = LEAGUE.playerSlots;
 const IDX = { PTS: 0, REB: 1, AST: 2 };
 const avg = (p, s) => p?.avg?.[IDX[s]] || 0;
+const winPct = r => (r?.w || 0) / Math.max(1, (r?.w || 0) + (r?.l || 0));
 
-export function funStats(L, players) {
+export function funStats(L, players, teams = {}) {
   const people = {};
   for (const u of Object.values(L.users)) {
     people[u.id] = { id: u.id, picks: 0, autos: 0, saves: 0, fumbles: 0, ownSum: 0, ownN: 0, dd: null };
@@ -30,7 +34,7 @@ export function funStats(L, players) {
         if (w.status !== 'final') continue;
         if (x.usedAlt) { p.saves++; totals.saves++; }
         if (x.fumble) { p.fumbles++; totals.fumbles++; }
-        if (x.scorer != null) {
+        if (x.scorer != null && s !== 'WIN') {
           const rec = { id, week: w.week, slot: s, pid: x.scorer, value: x.value, ratio: x.value / LEAGUE.bars[s] };
           if (!best || rec.ratio > best.ratio) best = rec;
           if (!worst || rec.ratio < worst.ratio) worst = rec;
@@ -44,7 +48,7 @@ export function funStats(L, players) {
   for (const u of Object.values(L.users)) {
     for (const s of SLOTS) {
       for (const [pid, week] of u.burns[s]) {
-        ((ledger[pid] ||= { PTS: [], REB: [], AST: [] })[s]).push({ id: u.id, week });
+        ((ledger[pid] ||= Object.fromEntries(SLOTS.map(x => [x, []])))[s]).push({ id: u.id, week });
       }
     }
   }
@@ -54,19 +58,24 @@ export function funStats(L, players) {
     .sort((a, b) => b.who.length - a.who.length || avg(players[b.pid], s) - avg(players[a.pid], s))
     .slice(0, 8)]));
 
-  const ranked = Object.fromEntries(SLOTS.map(s => [s, Object.values(players).sort((a, b) => avg(b, s) - avg(a, s))]));
-  const untouched = Object.fromEntries(SLOTS.map(s => [s, ranked[s].filter(p => !ledger[p.id]?.[s]?.length).slice(0, 6)]));
+  const ranked = Object.fromEntries(PSLOTS.map(s => [s, Object.values(players).sort((a, b) => avg(b, s) - avg(a, s))]));
+  const untouched = Object.fromEntries(PSLOTS.map(s => [s, ranked[s].filter(p => !ledger[p.id]?.[s]?.length).slice(0, 6)]));
+  // Teams nobody has burned for wins, best record first. Entries: { id, tri, record }.
+  untouched.WIN = Object.entries(TEAMS).map(([tri, t]) => ({ id: t.id, tri, record: teams[tri] || { w: 0, l: 0 } }))
+    .filter(t => !ledger[t.id]?.WIN?.length)
+    .sort((a, b) => winPct(b.record) - winPct(a.record) || b.record.w - a.record.w)
+    .slice(0, 6);
 
   // Firepower left: each person's best 5 unburned players per category, measured against the bars.
   const active = Object.values(L.users).filter(u => Object.keys(u.weekly).length);
   const firepower = active.map(u => {
     let score = 0;
     const left = {};
-    for (const s of SLOTS) {
+    for (const s of PSLOTS) {
       left[s] = ranked[s].slice(0, 60).filter(p => !u.burns[s].has(p.id)).slice(0, 5);
       score += left[s].reduce((a, p) => a + avg(p, s) / LEAGUE.bars[s], 0);
     }
-    return { id: u.id, score, left: Object.fromEntries(SLOTS.map(s => [s, left[s].map(p => p.id)])) };
+    return { id: u.id, score, left: Object.fromEntries(PSLOTS.map(s => [s, left[s].map(p => p.id)])) };
   }).sort((a, b) => b.score - a.score);
 
   // Contrarian index: on average, what share of the league picked the same player as you.
@@ -80,8 +89,11 @@ export function funStats(L, players) {
 // Hindsight: the best strategy each week and over the season, from final weeks only.
 export function perfectPlay(L, totals) {
   const finals = L.weeks.filter(w => w.status === 'final');
-  const valueOf = (week, pid, s) => totals[week]?.p?.[pid]?.[IDX[s] + 1] || 0;
-  const topFor = (week, s, n) => Object.keys(totals[week]?.p || {})
+  const valueOf = (week, id, s) => slotLine(totals, week, s, id)[1];
+  const idsFor = (week, s) => s === 'WIN'
+    ? Object.keys(totals[week]?.t || {}).map(tri => TEAMS[tri]?.id).filter(Boolean)
+    : Object.keys(totals[week]?.p || {});
+  const topFor = (week, s, n) => idsFor(week, s)
     .map(pid => ({ pid: +pid, value: valueOf(week, pid, s) }))
     .sort((a, b) => b.value - a.value || a.pid - b.pid)
     .slice(0, n);
@@ -95,6 +107,8 @@ export function perfectPlay(L, totals) {
       const score = a.value / LEAGUE.bars.PTS + b.value / LEAGUE.bars.REB + c.value / LEAGUE.bars.AST;
       if (!perfect || score > perfect.score) perfect = { score, PTS: a, REB: b, AST: c };
     }
+    // Teams never clash with players, so the best team is simply the one with most wins.
+    if (perfect && top.WIN) perfect.WIN = top.WIN[0] || { pid: null, value: 0 };
     const bestActual = Object.fromEntries(SLOTS.map(s => {
       let m = null;
       for (const id of w.entrants) {

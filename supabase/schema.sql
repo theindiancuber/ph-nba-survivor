@@ -1,5 +1,6 @@
 -- Peakhill NBA Survivor: database schema.
 -- Paste into Supabase → SQL Editor → Run. Safe to re-run.
+-- Then run admin.sql and upgrade-dub-invite.sql.
 
 -- People in the league. One row per signed-in account.
 create table if not exists public.profiles (
@@ -21,7 +22,7 @@ create table if not exists public.weeks (
 create table if not exists public.picks (
   user_id uuid not null references public.profiles(id) on delete cascade,
   week int not null references public.weeks(week),
-  slot text not null check (slot in ('PTS', 'REB', 'AST')),
+  slot text not null check (slot in ('PTS', 'REB', 'AST', 'WIN')),
   player_id int not null,
   alt_id int,
   double_down boolean not null default false,
@@ -36,7 +37,7 @@ create unique index if not exists picks_one_double_down on public.picks (user_id
 -- Un-burn joker: once a season, one player back in one slot.
 create table if not exists public.unburns (
   user_id uuid primary key references public.profiles(id) on delete cascade,
-  slot text not null check (slot in ('PTS', 'REB', 'AST')),
+  slot text not null check (slot in ('PTS', 'REB', 'AST', 'WIN')),
   player_id int not null,
   week int not null references public.weeks(week),
   created_at timestamptz not null default now()

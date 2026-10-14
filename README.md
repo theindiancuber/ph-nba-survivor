@@ -1,6 +1,6 @@
 # Peakhill NBA Survivor
 
-A free, season-long NBA player-survivor league for the office. Every week you pick a scorer (**Bucket**), a rebounder (**Glass**) and a passer (**Dime**). Each pick scores his weekly total. Once you use a player in a category, he's burned in that category for the season. You score 1 point for every colleague your pick beats, keep 3 lives on the survivor ladder, and play two Jokers. Champions get a downloadable certificate. Rules and design notes are in [CONCEPT.md](CONCEPT.md).
+A free, season-long NBA player-survivor league for the office. Every week you pick a scorer (**Bucket**), a rebounder (**Glass**), a passer (**Dime**) and a team to win (**Dub**). Each pick scores its weekly total. Once you use a player or team in a category, it's burned in that category for the season. You score 1 point for every colleague your pick beats, keep 3 lives on the survivor ladder, and play two Jokers. Champions get a downloadable certificate. Rules and design notes are in [CONCEPT.md](CONCEPT.md).
 
 **Try it now:** serve the folder and open `/?demo`. You'll get a made-up league frozen in early December, with week 6 live and week 7 open for picks.
 
@@ -36,7 +36,7 @@ npm test          # league engine + data pipeline tests
 
 ## Commissioner tab
 
-Run `supabase/admin.sql` in the Supabase SQL editor (it's safe to re-run after updates), then make yourself commissioner:
+Run `supabase/admin.sql` and then `supabase/upgrade-dub-invite.sql` in the Supabase SQL editor (both are safe to re-run), then make yourself commissioner:
 
 ```sql
 insert into public.admins (user_id)
@@ -46,7 +46,8 @@ on conflict do nothing;
 
 Sign out and back in. A **Commissioner** tab appears with:
 - **Member list:** everyone's email and when they were last seen.
-- **This week's check-in:** who has filled 0–3 slots, with a button to copy the emails of people who still need to pick.
+- **Invite code:** new sign-ups need it (the database rejects them otherwise). Copy an invite link that fills it in, change it, or turn it off. Changing it doesn't affect people who've already joined.
+- **This week's check-in:** who has filled 0–4 slots, with a button to copy the emails of people who still need to pick.
 - **Burn ledger:** search any player to see who burned him, in which category and when.
 - **League-wide stats:** most-burned players, untouched gems, firepower left, playing styles, and the best and worst picks of the season.
 - **Best strategy (hindsight):** each final week's perfect three picks, the perfect season plan per category (every player used at most once, the same rule everyone plays under), and how close each person came to it.

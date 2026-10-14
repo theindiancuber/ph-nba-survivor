@@ -18,6 +18,7 @@
   --slot-PTS: #ff6b2c;
   --slot-REB: #3d8bff;
   --slot-AST: #f2c14e;
+  --slot-WIN: #2fd17f;
   --radius: 14px;
   --display: 'Oswald', 'Arial Narrow', sans-serif;
   --body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -144,10 +145,15 @@ main { max-width: 1180px; margin: 0 auto; padding: 22px 16px 80px; }
 @keyframes pulse { 50% { opacity: .25; } }
 
 /* ---------- Slot cards ---------- */
-.slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .slot-card { --sc: var(--slot-PTS); position: relative; border-radius: 16px; overflow: hidden; background: var(--panel); border: 1px solid var(--line); display: flex; flex-direction: column; min-height: 330px; }
 .slot-card[data-slot="REB"] { --sc: var(--slot-REB); }
 .slot-card[data-slot="AST"] { --sc: var(--slot-AST); }
+.slot-card[data-slot="WIN"] { --sc: var(--slot-WIN); }
+.player-stage .team-logo-big { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); height: 112px; width: auto; filter: drop-shadow(0 6px 14px rgba(0, 0, 0, .45)); }
+.thumb.team { background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--tc1) 70%, #fff), var(--tc1)); }
+.thumb.team img { left: 50%; top: 50%; bottom: auto; transform: translate(-50%, -50%); height: 72%; }
+.thumb.sm.team img { height: 72%; }
 .slot-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: linear-gradient(90deg, color-mix(in srgb, var(--sc) 30%, transparent), transparent); border-bottom: 2px solid var(--sc); }
 .slot-head b { font: 700 18px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; }
 .slot-head span { font: 600 11px/1 var(--body); letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
@@ -203,10 +209,11 @@ button.link.danger { color: var(--red-hot); }
 .joker p { margin: 0; font-size: 13px; color: var(--muted); }
 
 /* ---------- Live ---------- */
-.live-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.live-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .live-slot { --sc: var(--slot-PTS); border-radius: 14px; border: 1px solid var(--line); background: #0a1630; padding: 12px; position: relative; overflow: hidden; }
 .live-slot[data-slot="REB"] { --sc: var(--slot-REB); }
 .live-slot[data-slot="AST"] { --sc: var(--slot-AST); }
+.live-slot[data-slot="WIN"] { --sc: var(--slot-WIN); }
 .live-slot::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--sc); }
 .live-top { display: flex; align-items: center; gap: 10px; }
 .thumb { width: 46px; height: 46px; border-radius: 50%; overflow: hidden; flex: none; background: radial-gradient(circle at 50% 120%, var(--tc1, #1d3361), #0b1731); border: 2px solid rgba(255, 255, 255, .12); position: relative; }
@@ -263,7 +270,7 @@ select.input:focus, input.input:focus { border-color: var(--blue-hot); box-shado
 label.field { display: grid; gap: 6px; font-size: 12.5px; color: var(--muted); font-weight: 600; }
 
 /* ---------- Ownership ---------- */
-.own-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.own-cols { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .own-row { display: grid; grid-template-columns: 34px 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 13px; }
 .own-bar { height: 6px; border-radius: 9px; background: #1a2b52; margin-top: 4px; overflow: hidden; }
 .own-bar i { display: block; height: 100%; background: var(--sc, var(--blue-hot)); }
@@ -282,17 +289,19 @@ label.field { display: grid; gap: 6px; font-size: 12.5px; color: var(--muted); f
 .surv-card.me { border-color: var(--blue-hot); }
 .surv-card .hearts { font-size: 15px; margin-top: 3px; }
 .surv-card.out { opacity: .55; }
-.ladder-bars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.ladder-bars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .ladder-bar { --sc: var(--slot-PTS); border-radius: 12px; padding: 12px 14px; background: #0a1630; border: 1px solid var(--line); border-top: 3px solid var(--sc); }
 .ladder-bar[data-slot="REB"] { --sc: var(--slot-REB); }
 .ladder-bar[data-slot="AST"] { --sc: var(--slot-AST); }
+.ladder-bar[data-slot="WIN"] { --sc: var(--slot-WIN); }
 .ladder-bar b { font: 700 32px/1 var(--display); }
 
 /* ---------- Burn book ---------- */
-.burn-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.burn-cols { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .burn-col { --sc: var(--slot-PTS); }
 .burn-col[data-slot="REB"] { --sc: var(--slot-REB); }
 .burn-col[data-slot="AST"] { --sc: var(--slot-AST); }
+.burn-col[data-slot="WIN"] { --sc: var(--slot-WIN); }
 .burn-col h3 { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 10px; padding-bottom: 8px; border-bottom: 2px solid var(--sc); font: 700 17px/1 var(--display); text-transform: uppercase; letter-spacing: .05em; }
 .burn-col h3 small { font: 600 12px/1 var(--body); color: var(--muted); letter-spacing: 0; text-transform: none; }
 .burn-item { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 10px; margin-bottom: 4px; background: rgba(255, 255, 255, .025); }
@@ -388,12 +397,15 @@ footer { max-width: 1180px; margin: 0 auto; padding: 0 16px 30px; color: var(--d
 .rule ul { margin: 0; padding-left: 18px; }
 
 /* ---------- Responsive ---------- */
+@media (max-width: 1100px) {
+  .slots, .live-grid, .own-cols, .burn-cols { grid-template-columns: repeat(2, 1fr); }
+}
 @media (max-width: 900px) {
   .slots, .live-grid, .own-cols, .burn-cols { grid-template-columns: 1fr; }
   .slot-card { min-height: 0; }
   .jokers { grid-template-columns: 1fr; }
   .auth-wrap { grid-template-columns: 1fr; padding-top: 18px; }
-  .ladder-bars { grid-template-columns: repeat(3, 1fr); }
+  .ladder-bars { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 600px) {
   main { padding: 16px 16px 90px; }
