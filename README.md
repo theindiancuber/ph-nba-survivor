@@ -2,13 +2,6 @@
 
 A free, season-long NBA player-survivor league for the office. Every week you pick a scorer (**Bucket**), a rebounder (**Glass**), a passer (**Dime**) and a team to win (**Dub**). Each pick scores its weekly total. Once you use a player or team in a category, it's burned in that category for the season. You score 1 point for every colleague your pick beats, keep 3 lives on the survivor ladder, and play two Jokers. Champions get a downloadable certificate. Rules and design notes are in [CONCEPT.md](CONCEPT.md).
 
-**Try it now:** serve the folder and open `/?demo`. You'll get a made-up league frozen in early December, with week 6 live and week 7 open for picks.
-
-```
-npm run serve     # http://localhost:8080/?demo
-npm test          # league engine + data pipeline tests
-```
-
 ## How it fits together
 
 | Piece | What it does |
