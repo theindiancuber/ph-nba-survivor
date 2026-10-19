@@ -1,6 +1,7 @@
 -- Peakhill NBA Survivor: database schema.
 -- Paste into Supabase → SQL Editor → Run. Safe to re-run.
--- Then run admin.sql, upgrade-dub-invite.sql, upgrade-onboarding.sql and upgrade-cards.sql.
+-- Then run admin.sql, upgrade-dub-invite.sql, upgrade-onboarding.sql, upgrade-cards.sql,
+-- upgrade-decree.sql and, last, harden.sql.
 
 -- People in the league. One row per signed-in account.
 create table if not exists public.profiles (
@@ -59,19 +60,19 @@ alter table public.unburns enable row level security;
 drop policy if exists "profiles readable" on public.profiles;
 drop policy if exists "profiles insert own" on public.profiles;
 drop policy if exists "profiles update own" on public.profiles;
-create policy "profiles readable" on public.profiles for select to anon, authenticated using (true);
+create policy "profiles readable" on public.profiles for select to authenticated using (true);
 create policy "profiles insert own" on public.profiles for insert to authenticated with check (id = auth.uid());
 create policy "profiles update own" on public.profiles for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
 
 drop policy if exists "weeks readable" on public.weeks;
-create policy "weeks readable" on public.weeks for select to anon, authenticated using (true);
+create policy "weeks readable" on public.weeks for select to authenticated using (true);
 
--- Your own picks any time; everyone's picks once the week locks.
+-- Signed-in members only (harden.sql). Your own picks any time; everyone's once the week locks.
 drop policy if exists "picks readable" on public.picks;
 drop policy if exists "picks insert own before lock" on public.picks;
 drop policy if exists "picks update own before lock" on public.picks;
 drop policy if exists "picks delete own before lock" on public.picks;
-create policy "picks readable" on public.picks for select to anon, authenticated
+create policy "picks readable" on public.picks for select to authenticated
   using (user_id = auth.uid() or public.week_locked(week));
 create policy "picks insert own before lock" on public.picks for insert to authenticated
   with check (user_id = auth.uid() and public.week_open(week) and not auto);
@@ -84,7 +85,7 @@ create policy "picks delete own before lock" on public.picks for delete to authe
 drop policy if exists "unburns readable" on public.unburns;
 drop policy if exists "unburns insert own before lock" on public.unburns;
 drop policy if exists "unburns delete own before lock" on public.unburns;
-create policy "unburns readable" on public.unburns for select to anon, authenticated
+create policy "unburns readable" on public.unburns for select to authenticated
   using (user_id = auth.uid() or public.week_locked(week));
 create policy "unburns insert own before lock" on public.unburns for insert to authenticated
   with check (user_id = auth.uid() and public.week_open(week));

@@ -12,12 +12,14 @@ A free, season-long NBA player-survivor league for the office. Every week you pi
 | `src/pack.js` | Card faces, foil packs and the pack-opening animation (swipe to tear, rarity tell, walkout, flip, keep one and burn the rest). |
 | `src/config.js` | League settings: name, commissioner, bars, calendar, Supabase keys. |
 | `supabase/schema.sql` | Accounts, picks, jokers and card plays, with row-level security. You can only write your own picks, only before the lock, and nobody can see anyone else's picks or cards until the lock. |
+| `supabase/harden.sql` | Locks the API down: nothing is readable signed out, the invite code can't be guessed over the API, and the server sets join dates and save times. Run it last, after the other SQL files. |
 | `scripts/update-data.mjs` + `.github/workflows/update-data.yml` | Hourly on game nights: pulls the NBA schedule and box scores into `data/`, moves each week's lock to the real first tip-off, and runs Autopilot for empty slots after the lock. |
 
 ## Setup (about 15 minutes)
 
 1. **Create a Supabase project** (free tier) at supabase.com.
    - SQL Editor → paste `supabase/schema.sql` → Run.
+   - Once you've run the other SQL files below, run `supabase/harden.sql` last (and again after any new SQL file).
    - Authentication → Sign In / Providers → Email: turn **off** "Confirm email". Colleagues then join with an email and password and no inbox step (Supabase's built-in mailer only sends a few emails an hour).
    - Project Settings → API: copy the **Project URL** and **anon public** key into `src/config.js` (`supabaseUrl`, `supabaseAnonKey`). Set `commissioner` to the name you want on certificates.
 2. **Add two repository secrets** (GitHub → Settings → Secrets and variables → Actions):
@@ -68,6 +70,18 @@ Packs are dealt from a seeded shuffle, so every browser deals the same three car
 - **Changing your mind:** each pack allows one swap of the kept card for one of the other two, until that week's lock, and only while the card is still in your hand (not played, armed or gifted). It's a second `_keep` row with `card_uid` `repick:<pack key>`; the insert policy in `upgrade-cards.sql` enforces the rules.
 - **Practice packs:** everyone gets 2 on the Cards tab. They're dealt at random in the browser, never saved and never touch the real seeds.
 - **Pack opening** works with a swipe across the top of the pack, the *Rip it open* button, or Enter. Sound is synthesised and off by default (🔇 in the corner). It respects reduced-motion settings. In the demo, practice packs are unlimited.
+
+## Security
+
+The app runs in each person's browser, so anyone can open the browser's developer tools and see the code, the requests it makes and the data that comes back, and copy those requests into a tool like `curl`. That can't be switched off, so nothing relies on hiding it. The database decides what each account may read and write:
+
+- **Signed out:** nothing. The public key in `src/config.js` gets no names, ids, picks or cards on its own (`harden.sql`).
+- **Signed in:** your own picks and cards any time; everyone else's picks, packs and card plays once that week locks. Commissioner data (emails, the invite code) only for accounts in `admins`.
+- **Writes:** only your own rows, only inside the time windows, and the server sets ids, join dates and save times. Card plays and picks the rules don't allow are scored as invalid and flagged at the reveal.
+- **Invite code:** checked only at sign-up, which Supabase rate-limits, so it can't be guessed by brute force.
+- **Injected content:** names and card data are escaped wherever they're shown, and the Content-Security-Policy in `index.html` blocks any script that isn't ours.
+
+Account ids (the long codes like `3f2a…`) and NBA player ids aren't secrets. Knowing one doesn't let you do anything as that person.
 
 ## Things to know
 

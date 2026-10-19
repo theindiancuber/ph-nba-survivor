@@ -46,6 +46,13 @@ const meU = () => S.league?.users[myId()] || null;
 // ---------- Boot ----------
 
 async function boot() {
+  // A headshot or logo that fails to load is removed, or swapped for its data-fallback
+  // text. One listener instead of inline onerror handlers, which the page's CSP blocks.
+  document.addEventListener('error', e => {
+    const img = e.target;
+    if (img.tagName !== 'IMG') return;
+    if (img.dataset.fallback) img.replaceWith(img.dataset.fallback); else img.remove();
+  }, true);
   try {
     if (DEMO) {
       const { makeDemo } = await import('./demo.js');
@@ -168,10 +175,10 @@ function avatar(id, cls = '') {
 
 function thumb(pid, cls = '') {
   const t = team(pid);
-  if (t) return `<div class="thumb team ${cls}" style="--tc1:${t.c1}"><span class="mini">${t.tri}</span><img src="${teamLogo(t.tri)}" alt="" loading="lazy" onerror="this.remove()"></div>`;
+  if (t) return `<div class="thumb team ${cls}" style="--tc1:${t.c1}"><span class="mini">${t.tri}</span><img src="${teamLogo(t.tri)}" alt="" loading="lazy"></div>`;
   const p = player(pid);
   const c = TEAMS[p?.team]?.c1 || '#1d3361';
-  return `<div class="thumb ${cls}" style="--tc1:${c}"><span class="mini">${esc(initials(p?.name))}</span>${pid != null ? `<img src="${headshot(pid)}" alt="" loading="lazy" onerror="this.remove()">` : ''}</div>`;
+  return `<div class="thumb ${cls}" style="--tc1:${c}"><span class="mini">${esc(initials(p?.name))}</span>${pid != null ? `<img src="${headshot(pid)}" alt="" loading="lazy">` : ''}</div>`;
 }
 
 function gchip(n) {
@@ -189,7 +196,8 @@ function render() {
   const signedIn = !!myId();
   let html;
   if (signedIn && !S.me) html = viewProfileSetup();
-  else if (!signedIn && (S.view === 'week' || S.view === 'rivals' || S.view === 'cards')) html = viewAuth();
+  // Members only: signed out, everything but the rules is the sign-in page.
+  else if (!signedIn && S.view !== 'rules') html = viewAuth();
   else if (S.view === 'admin') html = S.isAdmin ? viewAdmin() : viewWeek();
   else html = ({ week: viewWeek, cards: viewCards, standings: viewStandings, survivor: viewSurvivor, results: viewResults, burns: viewBurns, rivals: viewRivals, trophies: viewTrophies, rules: viewRules })[S.view]();
   $('#app').innerHTML = html;
@@ -403,7 +411,7 @@ function slotCard(s, open, u, d) {
     return `<div class="slot-card" data-slot="${s}">${head}
       <div class="player-stage" style="--tc1:${t?.c1 || '#1d3361'}">
         <span class="mono">${esc(t?.tri || '')}</span>
-        ${t ? `<img class="team-logo-big" src="${teamLogo(t.tri)}" alt="" onerror="this.remove()">` : ''}
+        ${t ? `<img class="team-logo-big" src="${teamLogo(t.tri)}" alt="">` : ''}
       </div>
       <div class="player-info"><div class="pname">${esc(pname(sel.player_id))}</div><div class="pmeta">${t ? `${record(t)} this season` : ''}</div></div>
       <div class="statline">
@@ -424,9 +432,9 @@ function slotCard(s, open, u, d) {
   return `<div class="slot-card" data-slot="${s}">${head}
     <div class="player-stage" style="--tc1:${t?.c1 || '#1d3361'}">
       <span class="jersey">${esc(p?.num || '')}</span>
-      ${t ? `<img class="logo" src="${teamLogo(p.team)}" alt="${esc(t.name)}" onerror="this.remove()">` : ''}
+      ${t ? `<img class="logo" src="${teamLogo(p.team)}" alt="${esc(t.name)}">` : ''}
       <span class="mono">${esc(initials(p?.name))}</span>
-      <img class="shot" src="${headshot(sel.player_id)}" alt="" onerror="this.remove()">
+      <img class="shot" src="${headshot(sel.player_id)}" alt="">
     </div>
     <div class="player-info"><div class="pname">${esc(pname(sel.player_id))}</div><div class="pmeta">${esc(t ? `${t.city} ${t.name}` : p?.team || '')}${p?.pos ? ` · ${esc(p.pos)}` : ''}</div>
       ${openCw()?.embargo[s].has(sel.player_id) ? `<div class="err" style="margin-top:6px">🚫 Embargoed this week by ${esc(userName(openCw().embargo[s].get(sel.player_id).user_id))}. He can't score here: change the pick or add a backup.</div>` : ''}</div>
@@ -531,7 +539,7 @@ function pickerRows() {
     <button class="prow" data-act="choose" data-pid="${p.id}" ${why ? 'disabled' : ''}>
       ${thumb(p.id)}
       <div><div class="nm">${esc(p.name)}</div>
-        <div class="mt">${teamLogo(p.team) ? `<img src="${teamLogo(p.team)}" alt="" onerror="this.remove()">` : ''}${esc(p.team)}${p.pos ? ` · ${esc(p.pos)}` : ''} ${gchip(games)} <span>${fmt(avg)} ${INFO[P.slot].short}/g${p.pre ? ' (preseason)' : ''}</span>${why ? ` <span class="blocked">${esc(why)}</span>` : ''}</div></div>
+        <div class="mt">${teamLogo(p.team) ? `<img src="${teamLogo(p.team)}" alt="">` : ''}${esc(p.team)}${p.pos ? ` · ${esc(p.pos)}` : ''} ${gchip(games)} <span>${fmt(avg)} ${INFO[P.slot].short}/g${p.pre ? ' (preseason)' : ''}</span>${why ? ` <span class="blocked">${esc(why)}</span>` : ''}</div></div>
       <div class="proj"><b>${Math.round(proj)}</b><small>Proj</small></div>
     </button>`).join('');
 }
@@ -924,7 +932,7 @@ function albumPanel(u) {
     <div class="album">${Object.entries(DIVISIONS).map(([div, teams]) => {
       const done = u.cards.divisions.includes(div);
       return `<div class="album-div ${done ? 'done' : ''}"><h4><span>${div}</span><span class="${done ? '' : 'dim'}">${done ? '✓ Pack earned' : `${teams.filter(t => album.has(t)).length}/5`}</span></h4>
-        <div class="stickers">${teams.map(t => `<span class="sticker ${album.has(t) ? '' : 'off'}" title="${esc(`${TEAMS[t].city} ${TEAMS[t].name}`)}"><img src="${teamLogo(t)}" alt="${t}" loading="lazy" onerror="this.outerHTML='${t}'"></span>`).join('')}</div></div>`;
+        <div class="stickers">${teams.map(t => `<span class="sticker ${album.has(t) ? '' : 'off'}" title="${esc(`${TEAMS[t].city} ${TEAMS[t].name}`)}"><img src="${teamLogo(t)}" alt="${t}" loading="lazy" data-fallback="${t}"></span>`).join('')}</div></div>`;
     }).join('')}</div></section>`;
 }
 
