@@ -4,8 +4,8 @@
 -- A decree is a one-week rule twist. The commissioner either imposes one (one option)
 -- or puts two or three to a league vote. Everyone can see decrees and the running vote
 -- counts; nobody can see who voted for what. Decrees have to be posted, and votes
--- cast, at least 24 hours before that week's lock, and there are 3 a season
--- (decree.perSeason and decree.noticeHours in src/config.js).
+-- cast, at least 24 hours before that week's lock, and there are 3 a season unless the
+-- commissioner changes that in the Commissioner tab (see decree_limit()).
 
 create table if not exists public.decrees (
   week int primary key references public.weeks(week),
@@ -33,13 +33,25 @@ create or replace function public.decree_open(w int) returns boolean
   language sql stable security definer set search_path = public
   as $$ select exists (select 1 from weeks where week = w and lock_at > now() + interval '24 hours') $$;
 
+-- How many decrees a season: meta.decree.perSeason in league_settings (from the
+-- Commissioner tab), or 3 if that hasn't been set or upgrade-settings.sql hasn't run.
+create or replace function public.decree_limit() returns int
+  language plpgsql stable security definer set search_path = public
+  as $$
+  begin
+    return coalesce((select (value #>> '{decree,perSeason}')::int from league_settings where key = 'meta'), 3);
+  exception when undefined_table then
+    return 3;
+  end
+  $$;
+
 alter table public.decrees enable row level security;
 drop policy if exists "decrees readable" on public.decrees;
 drop policy if exists "decrees commissioner insert" on public.decrees;
 drop policy if exists "decrees commissioner delete" on public.decrees;
 create policy "decrees readable" on public.decrees for select to anon, authenticated using (true);
 create policy "decrees commissioner insert" on public.decrees for insert to authenticated
-  with check (public.is_admin() and public.decree_open(week) and (select count(*) from public.decrees) < 3);
+  with check (public.is_admin() and public.decree_open(week) and (select count(*) from public.decrees) < public.decree_limit());
 create policy "decrees commissioner delete" on public.decrees for delete to authenticated
   using (public.is_admin() and public.decree_open(week));
 

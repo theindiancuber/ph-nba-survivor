@@ -9,6 +9,7 @@ import { seasonAwards } from './awards.js';
 import { CARDS, RARITY, TYPES, NICKNAMES, TAUNTS, isTrap, isHindsight, countsAsPlay, dealPack, seededDealer } from './cards.js';
 import { cardFace, cardBack, packArt, openPack, initHolo } from './pack.js';
 import { DECREES, parseDecree, resolveDecrees, decreeCodes } from './decrees.js';
+import { weekRules, seasonRules, describeChange, LIMITS, WEEK_PATHS, SEASON_PATHS } from './settings.js';
 
 const SLOTS = LEAGUE.slots;
 const INFO = LEAGUE.slotInfo;
@@ -113,6 +114,7 @@ async function refresh() {
     cardsFrom: DEMO ? (S.data.cardsFrom ?? LEAGUE.cards.startWeek) : S.db.seeds ? LEAGUE.cards.startWeek : Infinity,
     dealer: S.db.seeds ? seededDealer(S.db.seeds) : undefined,
     decrees: decreeCodes(S.decrees),
+    rules: S.db.settings?.rules || [], meta: S.db.settings?.meta || {}, adjustments: S.db.settings?.adjustments || [],
   });
   S.me = S.db.profiles.find(p => p.id === myId()) || null;
   if (S.adminFor !== myId()) {
@@ -192,9 +194,19 @@ function render() {
   else if (!signedIn && (S.view === 'week' || S.view === 'rivals' || S.view === 'cards')) html = viewAuth();
   else if (S.view === 'admin') html = S.isAdmin ? viewAdmin() : viewWeek();
   else html = ({ week: viewWeek, cards: viewCards, standings: viewStandings, survivor: viewSurvivor, results: viewResults, burns: viewBurns, rivals: viewRivals, trophies: viewTrophies, rules: viewRules })[S.view]();
-  $('#app').innerHTML = html;
+  $('#app').innerHTML = (S.me ? announcementBar() : '') + html;
   tick();
   if (S.tour != null) redrawTour();
+}
+
+// The commissioner's announcement, on every page until it's cleared or you dismiss it.
+function announcementBar() {
+  const a = S.db?.settings?.meta?.announcement;
+  if (!a?.text) return '';
+  let gone = false;
+  try { gone = localStorage.getItem(`phs-ann-${myId()}`) === String(a.at); } catch { /* storage blocked */ }
+  if (gone) return '';
+  return `<div class="announce"><span class="ic">📣</span><div class="txt"><small>From the Commissioner${a.at ? ` · ${dshort(a.at.slice(0, 10))}` : ''}</small>${esc(a.text)}</div><button class="close-x" data-act="announce-dismiss" aria-label="Dismiss">×</button></div>`;
 }
 
 function renderTop() {
@@ -688,7 +700,7 @@ function fxIcons(x) {
 function adjChip(r) {
   if (!r.adj?.length) return '';
   const sum = r.adj.reduce((a, x) => a + x.pts, 0);
-  const title = r.adj.map(x => `${x.label || CARDS[x.card].name} ${x.pts > 0 ? '+' : ''}${fmt(x.pts)}${x.who ? ` (${userName(x.who)})` : ''}`).join(', ');
+  const title = r.adj.map(x => `${x.label || CARDS[x.card].name}${x.note ? ` (${x.note})` : ''} ${x.pts > 0 ? '+' : ''}${fmt(x.pts)}${x.who ? ` (${userName(x.who)})` : ''}`).join(', ');
   return `<span class="adj ${sum >= 0 ? 'up' : 'down'}" title="${esc(title)}">${sum > 0 ? '+' : ''}${fmt(sum)} 🃏</span>`;
 }
 // Clown nose, nickname and the duel chicken, for one week.
@@ -1360,6 +1372,14 @@ function viewSurvivor() {
 
 // ---------- Results ----------
 
+function weekAdjustments(week) {
+  const list = (S.db.settings?.adjustments || []).filter(a => a.week === week);
+  if (!list.length) return '';
+  return `<div class="decree slim">⚖️ <span>Commissioner's adjustments: ${list.map(a => `<b>${esc(userName(a.user_id))}</b> ${adjText(a)}${a.reason ? ` <span class="dim">(${esc(a.reason)})</span>` : ''}`).join('; ')}</span></div>`;
+}
+const signed = n => `${n > 0 ? '+' : ''}${fmt(n)}`;
+const adjText = a => [a.points ? `${signed(a.points)} pts` : '', a.lives ? `${signed(a.lives)} ${Math.abs(a.lives) === 1 ? 'life' : 'lives'}` : ''].filter(Boolean).join(', ');
+
 function viewResults() {
   const weeks = lockedWeeks();
   if (!weeks.length) return `<section class="panel empty-state"><div class="ic">🔒</div><b>Nothing to show yet.</b><p>Everyone's picks are revealed when Week 1 locks.</p></section>`;
@@ -1384,6 +1404,7 @@ function viewResults() {
     <section class="panel">
       <div class="panel-title"><h2>Week ${w.week} ${w.status === 'live' ? '<span class="badge live">Live</span>' : '<span class="badge final">Final</span>'}</h2>
         <div class="pills">${weeks.map(x => `<button class="pill ${x.status === 'live' ? 'live' : ''}" data-act="results-week" data-week="${x.week}" aria-pressed="${x.week === w.week}">Wk ${x.week}</button>`).join('')}</div></div>
+      ${weekAdjustments(w.week)}
       ${w.decree ? `<div class="decree slim"><span>📜 Decree: <b>${w.decree.icon} ${esc(w.decree.title)}</b></span> <span class="dim">${esc(w.decree.text)}</span></div>` : ''}
       <p class="muted" style="margin:-6px 0 12px;font-size:13px">${weekRange(w)} · bars ${SLOTS.map(s => `${LEAGUE.bars[s]} ${INFO[s].short}`).join(' / ')} · (B) backup scored · 🔥 Double Down · card icons show what hit a pick (hover for who)</p>
       <div class="table-wrap"><table class="board"><thead><tr><th>#</th><th>Player</th>${SLOTS.map(s => `<th>${INFO[s].emoji} ${INFO[s].name}</th>`).join('')}<th class="r">Pts</th><th class="c">Bars</th></tr></thead><tbody>${body}</tbody></table></div>
@@ -1549,6 +1570,10 @@ function viewAdmin() {
     <section class="hero"><span class="badge">🔒 Commissioner only</span><h1>The Commissioner's office</h1>
       <div class="sub">Only accounts in the admins table can open this. Everyone's picks stay hidden until each lock, including from you.</div></section>
     ${adminInvite()}
+    ${adminAnnounce()}
+    ${adminRules()}
+    ${adminSeason()}
+    ${adminAdjust()}
     ${adminDecree()}
     ${adminRoster(open)}
     ${adminTiles(st)}
@@ -1566,6 +1591,88 @@ function viewAdmin() {
     ${adminFirepower(st)}
     ${adminStyles(st)}
   </div>`;
+}
+
+// ---- League settings (Commissioner tab) ----
+
+const num = (name, label, value, path, hint = '') => {
+  const [lo, hi] = LIMITS[path];
+  return `<label class="field">${label}<input class="input" type="number" name="${name}" value="${value}" min="${lo}" max="${hi}" step="1" required>${hint ? `<small class="dim">${hint}</small>` : ''}</label>`;
+};
+const getPath = (o, p) => p.split('.').reduce((a, k) => a?.[k], o);
+
+function adminAnnounce() {
+  const a = S.db.settings?.meta?.announcement;
+  return `<section class="panel"><div class="panel-title"><h2>📣 Announcement</h2><span class="muted">A banner at the top of every page for everyone</span></div>
+    ${a?.text ? `<div class="announce" style="margin:0 0 12px"><span class="ic">📣</span><div class="txt"><small>Live since ${dshort(a.at.slice(0, 10))}</small>${esc(a.text)}</div><button class="btn small ghost" data-act="announce-clear">Take down</button></div>` : ''}
+    <form data-form="announce" style="display:grid;gap:10px">
+      <textarea class="input" name="text" maxlength="280" rows="2" placeholder="e.g. Picks lock tonight at 7pm. Don't let Autopilot pick for you." required></textarea>
+      <div><button class="btn" type="submit">${a?.text ? 'Replace announcement' : 'Post announcement'}</button></div>
+    </form></section>`;
+}
+
+// Weeks a rule change can still start from: the open week and later.
+function changeableWeeks() { return S.league.weeks.filter(w => w.status === 'open'); }
+
+function adminRules() {
+  const weeks = changeableWeeks();
+  if (!weeks.length) return '';
+  const R = S.rulesWeek && weeks.some(w => w.week === S.rulesWeek) ? S.rulesWeek : weeks[0].week;
+  const cur = weekRules(S.db.settings?.rules || [], R);
+  const changes = [...(S.db.settings?.rules || [])].sort((a, b) => a.from_week - b.from_week);
+  return `<section class="panel"><div class="panel-title"><h2>⚙️ Survival and card rules</h2><span class="muted">Changes start from the week you pick. Weeks already locked keep their rules.</span></div>
+    ${changes.length ? `<div style="display:grid;gap:8px;margin-bottom:14px">${changes.map(ch => {
+      const live = weeks.some(w => w.week === ch.from_week);
+      return `<div class="own-row"><span class="tag">From Wk ${ch.from_week}</span><div style="flex:1">${esc(describeChange(ch).join(' · ') || 'No change')}</div>${live ? `<button class="link danger" data-act="rule-undo" data-week="${ch.from_week}">Undo</button>` : '<span class="dim">In force</span>'}</div>`;
+    }).join('')}</div>` : ''}
+    <form data-form="rules" class="settings-form">
+      <label class="field wide">Takes effect from<select class="input" name="from_week" data-change="rules-week">${weeks.map(w => `<option value="${w.week}" ${w.week === R ? 'selected' : ''}>Week ${w.week}${w === weeks[0] ? ' (this week)' : ''} · locks ${esc(lockText(w.lockAt))}</option>`).join('')}</select></label>
+      <h4 class="wide">❤️ Weekly survival bars</h4>
+      ${SLOTS.map(s => num(`bars.${s}`, `${INFO[s].emoji} ${INFO[s].name} (${INFO[s].short})`, cur.bars[s], `bars.${s}`)).join('')}
+      ${num('barsToSurvive', `Bars to clear (of ${SLOTS.length})`, cur.barsToSurvive, 'barsToSurvive')}
+      <h4 class="wide">🎴 Joker cards</h4>
+      ${num('cards.handLimit', 'Hand limit', cur.cards.handLimit, 'cards.handLimit')}
+      ${num('cards.attackCap', 'Max attacks on one person a week', cur.cards.attackCap, 'cards.attackCap')}
+      ${num('cards.duelStake', 'Duel stake (points)', cur.cards.duelStake, 'cards.duelStake')}
+      ${num('cards.heist', 'Heist (points)', cur.cards.heist, 'cards.heist')}
+      <div class="wide" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn primary" type="submit">Save rules from Week ${R}</button><span class="dim" style="font-size:13px">Everyone sees rule changes on the Rules tab. Post an announcement too.</span></div>
+    </form></section>`;
+}
+
+function adminSeason() {
+  const r = seasonRules(S.db.settings?.meta || {});
+  return `<section class="panel"><div class="panel-title"><h2>🏟️ Season settings</h2><span class="muted">These apply to the whole season, past weeks included</span></div>
+    <form data-form="season" class="settings-form">
+      ${num('lives', 'Lives', r.lives, 'lives', 'Raising it gives everyone more lives, even people who are out.')}
+      ${num('drops.max', 'Worst weeks dropped (max)', r.drops.max, 'drops.max')}
+      ${num('drops.every', 'One drop per … final weeks', r.drops.every, 'drops.every')}
+      ${num('decree.perSeason', 'Decrees a season', r.decree.perSeason, 'decree.perSeason')}
+      ${num('decree.bounty', 'Bounty decree (points)', r.decree.bounty, 'decree.bounty')}
+      <label class="field">Commissioner name (on certificates)<input class="input" name="commissioner" maxlength="40" value="${esc(r.commissioner)}"></label>
+      <div class="wide"><button class="btn primary" type="submit">Save season settings</button></div>
+    </form></section>`;
+}
+
+function adminAdjust() {
+  const weeks = lockedWeeks();
+  const list = S.db.settings?.adjustments || [];
+  const members = Object.values(S.league.users).sort(byName);
+  return `<section class="panel"><div class="panel-title"><h2>⚖️ Adjustments</h2><span class="muted">Fix a mistake: add or take away points or lives. Shown publicly on Results with your reason.</span></div>
+    ${list.length ? `<div style="display:grid;gap:8px;margin-bottom:14px">${list.map(a => `<div class="own-row"><span class="tag">Wk ${a.week}</span><div style="flex:1"><b>${esc(userName(a.user_id))}</b> ${adjText(a)} <span class="dim">${esc(a.reason || '')}</span></div><button class="link danger" data-act="adjust-remove" data-id="${esc(a.id)}">Remove</button></div>`).join('')}</div>` : ''}
+    ${weeks.length ? `<form data-form="adjust" class="settings-form">
+      <label class="field">Member<select class="input" name="user_id" required><option value="">Choose…</option>${members.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select></label>
+      <label class="field">Week<select class="input" name="week">${[...weeks].reverse().map(w => `<option value="${w.week}">Week ${w.week}</option>`).join('')}</select></label>
+      <label class="field">Points (+/−)<input class="input" type="number" name="points" value="0" min="-50" max="50" step="0.5"></label>
+      <label class="field">Lives (+/−)<input class="input" type="number" name="lives" value="0" min="-5" max="5" step="1"></label>
+      <label class="field wide">Reason (everyone sees this)<input class="input" name="reason" maxlength="120" required placeholder="e.g. Stat correction: NBA changed a rebound total"></label>
+      <div class="wide"><button class="btn primary" type="submit">Add adjustment</button></div>
+    </form>` : '<p class="muted" style="margin:0">Adjustments open once Week 1 locks.</p>'}
+  </section>`;
+}
+
+async function saveSetting(key, value, msg) {
+  await S.backend.adminSaveSetting(key, value);
+  toast(msg);
 }
 
 function adminDecree() {
@@ -1757,9 +1864,16 @@ function adminStyles(st) {
 
 // ---------- Rules ----------
 
+function ruleChangesPanel() {
+  const list = [...(S.db.settings?.rules || [])].sort((a, b) => a.from_week - b.from_week).filter(ch => describeChange(ch).length);
+  if (!list.length) return '';
+  return `<section class="panel"><div class="panel-title"><h2>⚙️ Rule changes this season</h2><span class="muted">Set by the commissioner. Earlier weeks keep the rules they were played under.</span></div>
+    <div style="display:grid;gap:8px">${list.map(ch => `<div class="own-row"><span class="tag">From Wk ${ch.from_week}</span><div>${esc(describeChange(ch).join(' · '))}</div></div>`).join('')}</div></section>`;
+}
+
 function viewRules() {
   const b = LEAGUE.bars;
-  return `<div class="grid">
+  return `<div class="grid">${ruleChangesPanel()}
     <section class="hero"><span class="badge">How it works</span><h1>Pick 4. Burn 'em. Outlast the office.</h1><div class="sub">Five minutes a week. No draft, no roster, no money.</div>
       <div style="margin-top:14px"><button class="btn" data-act="tour-replay">Replay the quick tour</button></div></section>
     <div class="rules">
@@ -1768,7 +1882,7 @@ function viewRules() {
       <div class="panel rule"><h3>🔥 The burn</h3><p>Once you use a player in a category, he's gone from that category for the season, but still available in the other two. One player can only fill one of your slots in a given week.</p><p>Teams burn too: each team can be your Dub pick once a season. There are 30 teams for 23 weeks, so choose when to spend the contenders.</p></div>
       <div class="panel rule"><h3>🛟 Backups</h3><p>Add an optional backup to each player slot. It only comes in if your pick plays <b>zero</b> games that week; then the backup scores and burns instead, and your pick stays available. If your pick plays even once, his total counts and the backup stays unused. If neither plays, the slot scores 0 and nothing burns. Teams always play, so Dub has no backup.</p></div>
       <div class="panel rule"><h3>📊 Scoring</h3><p>Every category is ranked across the league each week. You get 1 point for every colleague whose pick you beat, ½ for a tie. Your weekly score is the sum of your four categories.</p><p>Drop your worst weeks: one drop unlocks after weeks 6, 12 and 18.</p></div>
-      <div class="panel rule"><h3>❤️ Survivor</h3><p>Everyone starts with ${LEAGUE.lives} lives. Clear at least ${LEAGUE.barsToSurvive} of the ${SLOTS.length} weekly bars (${b.PTS} PTS / ${b.REB} REB / ${b.AST} AST / ${b.WIN} win, the same every week) or lose a life. Last one standing wins the Survivor Belt. You keep playing for points either way.</p></div>
+      <div class="panel rule"><h3>❤️ Survivor</h3><p>Everyone starts with ${LEAGUE.lives} lives. Clear at least ${LEAGUE.barsToSurvive} of the ${SLOTS.length} weekly bars (${b.PTS} PTS / ${b.REB} REB / ${b.AST} AST / ${b.WIN} ${b.WIN === 1 ? 'win' : 'wins'}, the same every week unless the commissioner changes them) or lose a life. Last one standing wins the Survivor Belt. You keep playing for points either way.</p></div>
       <div class="panel rule"><h3>🃏 Jokers</h3><ul><li><b>Double Down</b>: double the rank points from one slot, once a season.</li><li><b>Un-burn</b>: get one burned player back in one category, once a season.</li></ul></div>
       <div class="panel rule"><h3>📜 Commissioner's Decree</h3><p>Up to ${LEAGUE.decree.perSeason} times a season the commissioner sets a one-week twist, such as Prime Time (a category counts double), Opposite Day, Mercy Rule, Sudden Death, Amnesty, Ceasefire or Pack Day. Sometimes the league votes on it instead. Decrees are posted, and votes close, at least ${LEAGUE.decree.noticeHours} hours before the lock, so nobody gets surprised.</p></div>
       <div class="panel rule"><h3>🎴 Joker cards</h3><p>Earn packs, keep one card from each (you can swap it once before the lock), and play one card a week: jinxes, traps, duels, heists, Blue Shells and pranks. Attacks are revealed at the lock. Cards move points but never cost a life.</p><p><button class="link" data-act="primer">How cards work →</button></p></div>
@@ -2083,6 +2197,27 @@ const ACTIONS = {
     render();
   },
   'decree-issue': () => decreeIssue(),
+  'announce-dismiss': () => {
+    try { localStorage.setItem(`phs-ann-${myId()}`, String(S.db.settings?.meta?.announcement?.at)); } catch { /* storage blocked */ }
+    render();
+  },
+  'announce-clear': async () => {
+    const meta = { ...(S.db.settings?.meta || {}) };
+    delete meta.announcement;
+    try { await saveSetting('meta', meta, 'Announcement taken down.'); } catch (e) { toast(e.message, true); }
+    await refresh();
+  },
+  'rule-undo': async el => {
+    const week = +el.dataset.week;
+    if (!confirm(`Undo the rule change from Week ${week}?`)) return;
+    try { await saveSetting('rules', (S.db.settings?.rules || []).filter(r => r.from_week !== week), 'Rule change undone.'); } catch (e) { toast(e.message, true); }
+    await refresh();
+  },
+  'adjust-remove': async el => {
+    if (!confirm('Remove this adjustment?')) return;
+    try { await saveSetting('adjustments', (S.db.settings?.adjustments || []).filter(a => a.id !== el.dataset.id), 'Adjustment removed.'); } catch (e) { toast(e.message, true); }
+    await refresh();
+  },
   'decree-cancel': async el => {
     if (!confirm(`Cancel the Week ${el.dataset.week} decree? Any votes are lost.`)) return;
     try { await S.backend.adminDeleteDecree(+el.dataset.week); toast('Decree cancelled.'); } catch (e) { toast(e.message, true); }
@@ -2199,6 +2334,7 @@ document.addEventListener('change', async e => {
   const el = e.target.closest('[data-change]');
   if (!el) return;
   if (el.dataset.change === 'burn-user') { S.burnUser = el.value; render(); }
+  if (el.dataset.change === 'rules-week') { S.rulesWeek = +el.value; render(); }
   if (el.dataset.change === 'decree-week') { S.decreeDraft.week = +el.value; render(); }
   if (el.dataset.change === 'decree-slot') { S.decreeDraft.slots[el.dataset.kind] = el.value; render(); }
   if (S.play) {
@@ -2235,6 +2371,40 @@ document.addEventListener('submit', async e => {
       await S.backend.adminSetInvite(code);
       toast(`Invite code is now ${code}.`);
       S.adminData = null;
+    } else if (form.dataset.form === 'announce') {
+      const text = (f.text || '').trim();
+      if (!text) throw new Error('Write something first.');
+      await saveSetting('meta', { ...(S.db.settings?.meta || {}), announcement: { text, at: new Date().toISOString() } }, 'Announcement posted.');
+    } else if (form.dataset.form === 'rules') {
+      const week = +f.from_week;
+      const rules = S.db.settings?.rules || [];
+      // Store only what differs from the rules already in force that week.
+      const before = weekRules(rules, week);
+      const change = { from_week: week };
+      for (const p of WEEK_PATHS) {
+        const n = Number(f[p]), [lo, hi] = LIMITS[p];
+        if (!Number.isFinite(n) || n < lo || n > hi) throw new Error(`Check ${p}: it must be between ${lo} and ${hi}.`);
+        if (n !== getPath(before, p)) p.split('.').reduce((o, k, i, ks) => (i === ks.length - 1 ? (o[k] = n) : (o[k] ||= {})), change);
+      }
+      if (!describeChange(change).length) throw new Error('Nothing changed.');
+      const old = rules.find(r => r.from_week === week);
+      const merged = old ? { ...old, ...change, bars: { ...old.bars, ...change.bars }, cards: { ...old.cards, ...change.cards } } : change;
+      await saveSetting('rules', [...rules.filter(r => r.from_week !== week), merged].sort((a, b) => a.from_week - b.from_week), `Rules saved from Week ${week}.`);
+    } else if (form.dataset.form === 'season') {
+      const meta = { ...(S.db.settings?.meta || {}) };
+      for (const p of SEASON_PATHS) {
+        const n = Number(f[p]), [lo, hi] = LIMITS[p];
+        if (!Number.isFinite(n) || n < lo || n > hi) throw new Error(`Check ${p}: it must be between ${lo} and ${hi}.`);
+        p.split('.').reduce((o, k, i, ks) => (i === ks.length - 1 ? (o[k] = n) : (o[k] = { ...(o[k] || {}) })), meta);
+      }
+      meta.commissioner = (f.commissioner || '').trim();
+      await saveSetting('meta', meta, 'Season settings saved.');
+    } else if (form.dataset.form === 'adjust') {
+      const points = Number(f.points) || 0, lives = Math.trunc(Number(f.lives) || 0);
+      if (!f.user_id) throw new Error('Choose a member.');
+      if (!points && !lives) throw new Error('Add some points or lives (or take some away).');
+      const row = { id: `adj-${Date.now().toString(36)}`, user_id: f.user_id, week: +f.week, points, lives, reason: (f.reason || '').trim(), at: new Date().toISOString() };
+      await saveSetting('adjustments', [...(S.db.settings?.adjustments || []), row], `Adjustment added for ${userName(f.user_id)}.`);
     } else if (form.dataset.form === 'profile') {
       await S.backend.updateProfile({ display_name: f.name.trim(), fav_team: f.team || null });
       closeModal();

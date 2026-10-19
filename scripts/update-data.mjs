@@ -252,6 +252,10 @@ async function syncSupabase({ weeks, players, teams, totals, now }) {
   // Commissioner's Decree (Amnesty changes burns, so Autopilot needs it). None before upgrade-decree.sql.
   const decreeRows = await sb.all('decrees?select=*').catch(() => []);
   const tallies = await sb('POST', 'rpc/decree_tally', {}).catch(() => []);
+  // Commissioner settings (rule changes, lives, adjustments). None before upgrade-settings.sql.
+  const settingRows = await sb.all('league_settings?select=key,value').catch(() => []);
+  const settings = Object.fromEntries((settingRows || []).map(r => [r.key, r.value]));
+  const settingArgs = { rules: settings.rules || [], meta: settings.meta || {}, adjustments: settings.adjustments || [] };
   // Secret pack seeds, so hands (and so Copycat plays) can be checked. No seeds, no cards.
   const seedRows = await sb('POST', 'rpc/pack_seeds', {}).catch(() => null);
   const seeds = seedRows ? Object.fromEntries(seedRows.map(x => [`${x.user_id}|${x.week}`, x.seed])) : null;
@@ -259,7 +263,7 @@ async function syncSupabase({ weeks, players, teams, totals, now }) {
   for (const w of due) {
     const at = Date.parse(w.lockAt) + 1;
     const decrees = decreeCodes(resolveDecrees(decreeRows, tallies || [], Object.fromEntries(merged.map(x => [x.week, x.lockAt])), at));
-    const league = computeLeague({ weeks: merged, totals, picks, unburns, profiles, now: at, players, ...cardArgs, decrees });
+    const league = computeLeague({ weeks: merged, totals, picks, unburns, profiles, now: at, players, ...cardArgs, decrees, ...settingArgs });
     const copycats = league.cards.weeks[w.week]?.copy || new Map();
     const rows = [];
     for (const pr of profiles) {
