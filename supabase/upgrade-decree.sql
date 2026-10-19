@@ -49,7 +49,7 @@ alter table public.decrees enable row level security;
 drop policy if exists "decrees readable" on public.decrees;
 drop policy if exists "decrees commissioner insert" on public.decrees;
 drop policy if exists "decrees commissioner delete" on public.decrees;
-create policy "decrees readable" on public.decrees for select to anon, authenticated using (true);
+create policy "decrees readable" on public.decrees for select to authenticated using (true);
 create policy "decrees commissioner insert" on public.decrees for insert to authenticated
   with check (public.is_admin() and public.decree_open(week) and (select count(*) from public.decrees) < public.decree_limit());
 create policy "decrees commissioner delete" on public.decrees for delete to authenticated
@@ -78,5 +78,5 @@ create or replace function public.decree_tally()
   returns table (week int, choice int, votes int)
   language sql stable security definer set search_path = public
   as $$ select v.week, v.choice, count(*)::int from decree_votes v group by v.week, v.choice $$;
-revoke execute on function public.decree_tally() from public;
-grant execute on function public.decree_tally() to anon, authenticated, service_role;
+revoke execute on function public.decree_tally() from public, anon;
+grant execute on function public.decree_tally() to authenticated, service_role;

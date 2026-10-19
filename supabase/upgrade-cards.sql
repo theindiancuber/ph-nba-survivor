@@ -60,7 +60,7 @@ drop policy if exists "card plays insert own" on public.card_plays;
 drop policy if exists "card plays delete own" on public.card_plays;
 -- Your own rows any time; everyone's once the week locks. An Embargo is public
 -- straight away, and a duel (and its answer) is visible to the other person.
-create policy "card plays readable" on public.card_plays for select to anon, authenticated
+create policy "card plays readable" on public.card_plays for select to authenticated
   using (
     user_id = auth.uid() or public.week_locked(week) or card = 'embargo'
     or (card in ('duel', '_reply') and target_id = auth.uid())
@@ -129,5 +129,5 @@ create or replace function public.pack_seeds()
       or (p.id = auth.uid() and w.week <= coalesce((select min(x.week) from weeks x where x.lock_at > now()), w.week))
       or coalesce(auth.jwt() ->> 'role', '') = 'service_role'
   $$;
-revoke execute on function public.pack_seeds() from public;
-grant execute on function public.pack_seeds() to anon, authenticated, service_role;
+revoke execute on function public.pack_seeds() from public, anon;
+grant execute on function public.pack_seeds() to authenticated, service_role;
