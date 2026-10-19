@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- Only our own scripts, the Supabase client and the hosts below may load or be called.
        Blocks injected scripts and inline handlers. Keep connect-src in step with supabaseUrl in src/config.js. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://cdn.nba.com; connect-src 'self' https://cdn.jsdelivr.net https://miotcbvafwddymqkslyy.supabase.co wss://miotcbvafwddymqkslyy.supabase.co; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://cdn.nba.com; connect-src 'self' https://miotcbvafwddymqkslyy.supabase.co wss://miotcbvafwddymqkslyy.supabase.co; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Peakhill NBA Survivor</title>
   <meta name="description" content="Pick a scorer, a rebounder and a passer every week. Use each player once per category. Outlast the office.">
   <meta name="theme-color" content="#050b18">
@@ -35,10 +35,11 @@
   </header>
   <div class="ticker hide" id="ticker"></div>
   <main id="app" aria-live="polite">
-    <div class="empty-state"><div class="ic">🏀</div>Loading the league…</div>
+    <div class="empty-state" data-loading><div class="ic">🏀</div>Loading the league…</div>
   </main>
   <footer id="footer"></footer>
   <div id="modal-root"></div>
+  <script src="src/boot-guard.js"></script>
   <script type="module" src="src/app.js"></script>
 </body>
 </html>

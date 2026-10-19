@@ -1,7 +1,7 @@
 -- Peakhill NBA Survivor: league settings the commissioner edits from the Commissioner tab.
 -- Run once in the Supabase SQL editor, after admin.sql. Safe to re-run.
 --
--- Three rows, all public (everyone's app needs them to score the league), all written
+-- Three rows, readable by every member (everyone's app needs them to score the league), written
 -- only by commissioners:
 --   'rules'        survival bars and card rules, each change taking effect from a week
 --   'meta'         lives, drops, decree limits, the commissioner's name, an announcement
@@ -18,7 +18,7 @@ drop policy if exists "settings readable" on public.league_settings;
 drop policy if exists "settings commissioner insert" on public.league_settings;
 drop policy if exists "settings commissioner update" on public.league_settings;
 drop policy if exists "settings commissioner delete" on public.league_settings;
-create policy "settings readable" on public.league_settings for select to anon, authenticated using (true);
+create policy "settings readable" on public.league_settings for select to authenticated using (true);
 create policy "settings commissioner insert" on public.league_settings for insert to authenticated with check (public.is_admin());
 create policy "settings commissioner update" on public.league_settings for update to authenticated using (public.is_admin()) with check (public.is_admin());
 create policy "settings commissioner delete" on public.league_settings for delete to authenticated using (public.is_admin());

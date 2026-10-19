@@ -54,6 +54,25 @@ async function boot() {
     if (img.tagName !== 'IMG') return;
     if (img.dataset.fallback) img.replaceWith(img.dataset.fallback); else img.remove();
   }, true);
+  window.addEventListener('hashchange', () => { closeModal(); S.view = viewFromHash(); render(); window.scrollTo({ top: 0 }); });
+  window.addEventListener('beforeunload', e => { if (S.draft?.dirty) { e.preventDefault(); e.returnValue = ''; } });
+  setInterval(tick, 1000);
+  await start();
+  if (!DEMO) {
+    setInterval(async () => { if (!S.league) return; S.data = await loadData().catch(() => S.data); safeRefresh(); }, 5 * 60e3);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && S.league) safeRefresh(); });
+  }
+}
+
+// Gives up on a step that hangs, so a slow or stuck service shows an error and a retry instead of spinning.
+function withTimeout(p, ms, what) {
+  let t;
+  return Promise.race([p, new Promise((_, reject) => { t = setTimeout(() => reject(new Error(`${what} took too long to answer`)), ms); })]).finally(() => clearTimeout(t));
+}
+
+// Loads everything. If any of it fails it says so, then tries again by itself every 30 seconds.
+async function start() {
+  clearTimeout(S.retryTimer);
   try {
     if (DEMO) {
       const { makeDemo } = await import('./demo.js');
@@ -66,20 +85,29 @@ async function boot() {
       S.backend = new SupabaseBackend();
       S.data = await loadData();
     }
-    await S.backend.init();
+    await withTimeout(S.backend.init(), 15000, 'Signing in');
     initHolo();
     S.view = viewFromHash();
-    await refresh();
+    await withTimeout(refresh(), 25000, 'The league database');
   } catch (e) {
     console.error(e);
-    $('#app').innerHTML = `<div class="panel empty-state"><div class="ic">⚠️</div><b>Couldn't load the league.</b><p class="muted">${esc(e.message || e)}</p></div>`;
+    S.league = null;
+    $('#app').innerHTML = `<div class="panel empty-state"><div class="ic">⚠️</div><b>Couldn't load the league.</b>
+      <p class="muted">${esc(e.message || e)}. Trying again in 30 seconds.</p><button class="btn primary" data-act="boot-retry">Try again now</button></div>`;
+    S.retryTimer = setTimeout(start, 30e3);
   }
-  window.addEventListener('hashchange', () => { closeModal(); S.view = viewFromHash(); render(); window.scrollTo({ top: 0 }); });
-  window.addEventListener('beforeunload', e => { if (S.draft?.dirty) { e.preventDefault(); e.returnValue = ''; } });
-  setInterval(tick, 1000);
-  if (!DEMO) {
-    setInterval(async () => { S.data = await loadData().catch(() => S.data); refresh(); }, 5 * 60e3);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+}
+
+// Background refresh: if the database is unreachable, keep showing what we have and say so once.
+async function safeRefresh() {
+  try {
+    await withTimeout(refresh(), 25000, 'The league database');
+    if (S.offline) toast('Back online.');
+    S.offline = false;
+  } catch (e) {
+    console.warn(e);
+    if (!S.offline) toast("Can't reach the league right now. Showing the last update; retrying.", true);
+    S.offline = true;
   }
 }
 
@@ -94,7 +122,7 @@ function views() {
 
 async function loadData() {
   const get = async f => {
-    const r = await fetch(`data/${f}.json`, { cache: 'no-cache' });
+    const r = await fetch(`data/${f}.json`, { cache: 'no-cache', signal: AbortSignal.timeout(15000) });
     if (!r.ok) throw new Error(`data/${f}.json: ${r.status}`);
     return r.json();
   };
@@ -189,8 +217,21 @@ function gchip(n) {
 
 // ---------- Render ----------
 
+// A bug in one page shouldn't take down the whole app: that page shows an error,
+// and the tabs, the other pages and saving picks keep working.
 function render() {
   if (!S.league) return;
+  try {
+    renderPage();
+  } catch (e) {
+    console.error(e);
+    $('#app').innerHTML = `<div class="panel empty-state view-error"><div class="ic">🛠️</div><b>This page hit a snag.</b>
+      <p class="muted">The other tabs still work. Try reloading, and tell the commissioner if it keeps happening.</p>
+      <button class="btn primary" data-act="reload">Reload</button><p class="dim" style="font-size:12px;margin-top:12px">Details: ${esc(e.message || e)}</p></div>`;
+  }
+}
+
+function renderPage() {
   renderTop();
   renderTabs();
   renderTicker();
@@ -2273,6 +2314,8 @@ const ACTIONS = {
   'profile-open': () => openProfile(),
   signout: async () => { await S.backend.signOut(); closeModal(); S.draft = null; await refresh(); },
   'demo-enter': async () => { await S.backend.signIn(); await refresh(); },
+  reload: () => location.reload(),
+  'boot-retry': () => { $('#app').innerHTML = '<div class="empty-state"><div class="ic">🏀</div>Loading the league…</div>'; start(); },
   'demo-reset': async () => { S.backend.reset(); location.reload(); },
   'admin-refresh': () => { S.adminData = null; render(); },
   'tour-next': () => openTour(S.tour + 1),
