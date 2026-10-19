@@ -58,7 +58,8 @@ create or replace function public.admin_set_invite(code text) returns void
   end
   $$;
 
-grant execute on function public.check_invite(text) to anon, authenticated;
+-- Only the sign-up trigger calls it, so the code can't be guessed over the API.
+revoke execute on function public.check_invite(text) from public, anon, authenticated;
 revoke execute on function public.admin_get_invite() from public, anon;
 revoke execute on function public.admin_set_invite(text) from public, anon;
 grant execute on function public.admin_get_invite() to authenticated;

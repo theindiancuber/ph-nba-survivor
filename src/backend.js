@@ -18,9 +18,7 @@ export class SupabaseBackend {
   get userId() { return this.user?.id || null; }
 
   async signUp({ email, password, name, team, invite }) {
-    // Check the code first for a clear message; the database enforces it either way.
-    const check = await this.sb.rpc('check_invite', { code: invite || '' });
-    if (!check.error && check.data === false) throw new Error("That invite code isn't right. Ask the commissioner for the invite link.");
+    // The database checks the code at sign-up (it can't be tested over the API).
     const { data, error } = await this.sb.auth.signUp({ email, password, options: { data: { invite_code: (invite || '').trim() } } });
     if (error) throw friendly(error);
     if (!data.session) throw new Error('Account created, but email confirmation is switched on. Ask the commissioner to turn off "Confirm email" in Supabase, then sign in.');
@@ -62,6 +60,8 @@ export class SupabaseBackend {
   }
 
   async load() {
+    // Members only: signed out, the database answers nothing (supabase/harden.sql).
+    if (!this.userId) return { profiles: [], picks: [], unburns: [], plays: [], seeds: null, decrees: [], tallies: [], votes: [], locks: {} };
     const [profiles, picks, unburns, weeks, plays, seeds, decrees, tallies, votes] = await Promise.all([
       this.all('profiles', 'created_at'), this.all('picks', 'week'), this.all('unburns', 'created_at'), this.all('weeks', 'week'),
       // Until supabase/upgrade-cards.sql is run there are no cards: play without them.
@@ -197,10 +197,11 @@ function decreeError(error) {
 function friendly(error) {
   const msg = error?.message || String(error);
   if (/profiles_name_unique/.test(msg)) return new Error('That name is taken. Try adding a last initial.');
+  if (/profiles_display_name_chars/.test(msg)) return new Error('Use letters, numbers and everyday punctuation in your name.');
   if (/row-level security/.test(msg) && !/card_plays/.test(msg)) return new Error('Picks for this week are locked.');
   if (/picks_one_double_down/.test(msg)) return new Error('You have already used your Double Down this season.');
   if (/Invalid invite code/.test(msg)) return new Error("That invite code isn't right. Ask the commissioner for the invite link.");
-  if (/Database error saving new user|removed from the league/.test(msg)) return new Error("Sign-up was refused. Check the invite code, or ask the commissioner.");
+  if (/Database error saving new user|removed from the league/.test(msg)) return new Error("Sign-up was refused. Check the invite code (it's in the commissioner's invite link), or ask the commissioner.");
   if (/card_plays_once/.test(msg)) return new Error('That card has already been used.');
   if (/card_plays/.test(msg) && /row-level security/.test(msg)) return new Error('Too late for that card this week.');
   if (/unburns_pkey|duplicate key/.test(msg)) return new Error('You have already used your Un-burn this season.');
