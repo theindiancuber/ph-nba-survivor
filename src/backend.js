@@ -60,10 +60,9 @@ export class SupabaseBackend {
   }
 
   async load() {
-    const [profiles, picks, unburns, weeks, plays, seeds, decrees, tallies, votes, settingRows] = await Promise.all([
     // Members only: signed out, the database answers nothing (supabase/harden.sql).
     if (!this.userId) return { profiles: [], picks: [], unburns: [], plays: [], seeds: null, decrees: [], tallies: [], votes: [], locks: {} };
-    const [profiles, picks, unburns, weeks, plays, seeds, decrees, tallies, votes] = await Promise.all([
+    const [profiles, picks, unburns, weeks, plays, seeds, decrees, tallies, votes, settingRows] = await Promise.all([
       this.all('profiles', 'created_at'), this.all('picks', 'week'), this.all('unburns', 'created_at'), this.all('weeks', 'week'),
       // Until supabase/upgrade-cards.sql is run there are no cards: play without them.
       this.all('card_plays', 'created_at').catch(() => []),
