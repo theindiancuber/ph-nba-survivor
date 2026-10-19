@@ -4,6 +4,16 @@
 
 export const UPDATES = [
   {
+    id: 8,
+    date: '2026-10-19',
+    title: 'Straight from the Commissioner',
+    items: [
+      'Announcements from the commissioner now appear as a banner at the top of the app. Tap × to dismiss one.',
+      "If the commissioner changes a rule (like a survival bar), it's listed on the Rules tab with the week it starts. Weeks already played keep their rules.",
+      'Any point or life corrections show on that week\'s Results, with the reason.',
+    ],
+  },
+  {
     id: 7,
     date: '2026-10-14',
     title: 'A guided tour',

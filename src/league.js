@@ -5,6 +5,7 @@ import { LEAGUE, monthKey, MONTH_LABELS } from './config.js';
 import { TEAMS, TEAM_BY_ID } from './teams.js';
 import { CardTable } from './cards.js';
 import { parseDecree } from './decrees.js';
+import { weekRules, seasonRules, applyWeekRules, applySeasonRules } from './settings.js';
 
 const STAT = { PTS: 1, REB: 2, AST: 3 };
 const SLOTS = LEAGUE.slots;
@@ -67,7 +68,12 @@ function applyUnburn(u, week) {
   u.unburnApplied = true;
 }
 
-export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], profiles, now = Date.now(), players = {}, cardsFrom = LEAGUE.cards.startWeek, dealer, decrees = {} }) {
+export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], profiles, now = Date.now(), players = {}, cardsFrom = LEAGUE.cards.startWeek, dealer, decrees = {}, rules = [], meta = {}, adjustments = [] }) {
+  // Commissioner settings: season-wide ones now, per-week ones as each week is scored.
+  applySeasonRules(seasonRules(meta));
+  applyWeekRules(weekRules(rules, weeks[0]?.week ?? 1));
+  const adjByWeek = {};
+  for (const a of adjustments) if (a && Number.isInteger(a.week)) (adjByWeek[a.week] ||= []).push(a);
   const byWeek = groupPicks(picks);
   const unburnByUser = Object.fromEntries(unburns.map(u => [u.user_id, u]));
   const users = {};
@@ -89,6 +95,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
   for (const wk of weeks) {
     const status = weekStatus(wk, now);
     const W = wk.week;
+    applyWeekRules(weekRules(rules, W));
     const dec = parseDecree(decrees[W]);
     const is = (kind, slot) => dec?.kind === kind && (slot === undefined || dec.slot === slot);
     if (status === 'open') {
@@ -173,6 +180,12 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
     }
     playPointCards({ cw, wk, results, hits, table });
 
+    // Commissioner adjustments: public point corrections, with a reason.
+    for (const a of adjByWeek[W] || []) {
+      const pts = Number(a.points) || 0;
+      if (pts && results[a.user_id]) results[a.user_id].adj.push({ commish: true, label: 'Commissioner', pts, note: a.reason || '' });
+    }
+
     if (is('bounty') && entrants.length) {
       const pre = id => SLOTS.reduce((a, s) => a + results[id].slots[s].rank, 0) + results[id].adj.reduce((a, x) => a + x.pts, 0);
       const top = Math.max(...entrants.map(pre));
@@ -207,6 +220,15 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       }
     }
 
+    // Commissioner adjustments to lives land after the week's own result.
+    for (const a of adjByWeek[W] || []) {
+      const u = users[a.user_id], n = Math.trunc(Number(a.lives) || 0);
+      if (!u || !n) continue;
+      u.lives = Math.max(0, u.lives + n);
+      if (u.lives > 0) u.eliminatedWeek = null;
+      else if (u.eliminatedWeek == null) u.eliminatedWeek = W;
+    }
+
     // Burn Notice lands after the week's own burns, so it bites from next week.
     for (const h of hits) {
       if (h.rec.card !== 'burn_notice') continue;
@@ -228,6 +250,9 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
     table.end(wk, status, { entrants, results, awards: w.awards || [], teamOf: pid => TEAM_BY_ID[pid] || statLine(totals, W, pid)[10] || players[pid]?.team || null });
     out.push(w);
   }
+
+  // From here on (the app, the Rules tab, Autopilot) the rules are the open week's, or the last week's.
+  applyWeekRules(weekRules(rules, openWeek ?? weeks[weeks.length - 1]?.week ?? Infinity));
 
   // Open week: planned double down, and the un-burn applies to the picker.
   if (openWeek != null) {

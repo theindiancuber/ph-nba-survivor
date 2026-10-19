@@ -60,6 +60,7 @@ export class SupabaseBackend {
   }
 
   async load() {
+    const [profiles, picks, unburns, weeks, plays, seeds, decrees, tallies, votes, settingRows] = await Promise.all([
     // Members only: signed out, the database answers nothing (supabase/harden.sql).
     if (!this.userId) return { profiles: [], picks: [], unburns: [], plays: [], seeds: null, decrees: [], tallies: [], votes: [], locks: {} };
     const [profiles, picks, unburns, weeks, plays, seeds, decrees, tallies, votes] = await Promise.all([
@@ -74,8 +75,11 @@ export class SupabaseBackend {
       this.all('decrees', 'week').catch(() => []),
       this.sb.rpc('decree_tally').then(r => (r.error || !Array.isArray(r.data) ? [] : r.data)).catch(() => []),
       this.userId ? this.sb.from('decree_votes').select('week,choice').eq('user_id', this.userId).then(r => r.data || []).catch(() => []) : [],
+      // Commissioner settings. Until supabase/upgrade-settings.sql is run, config.js is all there is.
+      this.sb.from('league_settings').select('key,value').then(r => r.data || []).catch(() => []),
     ]);
-    return { profiles, picks, unburns, plays, seeds, decrees, tallies, votes, locks: Object.fromEntries(weeks.map(w => [w.week, new Date(w.lock_at).toISOString()])) };
+    const settings = Object.fromEntries((settingRows || []).map(r => [r.key, r.value]));
+    return { profiles, picks, unburns, plays, seeds, decrees, tallies, votes, settings, locks: Object.fromEntries(weeks.map(w => [w.week, new Date(w.lock_at).toISOString()])) };
   }
 
   // slots: { PTS: {player_id, alt_id} | null, ... }, dd: slot or null
@@ -176,6 +180,12 @@ Object.assign(SupabaseBackend.prototype, {
     const { error } = await this.sb.rpc('admin_set_invite', { code });
     if (error) throw error;
   },
+  async adminSaveSetting(key, value) {
+    const { error } = await this.sb.from('league_settings').upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    if (!error) return;
+    if (/does not exist|schema cache/.test(error.message)) throw new Error('Run supabase/upgrade-settings.sql in the Supabase SQL editor first.');
+    throw error;
+  },
   async adminSaveDecree(week, options) {
     const { error } = await this.sb.from('decrees').insert({ week, options });
     if (error) throw decreeError(error);
@@ -259,7 +269,7 @@ export class DemoBackend {
     const decrees = this.state.decrees || [];
     const tallies = Object.values((this.state.votes || []).reduce((m, v) => { const k = `${v.week}|${v.choice}`; (m[k] ||= { week: v.week, choice: v.choice, votes: 0 }).votes++; return m; }, {}));
     const votes = (this.state.votes || []).filter(v => v.user_id === this.userId).map(({ week, choice }) => ({ week, choice }));
-    return structuredClone({ profiles: this.state.profiles, picks: this.state.picks.filter(visible), unburns: this.state.unburns.filter(visible), plays: this.state.plays.filter(playVisible), decrees, tallies, votes, locks });
+    return structuredClone({ profiles: this.state.profiles, picks: this.state.picks.filter(visible), unburns: this.state.unburns.filter(visible), plays: this.state.plays.filter(playVisible), decrees, tallies, votes, settings: this.state.settings || {}, locks });
   }
 
   // Same windows as card_window() in schema.sql.
@@ -359,6 +369,11 @@ export class DemoBackend {
     if (list.some(d => d.week === week)) throw new Error('That week already has a decree.');
     if (list.length >= LEAGUE.decree.perSeason) throw new Error(`That's all ${LEAGUE.decree.perSeason} decrees for the season.`);
     list.push({ week, options, created_at: new Date(this.now()).toISOString() });
+    this.persist();
+  }
+
+  async adminSaveSetting(key, value) {
+    (this.state.settings ||= {})[key] = value;
     this.persist();
   }
 

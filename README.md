@@ -49,6 +49,12 @@ Sign out and back in. A **Commissioner** tab appears with:
 - **League-wide stats:** most-burned players, untouched gems, firepower left, playing styles, and the best and worst picks of the season.
 - **Best strategy (hindsight):** each final week's perfect three picks, the perfect season plan per category (every player used at most once, the same rule everyone plays under), and how close each person came to it.
 - **Commissioner's Decree:** a one-week twist, up to 3 a season. Impose one, or put 2–3 to a league vote. The twists are Prime Time (a category's rank points double), Opposite Day (the lowest total wins a category), Bounty (+5 for the week's top scorer), Mercy Rule, Sudden Death (all 4 bars), Amnesty (no burns), Ceasefire (no cards), Free-for-all (2 cards each) and Pack Day (a bonus pack). Decrees go up, and votes close, at least 24 hours before the lock, and can be cancelled until then. Everyone sees decrees and running vote counts, never who voted for what. Run `supabase/upgrade-decree.sql` once to turn it on. The catalog is `src/decrees.js`; the limits are `decree` in `src/config.js` (keep `perSeason` in step with the SQL).
+- **League settings** (run `supabase/upgrade-settings.sql` once):
+  - **Announcement:** a banner on every page for everyone, until you take it down (each person can dismiss it).
+  - **Survival and card rules:** the four survival bars, bars to clear, hand limit, attack cap, duel stake and heist size. A change takes effect from the week you choose (this week or later). Earlier weeks keep the rules they were played under, and every change is listed publicly on the Rules tab. You can undo a change until its week locks.
+  - **Season settings:** lives, drops, decrees a season, the Bounty size and the commissioner name on certificates. These apply to the whole season; raising lives gives everyone more.
+  - **Adjustments:** add or take away points or lives for one member in a locked week, with a reason. They're shown publicly on that week's Results.
+  - `src/config.js` keeps the defaults. The settings live in `league_settings` (public to read, commissioners only to write). The app and the hourly job apply them through `src/settings.js`.
 - **Remove member:** deletes the account with its picks and jokers, and by default blocks that email from signing up again. Blocked emails are listed with an **Unblock** button.
 
 The database only answers these requests for accounts in the `admins` table. Before a lock, the check-in shows how many slots each person has filled, never which players.
