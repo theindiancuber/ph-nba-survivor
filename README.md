@@ -95,3 +95,27 @@ Account ids (the long codes like `3f2a…`) and NBA player ids aren't secrets. K
 - **Player pool:** built from box scores, so it fills in from preseason games. A player who hasn't appeared in a box score yet can't be picked until he does.
 - **Scoring is computed in the browser** from picks plus `data/totals.json`, using the same engine the tests cover. A tampered pick (for example, an already-burned player) simply scores 0.
 - **Changing rules:** bars, lives and drops live in `src/config.js`. The calendar is `buildWeeks()` in the same file.
+
+## Keeping it up
+
+The app is static files on GitHub Pages plus Supabase, and both are very reliable. Most outages come from a bad change, so several checks stand in the way:
+
+- **CI** (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`: the engine tests, then `scripts/smoke.mjs`. That opens the app in a real browser and checks that every file parses, the data files are valid JSON, the signed-out page reaches sign-in, and the demo league renders every tab with no script errors or CSP blocks. **Make it required:** Settings → Branches → add a rule for `main` → *Require status checks to pass* → pick **CI / check**. A broken pull request then can't be merged. Run it locally with `npm i --no-save playwright && npx playwright install chromium && npm run smoke`.
+- **Uptime monitor** (`.github/workflows/uptime.yml`): every 15 minutes it runs the same smoke test against the live site, retrying once a minute later. If the site is down it opens a **🚨 site-down** issue, and GitHub emails you. It closes the issue when the site recovers.
+- **In the app:**
+  - If a script fails to load, `src/boot-guard.js` replaces the endless "Loading the league…" with a Reload button within seconds.
+  - If Supabase is slow or unreachable, the app shows an error and retries every 30 seconds by itself.
+  - Once loaded, a dropped connection keeps the last data on screen and retries in the background.
+  - A bug in one page shows "This page hit a snag" on that page only. The other tabs, and saving picks, keep working.
+- **No CDN:** the Supabase client is served from this repo (`vendor/`), so a CDN outage can't take the league down. The CSP no longer allows any outside scripts.
+- **Supabase free tier** pauses a project after a week with no requests. The hourly data job talks to it every hour, which keeps it awake, so leave that workflow on.
+
+### Updating the vendored Supabase client
+
+```sh
+mkdir /tmp/sb && cd /tmp/sb && npm init -y && npm i @supabase/supabase-js@<version> esbuild
+echo "export { createClient } from '@supabase/supabase-js';" > entry.mjs
+npx esbuild entry.mjs --bundle --format=esm --platform=browser --minify --target=es2020 --outfile=supabase.mjs
+```
+
+Copy it to `vendor/supabase-js-<version>.mjs` and update `SUPABASE_ESM` in `src/backend.js`.

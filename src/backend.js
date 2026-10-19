@@ -3,7 +3,8 @@
 
 import { LEAGUE } from './config.js';
 
-const SUPABASE_ESM = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
+// Served from this site (vendor/), so a CDN outage can't take the league down.
+const SUPABASE_ESM = '../vendor/supabase-js-2.45.4.mjs';
 
 export class SupabaseBackend {
   constructor() { this.kind = 'supabase'; this.user = null; }
@@ -60,10 +61,9 @@ export class SupabaseBackend {
   }
 
   async load() {
-    const [profiles, picks, unburns, weeks, plays, seeds, decrees, tallies, votes, settingRows] = await Promise.all([
     // Members only: signed out, the database answers nothing (supabase/harden.sql).
-    if (!this.userId) return { profiles: [], picks: [], unburns: [], plays: [], seeds: null, decrees: [], tallies: [], votes: [], locks: {} };
-    const [profiles, picks, unburns, weeks, plays, seeds, decrees, tallies, votes] = await Promise.all([
+    if (!this.userId) return { profiles: [], picks: [], unburns: [], plays: [], seeds: null, decrees: [], tallies: [], votes: [], settings: {}, locks: {} };
+    const [profiles, picks, unburns, weeks, plays, seeds, decrees, tallies, votes, settingRows] = await Promise.all([
       this.all('profiles', 'created_at'), this.all('picks', 'week'), this.all('unburns', 'created_at'), this.all('weeks', 'week'),
       // Until supabase/upgrade-cards.sql is run there are no cards: play without them.
       this.all('card_plays', 'created_at').catch(() => []),

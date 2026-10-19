@@ -1,0 +1,36 @@
+name: CI
+
+# Runs on every pull request (GitHub tests the PR merged into main) and on every
+# push to main, so a broken merge is caught before it reaches the live site.
+# Make it a required check: Settings → Branches → main → Require status checks → "CI / check".
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths-ignore: ['data/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Engine tests
+        run: npm test
+      - name: Install a browser for the smoke test
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Smoke test (signed-out page, demo league, every tab)
+        run: node scripts/smoke.mjs
