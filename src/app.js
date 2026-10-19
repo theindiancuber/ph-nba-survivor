@@ -117,6 +117,8 @@ function viewFromHash() {
 }
 
 function views() {
+  // Signed out, only the rules are readable, so don't offer tabs that all lead to the sign-in form.
+  if (!S.me) return [['week', myId() ? 'Finish sign-up' : 'Join or sign in'], ['rules', 'Rules']];
   return S.isAdmin ? [...VIEWS, ['admin', 'Commissioner']] : VIEWS;
 }
 
@@ -263,7 +265,8 @@ function renderTop() {
   if (S.me) {
     el.innerHTML = `<button class="me-chip" data-act="profile-open" aria-label="Your profile">${avatar(S.me.id)}<span class="nm">${esc(S.me.display_name)}</span></button>`;
   } else {
-    el.innerHTML = `<a class="btn small" href="#week">${myId() ? 'Finish sign-up' : 'Sign in'}</a>`;
+    // The sign-in form is already on screen everywhere but the Rules tab.
+    el.innerHTML = S.view === 'rules' ? `<a class="btn small" href="#week">${myId() ? 'Finish sign-up' : 'Sign in'}</a>` : '';
   }
 }
 
@@ -273,10 +276,12 @@ function needsPicks() {
 }
 
 function renderTabs() {
+  // Signed out, every page but Rules shows the sign-in form, which lives on the first tab.
+  const cur = !S.me && S.view !== 'rules' ? 'week' : S.view;
   $('#tabs').innerHTML = views().map(([k, label]) => {
     const cardsDot = k === 'cards' && S.me && (waitingPacks().length || unansweredDuels().length);
     const dot = (k === 'week' && needsPicks()) || (k === 'results' && liveWeek()) || cardsDot ? '<span class="dot"></span>' : '';
-    return `<a class="tab" role="tab" href="#${k}" aria-selected="${S.view === k}">${label}${dot}</a>`;
+    return `<a class="tab" role="tab" href="#${k}" aria-selected="${cur === k}">${label}${dot}</a>`;
   }).join('');
   const sel = $('#tabs [aria-selected="true"]');
   if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -358,7 +363,7 @@ function viewWeek() {
             <div class="sub">${weekRange(open)} · ${picked}/${SLOTS.length} picks saved</div>
           </div>
           <div class="lock-box">
-            <div class="kicker" style="color:#dbe4f7">Locks at first tip · ${esc(lockText(open.lockAt))}</div>
+            <div class="kicker">Locks at first tip · ${esc(lockText(open.lockAt))}</div>
             ${clock(open.lockAt)}
           </div>
         </div>
@@ -1155,7 +1160,7 @@ function renderPlay() {
   const use = cardUse(P.inst);
   const gift = P.mode === 'gift';
   const swap = swapPack(P.inst);
-  const body = P.mode === 'swap' && swap ? keepSwapForm(swap) : gift ? giftForm() : use.why ? `<p style="margin:0;color:#c7d3ee">${esc(d.text)}</p><div class="callout"><span class="ic">⏳</span><div class="txt">${esc(use.why)}</div></div>` : playForm(use);
+  const body = P.mode === 'swap' && swap ? keepSwapForm(swap) : gift ? giftForm() : use.why ? `<p style="margin:0;color:var(--soft)">${esc(d.text)}</p><div class="callout"><span class="ic">⏳</span><div class="txt">${esc(use.why)}</div></div>` : playForm(use);
   $('#modal-root').innerHTML = `<div class="modal-bg" data-act="close-modal-bg"><div class="modal" role="dialog" aria-modal="true" aria-label="${esc(d.name)}">
     <div class="modal-head"><div class="ttl"><div><div class="kicker">${TYPES[d.type].label} · ${RARITY[d.rarity].label}</div><h3>${d.icon} ${esc(d.name)}</h3></div><button class="close-x" data-act="close-modal" aria-label="Close">×</button></div>
       <div class="seg" style="margin:0${swap ? ';grid-template-columns:1fr 1fr 1fr' : ''}"><button data-act="play-mode" data-mode="play" aria-pressed="${!gift && P.mode !== 'swap'}">${isTrap(P.card) ? 'Arm it' : 'Play it'}</button><button data-act="play-mode" data-mode="gift" aria-pressed="${gift}">Gift it</button>${swap ? `<button data-act="play-mode" data-mode="swap" aria-pressed="${P.mode === 'swap'}">↺ Swap it</button>` : ''}</div></div>
@@ -1165,7 +1170,7 @@ function renderPlay() {
 
 function keepSwapForm(pack) {
   const P = S.play;
-  return `<p style="margin:0;color:#c7d3ee">Changed your mind? Swap this card for another one from the same pack. You get <b>one swap per pack</b>, until the Week ${pack.step} lock, and it can't be undone.</p>
+  return `<p style="margin:0;color:var(--soft)">Changed your mind? Swap this card for another one from the same pack. You get <b>one swap per pack</b>, until the Week ${pack.step} lock, and it can't be undone.</p>
     <div class="keep-swap">${pack.cards.map((c, i) => i === pack.keep
       ? `<div class="swap-opt cur">${cardFace(c)}<span class="tag">Kept</span></div>`
       : `<button class="swap-opt ${P.swapTo === i ? 'on' : ''}" data-act="swap-pick" data-i="${i}" aria-pressed="${P.swapTo === i}">${cardFace(c)}<span class="tag ${P.swapTo === i ? 'gold' : ''}">${P.swapTo === i ? 'Swap to this' : 'Choose'}</span></button>`).join('')}</div>
@@ -1190,14 +1195,14 @@ async function swapSubmit() {
 function giftForm() {
   const P = S.play;
   const others = Object.values(S.league.users).filter(u => u.id !== myId()).sort(byName);
-  return `<p style="margin:0;color:#c7d3ee">Give this card to a colleague. It lands in their hand next week, and it doesn't use up your card for the week. Alliances are allowed. Betrayal is encouraged.</p>
+  return `<p style="margin:0;color:var(--soft)">Give this card to a colleague. It lands in their hand next week, and it doesn't use up your card for the week. Alliances are allowed. Betrayal is encouraged.</p>
     <label class="field">Who gets it<select class="input" data-change="play-gift"><option value="">Choose…</option>${others.map(u => `<option value="${u.id}" ${P.giftTo === u.id ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></label>
     <button class="btn primary" data-act="play-submit">Gift ${esc(CARDS[P.card].name)}</button>`;
 }
 
 function playForm(use) {
   const P = S.play, d = CARDS[P.card], L = S.league;
-  const f = [`<p style="margin:0;color:#c7d3ee">${esc(d.text)}</p>`];
+  const f = [`<p style="margin:0;color:var(--soft)">${esc(d.text)}</p>`];
   if (isTrap(P.card)) f.push('<p class="note" style="margin:0">Arming is free: it doesn\'t use up your card for the week. Nobody sees it until it springs.</p>');
   if (isHindsight(P.card)) f.push(`<p class="note" style="margin:0">This rewrites <b>Week ${use.week}</b>, which is final. You can take it back until the Week ${use.week + 1} lock.</p>`);
   if (P.card === 'blue_shell') {
@@ -1614,17 +1619,18 @@ function viewAdmin() {
   const L = S.league;
   const open = L.openWeek != null ? weekObj(L.openWeek) : null;
   if (!S.adminData || S.adminData.week !== L.openWeek) loadAdmin();
+  const tab = ADMIN_TABS.some(([k]) => k === S.adminTab) ? S.adminTab : 'members';
+  const toPick = open && S.adminData?.members ? stillToPick().length : 0;
+  const decreesLeft = Math.max(0, LEAGUE.decree.perSeason - Object.keys(S.decrees || {}).length);
+  const count = { members: toPick, decrees: decreesLeft };
+  const head = `<header class="page-head"><div><span class="badge">🔒 Commissioner only</span><h1>The Commissioner's office</h1>
+      <p>Everyone's picks stay hidden until each lock, including from you. Everything you change here is public.</p></div></header>
+    <nav class="subnav" aria-label="Commissioner sections">${ADMIN_TABS.map(([k, label, ic]) => `<button data-act="admin-tab" data-tab="${k}" aria-pressed="${k === tab}">${ic} ${label}${count[k] ? `<span class="count${k === 'members' ? '' : ' soft'}">${count[k]}</span>` : ''}</button>`).join('')}</nav>`;
+  if (tab === 'members') return `<div class="grid">${head}${adminRoster(open)}<div class="split">${adminInvite()}${adminAnnounce()}</div></div>`;
+  if (tab === 'rules') return `<div class="grid">${head}${adminRules()}${adminSeason()}${adminAdjust()}</div>`;
+  if (tab === 'decrees') return `<div class="grid">${head}${adminDecree()}</div>`;
   const st = funStats(L, S.data.players, S.data.teams);
-  return `<div class="grid">
-    <section class="hero"><span class="badge">🔒 Commissioner only</span><h1>The Commissioner's office</h1>
-      <div class="sub">Only accounts in the admins table can open this. Everyone's picks stay hidden until each lock, including from you.</div></section>
-    ${adminInvite()}
-    ${adminAnnounce()}
-    ${adminRules()}
-    ${adminSeason()}
-    ${adminAdjust()}
-    ${adminDecree()}
-    ${adminRoster(open)}
+  return `<div class="grid">${head}
     ${adminTiles(st)}
     ${adminStrategy(perfectPlay(L, S.data.totals))}
     ${adminLedger(st)}
@@ -1641,6 +1647,8 @@ function viewAdmin() {
     ${adminStyles(st)}
   </div>`;
 }
+
+const ADMIN_TABS = [['members', 'Members', '👥'], ['rules', 'Rules & settings', '⚙️'], ['decrees', 'Decrees', '📜'], ['insights', 'Insights', '📈']];
 
 // ---- League settings (Commissioner tab) ----
 
@@ -1670,7 +1678,7 @@ function adminRules() {
   const cur = weekRules(S.db.settings?.rules || [], R);
   const changes = [...(S.db.settings?.rules || [])].sort((a, b) => a.from_week - b.from_week);
   return `<section class="panel"><div class="panel-title"><h2>⚙️ Survival and card rules</h2><span class="muted">Changes start from the week you pick. Weeks already locked keep their rules.</span></div>
-    ${changes.length ? `<div style="display:grid;gap:8px;margin-bottom:14px">${changes.map(ch => {
+    ${changes.length ? `<div class="list-stack">${changes.map(ch => {
       const live = weeks.some(w => w.week === ch.from_week);
       return `<div class="own-row"><span class="tag">From Wk ${ch.from_week}</span><div style="flex:1">${esc(describeChange(ch).join(' · ') || 'No change')}</div>${live ? `<button class="link danger" data-act="rule-undo" data-week="${ch.from_week}">Undo</button>` : '<span class="dim">In force</span>'}</div>`;
     }).join('')}</div>` : ''}
@@ -1684,7 +1692,7 @@ function adminRules() {
       ${num('cards.attackCap', 'Max attacks on one person a week', cur.cards.attackCap, 'cards.attackCap')}
       ${num('cards.duelStake', 'Duel stake (points)', cur.cards.duelStake, 'cards.duelStake')}
       ${num('cards.heist', 'Heist (points)', cur.cards.heist, 'cards.heist')}
-      <div class="wide" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn primary" type="submit">Save rules from Week ${R}</button><span class="dim" style="font-size:13px">Everyone sees rule changes on the Rules tab. Post an announcement too.</span></div>
+      <div class="wide form-foot"><button class="btn primary" type="submit">Save rules from Week ${R}</button><span class="dim">Everyone sees rule changes on the Rules tab. Post an announcement too.</span></div>
     </form></section>`;
 }
 
@@ -1698,7 +1706,7 @@ function adminSeason() {
       ${num('decree.perSeason', 'Decrees a season', r.decree.perSeason, 'decree.perSeason')}
       ${num('decree.bounty', 'Bounty decree (points)', r.decree.bounty, 'decree.bounty')}
       <label class="field">Commissioner name (on certificates)<input class="input" name="commissioner" maxlength="40" value="${esc(r.commissioner)}"></label>
-      <div class="wide"><button class="btn primary" type="submit">Save season settings</button></div>
+      <div class="wide form-foot"><button class="btn primary" type="submit">Save season settings</button></div>
     </form></section>`;
 }
 
@@ -1707,14 +1715,14 @@ function adminAdjust() {
   const list = S.db.settings?.adjustments || [];
   const members = Object.values(S.league.users).sort(byName);
   return `<section class="panel"><div class="panel-title"><h2>⚖️ Adjustments</h2><span class="muted">Fix a mistake: add or take away points or lives. Shown publicly on Results with your reason.</span></div>
-    ${list.length ? `<div style="display:grid;gap:8px;margin-bottom:14px">${list.map(a => `<div class="own-row"><span class="tag">Wk ${a.week}</span><div style="flex:1"><b>${esc(userName(a.user_id))}</b> ${adjText(a)} <span class="dim">${esc(a.reason || '')}</span></div><button class="link danger" data-act="adjust-remove" data-id="${esc(a.id)}">Remove</button></div>`).join('')}</div>` : ''}
+    ${list.length ? `<div class="list-stack">${list.map(a => `<div class="own-row"><span class="tag">Wk ${a.week}</span><div style="flex:1"><b>${esc(userName(a.user_id))}</b> ${adjText(a)} <span class="dim">${esc(a.reason || '')}</span></div><button class="link danger" data-act="adjust-remove" data-id="${esc(a.id)}">Remove</button></div>`).join('')}</div>` : ''}
     ${weeks.length ? `<form data-form="adjust" class="settings-form">
       <label class="field">Member<select class="input" name="user_id" required><option value="">Choose…</option>${members.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select></label>
       <label class="field">Week<select class="input" name="week">${[...weeks].reverse().map(w => `<option value="${w.week}">Week ${w.week}</option>`).join('')}</select></label>
       <label class="field">Points (+/−)<input class="input" type="number" name="points" value="0" min="-50" max="50" step="0.5"></label>
       <label class="field">Lives (+/−)<input class="input" type="number" name="lives" value="0" min="-5" max="5" step="1"></label>
       <label class="field wide">Reason (everyone sees this)<input class="input" name="reason" maxlength="120" required placeholder="e.g. Stat correction: NBA changed a rebound total"></label>
-      <div class="wide"><button class="btn primary" type="submit">Add adjustment</button></div>
+      <div class="wide form-foot"><button class="btn primary" type="submit">Add adjustment</button></div>
     </form>` : '<p class="muted" style="margin:0">Adjustments open once Week 1 locks.</p>'}
   </section>`;
 }
@@ -1741,7 +1749,7 @@ function adminDecree() {
     return `<div class="own-row"><span class="tag">Wk ${d.week}</span><div style="flex:1">${what}</div>${open ? `<button class="link danger" data-act="decree-cancel" data-week="${d.week}">Cancel</button>` : '<span class="dim">Locked in</span>'}</div>`;
   }).join('');
   return `<section class="panel decree-admin"><div class="panel-title"><h2>📜 Commissioner's Decree</h2><span class="muted">${left} of ${C.perSeason} left this season · everyone sees it once it's posted</span></div>
-    ${list ? `<div style="display:grid;gap:8px;margin-bottom:16px">${list}</div>` : ''}
+    ${list ? `<div class="list-stack">${list}</div>` : ''}
     ${left <= 0 ? '<p class="muted" style="margin:0">That\'s every decree for the season.</p>'
       : !eligible.length ? `<p class="muted" style="margin:0">No week is far enough out. Decrees go up at least ${C.noticeHours} hours before a lock.</p>`
       : `<div class="decree-form">
@@ -1756,7 +1764,7 @@ function adminDecree() {
         return `<div class="decree-pick ${on ? 'on' : ''}"><button class="dp-main" data-act="decree-toggle" data-kind="${k}" aria-pressed="${on}"><span class="di">${d.icon}</span><b>${esc(d.name)}</b><small>${esc(x.text)}</small></button>
           ${d.slot ? `<select class="input" data-change="decree-slot" data-kind="${k}">${SLOTS.map(s => `<option value="${s}" ${s === slot ? 'selected' : ''}>${INFO[s].emoji} ${INFO[s].name}</option>`).join('')}</select>` : ''}</div>`;
       }).join('')}</div>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px"><button class="btn primary" data-act="decree-issue" ${ready ? '' : 'disabled'}>${D.mode === 'vote' ? `Put ${D.picks.length || ''} to a vote` : 'Issue the decree'}</button><span class="dim" style="font-size:13px">${D.picks.length}/${max} chosen</span></div>`}
+      <div class="form-foot" style="margin-top:16px"><button class="btn primary" data-act="decree-issue" ${ready ? '' : 'disabled'}>${D.mode === 'vote' ? `Put ${D.picks.length || ''} to a vote` : 'Issue the decree'}</button><span class="dim">${D.picks.length}/${max} chosen</span></div>`}
   </section>`;
 }
 
@@ -2318,6 +2326,7 @@ const ACTIONS = {
   'boot-retry': () => { $('#app').innerHTML = '<div class="empty-state"><div class="ic">🏀</div>Loading the league…</div>'; start(); },
   'demo-reset': async () => { S.backend.reset(); location.reload(); },
   'admin-refresh': () => { S.adminData = null; render(); },
+  'admin-tab': el => { S.adminTab = el.dataset.tab; render(); window.scrollTo({ top: 0 }); },
   'tour-next': () => openTour(S.tour + 1),
   'tour-back': () => openTour(S.tour - 1),
   'tour-done': async () => {

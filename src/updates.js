@@ -4,6 +4,16 @@
 
 export const UPDATES = [
   {
+    id: 9,
+    date: '2026-10-19',
+    title: 'A fresh new look',
+    items: [
+      'The whole app has been redesigned: cleaner type, calmer colours and everything lined up, on phones too.',
+      'Pop-ups slide up from the bottom on a phone, and the news ticker pauses when you hover over it.',
+      'Signed out, you only see the sign-in page and the Rules, since everything else needs an account.',
+    ],
+  },
+  {
     id: 8,
     date: '2026-10-19',
     title: 'Straight from the Commissioner',
