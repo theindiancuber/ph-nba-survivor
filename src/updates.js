@@ -4,6 +4,15 @@
 
 export const UPDATES = [
   {
+    id: 14,
+    date: '2026-10-20',
+    title: 'Live points only count games played',
+    items: [
+      "During a live week, a pick only earns points once his first game is in, ranked against the other picks that have played. Picks still waiting to play show 0 for now instead of collecting points for being tied at 0.",
+      'Final scores are worked out exactly as before.',
+    ],
+  },
+  {
     id: 13,
     date: '2026-10-20',
     title: 'Pack odds that follow the table',
