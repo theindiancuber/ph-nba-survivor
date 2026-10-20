@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeLeague, blockedReason } from '../src/league.js';
-import { dealPack, CARDS, DECK, packOdds, tierFor } from '../src/cards.js';
+import { dealPack, CARDS, DECK, packOdds, tierFor, standingOdds, standingFor } from '../src/cards.js';
+import { LEAGUE } from '../src/config.js';
 
 const NOW = Date.parse('2027-06-01T00:00:00Z');
 const lockOf = w => new Date(Date.parse('2026-11-03T00:00:00Z') + (w - 1) * 7 * 86400e3).toISOString();
@@ -380,4 +381,40 @@ test('kept cards are final after Week 1: a swap on a later pack is ignored', () 
   assert.equal(pack.step, 2);
   assert.deepEqual([pack.first, pack.keep, pack.repicked], [0, 0, false]);
   assert.equal(L.users.a.cards.hand[0].card, 'embargo');
+});
+
+test('sliding odds: Burn Notice climbs as you fall and as the season goes on; leaders never pull comeback cards', () => {
+  const sum = o => Object.values(o).reduce((a, b) => a + b, 0);
+  for (const pos of [0, 0.25, 0.5, 0.75, 1]) for (const season of [0, 0.5, 1]) {
+    const o = standingOdds('locker', { pos, season });
+    assert.ok(Math.abs(sum(o) - 100) < 1e-9);
+    if (pos <= 0.5) assert.equal(o.epic, 0);
+  }
+  assert.equal(standingOdds('locker', { pos: 0, season: 1 }).legendary, 0.5);
+  assert.equal(standingOdds('locker', { pos: 1, season: 1 }).legendary, 2.5);
+  const leg = (pos, season) => standingOdds('locker', { pos, season }).legendary;
+  assert.ok(leg(0, 0.5) < leg(0.5, 0.5) && leg(0.5, 0.5) < leg(1, 0.5));
+  assert.ok(leg(1, 0) < leg(1, 0.5) && leg(1, 0.5) < leg(1, 1));
+  for (let i = 0; i < 300; i++) {
+    for (const c of dealPack(`x${i}`, 'k', 'locker', { pos: 0, season: 1 })) assert.equal(CARDS[c].comeback, undefined);
+  }
+  const snap = { order: ['a', 'b', 'c', 'd', 'e'], rank: new Map([['a', 1], ['b', 2], ['c', 2], ['d', 4], ['e', 5]]) };
+  assert.deepEqual(standingFor(snap, 'a', 1, 23), { pos: 0, season: 0 });
+  assert.deepEqual(standingFor(snap, 'c', 12, 23), { pos: 0.25, season: 0.5 });
+  assert.deepEqual(standingFor(snap, 'e', 23, 23), { pos: 1, season: 1 });
+  assert.equal(standingFor({ order: ['a'], rank: new Map() }, 'a', 5, 23).pos, 0.5);
+});
+
+test('packs before cards.oddsFrom re-deal exactly as before; later packs use the sliding odds', () => {
+  assert.equal(LEAGUE.cards.oddsFrom, 3);
+  const weeks = [wk(1), wk(2), wk(3), wk(4, { lockAt: '2099-01-01T00:00:00Z', final: false })];
+  const L = computeLeague({ weeks, totals: {}, picks: [], plays: [], profiles, now: NOW, cardsFrom: 1 });
+  const packs = L.users.a.cards.packs;
+  const starter = packs.find(p => p.step === 1);
+  assert.equal(starter.tier, 'mid');
+  assert.deepEqual(starter.cards, dealPack('a', 'w1:starter', 'starter', 'mid'));
+  // Cards from week 3: the standing object drives the odds.
+  const late = computeLeague({ weeks, totals: {}, picks: [], plays: [], profiles, now: NOW, cardsFrom: 3 }).users.a.cards.packs.find(p => p.step === 3);
+  assert.deepEqual(late.tier, { pos: 0.5, season: 2 / 3 });
+  assert.deepEqual(late.cards, dealPack('a', 'w3:starter', 'starter', { pos: 0.5, season: 2 / 3 }));
 });

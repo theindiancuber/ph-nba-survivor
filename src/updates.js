@@ -4,6 +4,16 @@
 
 export const UPDATES = [
   {
+    id: 13,
+    date: '2026-10-20',
+    title: 'Pack odds that follow the table',
+    items: [
+      'From Week 3, pack odds slide with where you are in the standings and how far into the season it is. The further down you are, the better your odds of Rares and Burn Notice, and that help grows as the season goes on.',
+      'Burn Notice and Rares are rarer for everyone: Burn Notice is now about 1 in 60 packs for the leader and about 1 in 13 for last place late in the season.',
+      'Heist and Blue Shell still only reach the bottom half of the standings.',
+    ],
+  },
+  {
     id: 12,
     date: '2026-10-20',
     title: 'Kept cards are final',

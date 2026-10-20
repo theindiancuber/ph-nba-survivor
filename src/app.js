@@ -1131,7 +1131,10 @@ async function practicePack() {
   const kinds = ['starter', 'locker', 'award', 'revenge', 'album'];
   const kind = kinds[Math.floor(Math.random() * kinds.length)];
   const pack = { key: 'practice', kind, step: S.league.openWeek ?? 1, label: kind === 'album' ? 'Atlantic' : 'Heater' };
-  const cards = dealPack(`practice-${Date.now()}-${Math.random()}`, 'practice', Math.random() < 0.4 ? 'album' : 'revenge', 'trail');
+  const ow = S.league.openWeek ?? S.league.weeks.length;
+  const season = Math.max(0, (ow - 1) / Math.max(1, S.league.weeks.length - 1));
+  const tier = ow >= LEAGUE.cards.oddsFrom ? { pos: 1, season } : 'trail';
+  const cards = dealPack(`practice-${Date.now()}-${Math.random()}`, 'practice', Math.random() < 0.4 ? 'album' : 'revenge', tier);
   if (!DEMO) {
     if (practiceLeft() <= 0) return;
     try { localStorage.setItem(`phs-practice-${myId()}`, String(PRACTICE_PACKS - practiceLeft() + 1)); } catch {}

@@ -121,7 +121,7 @@ There's no money, just bragging rights and a **downloadable certificate** for ev
     - Award Packs for Galaxy Brain, Heater, Ice Cold or the Fumble;
     - a Revenge Pack when you lose a life;
     - an Album Pack for each NBA division you complete in your sticker album. Every player who scores for you adds his team.
-  - **Comeback odds:** the top quarter of the standings pulls mostly commons. Only the bottom half can pull Heist and Blue Shell.
+  - **Comeback odds:** from Week 3, pack odds slide with your place in the standings and how far into the season it is. The further down you are, and the later it is, the better your odds of Rares and Burn Notice (0.5% a card for the leader up to 2.5% for last place late in the season). Only the bottom half can pull Heist and Blue Shell. Weeks 1–2 used three fixed tiers.
   - **The deck (17 cards):**
 
     | Kind | Cards |

@@ -132,14 +132,43 @@ export const PACKS = {
 // Awards that hand out a pack. Ice Cold and The Fumble are pity packs.
 export const AWARD_PACKS = { galaxy: 'Galaxy Brain', heater: 'Heater', cold: 'Ice Cold', fumble: 'Fumble' };
 
-// Rarity odds by standing. Leaders pull mostly commons and never the comeback cards.
+// Weeks 1–2 (before cards.oddsFrom): three fixed tiers. Kept as they were so those packs re-deal identically.
 const ODDS = {
   lead: { common: 68, rare: 29, epic: 0, legendary: 3 },
   mid: { common: 58, rare: 36, epic: 0, legendary: 6 },
   trail: { common: 44, rare: 32, epic: 18, legendary: 6 },
 };
 
+// From cards.oddsFrom on, odds slide with your standing and the point in the season.
+//   pos:    0 for the leader … 1 for last place (from the standings two weeks back)
+//   season: 0 in Week 1 … 1 in the last week
+// Standing counts for 40% of its full effect at the start of the season and 100% at the end.
+// Legendary (Burn Notice) runs 0.5% → 2.5% a card, Rare 20% → 30%; the comeback Epics
+// (Heist, Blue Shell) only reach the bottom half, up to 16% for last place late in the season.
+export function standingOdds(kind, { pos, season }) {
+  const weight = 0.4 + 0.6 * season;
+  const need = pos * weight;
+  if (kind === 'revenge') return { common: 45, rare: 28, epic: 24, legendary: 3 };
+  if (kind === 'album') return pos > 0.5 ? { common: 0, rare: 72, epic: 23, legendary: 5 } : { common: 0, rare: 95, epic: 0, legendary: 5 };
+  const legendary = 0.5 + 2 * need;
+  const rare = 20 + 10 * need;
+  const epic = 16 * Math.max(0, 2 * pos - 1) * weight;
+  return { common: 100 - legendary - rare - epic, rare, epic, legendary };
+}
+
+// Where you stand for pack odds: pos 0 (leader) … 1 (last), season 0 … 1. Ties share a place.
+// Nobody is placed before four people have a score; then everyone counts as halfway.
+export function standingFor(snap, id, week, weeks) {
+  const n = snap?.order.length || 0;
+  const season = weeks > 1 ? Math.min(1, Math.max(0, (week - 1) / (weeks - 1))) : 0;
+  if (n < 4) return { pos: 0.5, season };
+  const r = snap.rank.get(id);
+  return { pos: r == null ? 1 : (r - 1) / (n - 1), season };
+}
+
+// tier: 'lead' | 'mid' | 'trail' for the early fixed tables, or a { pos, season } standing.
 export function packOdds(kind, tier) {
+  if (tier && typeof tier === 'object') return standingOdds(kind, tier);
   if (kind === 'revenge') return { common: 30, rare: 40, epic: 22, legendary: 8 };
   if (kind === 'album') return tier === 'trail' ? { common: 0, rare: 62, epic: 23, legendary: 15 } : { common: 0, rare: 85, epic: 0, legendary: 15 };
   return ODDS[tier] || ODDS.mid;
@@ -273,7 +302,8 @@ export class CardTable {
       stubs.push(...(this.bonus[W]?.[u.id] || []));
       if (this.decrees[W] === 'pack_day' && W >= this.joinStep(u)) stubs.push({ key: `w${W}:decree`, kind: 'decree' });
       for (const st of stubs) {
-        const tier = st.kind === 'revenge' ? 'trail' : tierFor(snapPrev2, u.id);
+        const tier = W >= LEAGUE.cards.oddsFrom ? standingFor(snapPrev2, u.id, W, this.weeks.length)
+          : st.kind === 'revenge' ? 'trail' : tierFor(snapPrev2, u.id);
         const cards = this.deal(u.id, st.key, st.kind, tier);
         if (!cards) continue; // face-down: someone else's pack before its week locks
         const valid = k => k && k.week === W && Number.isInteger(k.params?.pick) && k.params.pick >= 0 && k.params.pick < cards.length
