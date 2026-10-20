@@ -698,12 +698,6 @@ function waitingPacks() {
   const u = meU(), ow = S.league.openWeek;
   return u?.cards && ow != null ? u.cards.packs.filter(p => p.step === ow && p.keep == null && !p.auto) : [];
 }
-// A pack you kept a card from this week, can still change your mind on (once), and whose card is still in your hand.
-function swapPack(inst) {
-  const ow = S.league.openWeek;
-  const pack = inst && meU()?.cards.packs.find(p => p.key === inst.uid && p.step === ow && p.keep != null && !p.repicked);
-  return pack && !S.db.plays.some(p => p.user_id === myId() && p.card_uid === inst.uid) ? pack : null;
-}
 const PRACTICE_PACKS = 2;
 function practiceLeft() {
   if (DEMO) return Infinity;
@@ -935,7 +929,7 @@ function viewCards() {
     ${over > 0 ? `<div class="callout red" style="margin-bottom:14px"><span class="ic">⚠️</span><div class="txt">You're over the ${LEAGUE.cards.handLimit}-card limit. At the lock your oldest ${over === 1 ? 'card is' : `${over} cards are`} discarded, so play or gift something first.</div></div>` : ''}
     ${hand.length ? `<div class="hand">${hand.map(h => {
       const use = cardUse(h);
-      const note = (use.why || (isTrap(h.card) ? 'Ready to arm' : isHindsight(h.card) ? `Ready for Week ${use.week}` : 'Ready to play')) + (swapPack(h) ? ' · ↺ 1 swap left' : '');
+      const note = use.why || (isTrap(h.card) ? 'Ready to arm' : isHindsight(h.card) ? `Ready for Week ${use.week}` : 'Ready to play');
       return `<button class="hand-card" data-act="card-open" data-uid="${esc(h.uid)}">${cardFace(h.card, { cls: 'tilt' })}<span class="why">${esc(note)}${h.from === 'gift' ? ` · 🎁 from ${esc(userName(h.by))}` : ''}</span></button>`;
     }).join('')}</div>`
       : `<div class="empty-state"><div class="ic">🃏</div>${packs.length ? 'Open a pack to get started.' : 'No cards yet. You get a Locker Room Pack every week you make your own picks.'}</div>`}
@@ -1015,7 +1009,7 @@ function primerPanel() {
       <div class="primer-body">
         <div class="primer-quick">
           <div><b>1</b><span>Earn packs</span><small>Make your own picks each week</small></div>
-          <div><b>2</b><span>Keep 1 of 3</span><small>One swap per pack before the lock</small></div>
+          <div><b>2</b><span>Keep 1 of 3</span><small>Choose carefully: it's final</small></div>
           <div><b>3</b><span>Play 1 a week</span><small>Before the lock</small></div>
           <div><b>4</b><span>The reveal</span><small>Everything shows at the lock</small></div>
         </div>
@@ -1160,37 +1154,12 @@ function renderPlay() {
   const d = CARDS[P.card];
   const use = cardUse(P.inst);
   const gift = P.mode === 'gift';
-  const swap = swapPack(P.inst);
-  const body = P.mode === 'swap' && swap ? keepSwapForm(swap) : gift ? giftForm() : use.why ? `<p style="margin:0;color:var(--soft)">${esc(d.text)}</p><div class="callout"><span class="ic">⏳</span><div class="txt">${esc(use.why)}</div></div>` : playForm(use);
+  const body = gift ? giftForm() : use.why ? `<p style="margin:0;color:var(--soft)">${esc(d.text)}</p><div class="callout"><span class="ic">⏳</span><div class="txt">${esc(use.why)}</div></div>` : playForm(use);
   $('#modal-root').innerHTML = `<div class="modal-bg" data-act="close-modal-bg"><div class="modal" role="dialog" aria-modal="true" aria-label="${esc(d.name)}">
     <div class="modal-head"><div class="ttl"><div><div class="kicker">${TYPES[d.type].label} · ${RARITY[d.rarity].label}</div><h3>${d.icon} ${esc(d.name)}</h3></div><button class="close-x" data-act="close-modal" aria-label="Close">×</button></div>
-      <div class="seg" style="margin:0${swap ? ';grid-template-columns:1fr 1fr 1fr' : ''}"><button data-act="play-mode" data-mode="play" aria-pressed="${!gift && P.mode !== 'swap'}">${isTrap(P.card) ? 'Arm it' : 'Play it'}</button><button data-act="play-mode" data-mode="gift" aria-pressed="${gift}">Gift it</button>${swap ? `<button data-act="play-mode" data-mode="swap" aria-pressed="${P.mode === 'swap'}">↺ Swap it</button>` : ''}</div></div>
-    <div class="modal-body pad"><div class="play-wrap"${P.mode === 'swap' && swap ? ' style="grid-template-columns:1fr"' : ''}>${P.mode === 'swap' && swap ? '' : cardFace(P.card, { cls: 'tilt' })}<div class="play-form">${body}<div class="err" id="play-err"></div></div></div></div>
+      <div class="seg" style="margin:0"><button data-act="play-mode" data-mode="play" aria-pressed="${!gift}">${isTrap(P.card) ? 'Arm it' : 'Play it'}</button><button data-act="play-mode" data-mode="gift" aria-pressed="${gift}">Gift it</button></div></div>
+    <div class="modal-body pad"><div class="play-wrap">${cardFace(P.card, { cls: 'tilt' })}<div class="play-form">${body}<div class="err" id="play-err"></div></div></div></div>
   </div></div>`;
-}
-
-function keepSwapForm(pack) {
-  const P = S.play;
-  return `<p style="margin:0;color:var(--soft)">Changed your mind? Swap this card for another one from the same pack. You get <b>one swap per pack</b>, until the Week ${pack.step} lock, and it can't be undone.</p>
-    <div class="keep-swap">${pack.cards.map((c, i) => i === pack.keep
-      ? `<div class="swap-opt cur">${cardFace(c)}<span class="tag">Kept</span></div>`
-      : `<button class="swap-opt ${P.swapTo === i ? 'on' : ''}" data-act="swap-pick" data-i="${i}" aria-pressed="${P.swapTo === i}">${cardFace(c)}<span class="tag ${P.swapTo === i ? 'gold' : ''}">${P.swapTo === i ? 'Swap to this' : 'Choose'}</span></button>`).join('')}</div>
-    <button class="btn primary" data-act="swap-submit" ${P.swapTo == null ? 'disabled' : ''}>${P.swapTo == null ? 'Pick a card to swap to' : `Swap to ${esc(CARDS[pack.cards[P.swapTo]].name)}`}</button>`;
-}
-
-async function swapSubmit() {
-  const P = S.play, pack = swapPack(P?.inst);
-  if (!pack || P.swapTo == null) return;
-  try {
-    await S.backend.savePlay({ week: pack.step, card: '_keep', card_uid: `repick:${pack.key}`, params: { pick: P.swapTo } });
-  } catch (e) {
-    $('#play-err').textContent = /already been used/.test(e.message) ? "You've already swapped this pack." : e.message;
-    return;
-  }
-  const name = cardName(pack.cards[P.swapTo]);
-  closeModal();
-  toast(`Swapped. ${name} is in your hand.`);
-  await refresh();
 }
 
 function giftForm() {
@@ -2254,7 +2223,7 @@ function viewRules() {
       <div class="panel rule"><h3>❤️ Survivor</h3><p>Everyone starts with ${LEAGUE.lives} lives. Clear at least ${LEAGUE.barsToSurvive} of the ${SLOTS.length} weekly bars (${b.PTS} PTS / ${b.REB} REB / ${b.AST} AST / ${b.WIN} ${b.WIN === 1 ? 'win' : 'wins'}, the same every week unless the commissioner changes them) or lose a life. Last one standing wins the Survivor Belt. You keep playing for points either way.</p></div>
       <div class="panel rule"><h3>🃏 Jokers</h3><ul><li><b>Double Down</b>: double the rank points from one slot, once a season.</li><li><b>Un-burn</b>: get one burned player back in one category, once a season.</li></ul></div>
       <div class="panel rule"><h3>📜 Commissioner's Decree</h3><p>Up to ${LEAGUE.decree.perSeason} times a season the commissioner sets a one-week twist, such as Prime Time (a category counts double), Opposite Day, Mercy Rule, Sudden Death, Amnesty, Ceasefire or Pack Day. Sometimes the league votes on it instead. Decrees are posted, and votes close, at least ${LEAGUE.decree.noticeHours} hours before the lock, so nobody gets surprised.</p></div>
-      <div class="panel rule"><h3>🎴 Joker cards</h3><p>Earn packs, keep one card from each (you can swap it once before the lock), and play one card a week: jinxes, traps, duels, heists, Blue Shells and pranks. Attacks are revealed at the lock. Cards move points but never cost a life.</p><p><button class="link" data-act="primer">How cards work →</button></p></div>
+      <div class="panel rule"><h3>🎴 Joker cards</h3><p>Earn packs, keep one card from each (your choice is final), and play one card a week: jinxes, traps, duels, heists, Blue Shells and pranks. Attacks are revealed at the lock. Cards move points but never cost a life.</p><p><button class="link" data-act="primer">How cards work →</button></p></div>
       <div class="panel rule"><h3>🤖 Autopilot</h3><p>Forgot to pick? At the lock, Autopilot fills empty slots with your best unburned projected week (season average × games). It never leaves you at zero, but it spends your best players first.</p></div>
       <div class="panel rule"><h3>🥊 Rivals</h3><p>Name one coworker as your rival and track your weekly head-to-head record. You can change your rival any time.</p></div>
       <div class="panel rule"><h3>🏆 Titles and awards</h3><ul><li><b>Season Champion</b></li><li><b>Title belts:</b> Survivor Belt, plus Scoring, Rebounding, Assists and Dub Champions (most of each from your picks over the season)</li><li><b>Monthly Crowns:</b> Nov, Dec, Jan, Feb, Mar/Apr</li><li><b>Hall of Fame</b> and <b>Hall of Shame:</b> fun season awards</li><li><b>Playoff Burn</b> (April–June)</li></ul><p>Every award comes with a downloadable certificate. The Trophies tab shows who's leading each race and where you stand.</p></div>
@@ -2554,8 +2523,6 @@ const ACTIONS = {
   'results-week': el => { S.resultsWeek = +el.dataset.week; render(); },
   'pack-open': el => openWaitingPack(el.dataset.key),
   'pack-practice': () => practicePack(),
-  'swap-pick': el => { S.play.swapTo = Number(el.dataset.i); renderPlay(); },
-  'swap-submit': () => swapSubmit(),
   'decree-mode': el => { S.decreeDraft.mode = el.dataset.mode; S.decreeDraft.picks = S.decreeDraft.picks.slice(0, el.dataset.mode === 'vote' ? 3 : 1); render(); },
   'decree-toggle': el => {
     const D = S.decreeDraft, k = el.dataset.kind;

@@ -325,11 +325,7 @@ export class DemoBackend {
     this.assertCardWindow(row.card, row.week);
     const uid = this.userId;
     if (row.card_uid && this.state.plays.some(p => p.user_id === uid && p.card_uid === row.card_uid)) throw new Error('That card has already been used.');
-    if (row.card === '_keep' && String(row.card_uid).startsWith('repick:')) {
-      const key = row.card_uid.slice(7);
-      if (!this.state.plays.some(p => p.user_id === uid && p.card === '_keep' && p.card_uid === `pack:${key}` && p.week === row.week)) throw new Error('Keep a card from that pack first.');
-      if (this.state.plays.some(p => p.user_id === uid && p.card_uid === key)) throw new Error('Take that card back before you swap it.');
-    }
+    if (row.card === '_keep' && String(row.card_uid).startsWith('repick:')) throw new Error('Kept cards are final.');
     this.state.plays.push({ params: {}, target_id: null, slot: null, player_id: null, card_uid: null, ...row, user_id: uid, id: `demo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, created_at: new Date(this.now()).toISOString() });
     this.persist();
   }
