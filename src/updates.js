@@ -4,6 +4,15 @@
 
 export const UPDATES = [
   {
+    id: 10,
+    date: '2026-10-20',
+    title: 'Results, your week at a glance',
+    items: [
+      'Jump to any locked week from the dropdown on Results — handy once the season gets long.',
+      'A strip at the top of Results shows your place, points, bars cleared, and which cards hit you that week.',
+    ],
+  },
+  {
     id: 9,
     date: '2026-10-19',
     title: 'A fresh new look',

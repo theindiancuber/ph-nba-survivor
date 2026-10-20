@@ -1164,3 +1164,28 @@ footer .link { font-size: 12.5px; }
 .form-foot .dim { font-size: 13px; }
 .list-stack { display: grid; gap: 8px; margin-bottom: 16px; }
 #ledger-list { max-height: 560px; overflow-y: auto; padding-right: 4px; }
+
+/* Commissioner check-in flags and the office week board */
+.checkin-flags { display: inline-flex; gap: 4px; margin-left: 4px; vertical-align: middle; }
+.checkin-flags .tag { font-size: 9.5px; padding: 3px 6px; margin-left: 0; }
+.modal.office-modal { width: min(1100px, 100%); max-height: min(92vh, 900px); }
+.modal.office-modal .modal-body { overflow: auto; flex: 1; }
+.office-board .board .cell-pick { min-width: 110px; }
+
+/* Results: week jump and your own strip */
+.results-week-nav { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.results-week-nav select.input { width: auto; min-width: 170px; }
+.results-mine {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(180px, 1.4fr); gap: 10px; margin: 0 0 16px;
+}
+.results-mine .stat { padding: 12px 14px; border-radius: 12px; background: var(--inset); border: 1px solid var(--line); }
+.results-mine .stat b { display: block; font: 700 22px/1.05 var(--body); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.results-mine .stat small { display: block; margin-top: 5px; font-size: 10.5px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.results-mine-hits { grid-column: 5; padding: 12px 14px; border-radius: 12px; background: var(--inset); border: 1px solid var(--line); font-size: 13px; color: var(--soft); }
+.results-mine-hits .kicker { display: block; margin-bottom: 5px; }
+@media (max-width: 800px) {
+  .results-mine { grid-template-columns: 1fr 1fr; }
+  .results-mine-hits { grid-column: 1 / -1; }
+}
+.checkin-flags .tag:not(.green):not(.gold) { background: rgba(107, 147, 255, .12); border-color: rgba(107, 147, 255, .32); color: #b3c8ff; }
+.decree-admin > .section-gap { margin: 0 0 18px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
