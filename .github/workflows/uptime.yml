@@ -36,8 +36,11 @@ jobs:
           BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
         run: |
           # One retry a minute later, so a single network blip doesn't page anyone.
-          node scripts/smoke.mjs > smoke.log 2>&1 || { sleep 60; node scripts/smoke.mjs > smoke.log 2>&1; }
+          # set +e so the log is printed even when the retry fails too.
+          set +e
+          node scripts/smoke.mjs > smoke.log 2>&1
           status=$?
+          if [ $status -ne 0 ]; then sleep 60; node scripts/smoke.mjs > smoke.log 2>&1; status=$?; fi
           cat smoke.log
           exit $status
       - name: Open or close the site-down issue
