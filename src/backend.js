@@ -75,8 +75,8 @@ export class SupabaseBackend {
       this.all('decrees', 'week').catch(() => []),
       this.sb.rpc('decree_tally').then(r => (r.error || !Array.isArray(r.data) ? [] : r.data)).catch(() => []),
       this.userId ? this.sb.from('decree_votes').select('week,choice').eq('user_id', this.userId).then(r => r.data || []).catch(() => []) : [],
-      // Commissioner settings. Until supabase/upgrade-settings.sql is run, config.js is all there is.
-      this.sb.from('league_settings').select('key,value').then(r => r.data || []).catch(() => []),
+      // Commissioner settings (league_config). Until supabase/upgrade-settings.sql is run, config.js is all there is.
+      this.sb.from('league_config').select('key,value').then(r => r.data || []).catch(() => []),
     ]);
     const settings = Object.fromEntries((settingRows || []).map(r => [r.key, r.value]));
     return { profiles, picks, unburns, plays, seeds, decrees, tallies, votes, settings, locks: Object.fromEntries(weeks.map(w => [w.week, new Date(w.lock_at).toISOString()])) };
@@ -210,7 +210,7 @@ Object.assign(SupabaseBackend.prototype, {
     if (error) throw error;
   },
   async adminSaveSetting(key, value) {
-    const { error } = await this.sb.from('league_settings').upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    const { error } = await this.sb.from('league_config').upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
     if (error) throw settingsError(error);
   },
   async adminSaveDecree(week, options) {
@@ -226,7 +226,7 @@ Object.assign(SupabaseBackend.prototype, {
 // Say which SQL file fixes it, and always keep the database's own words so the next error can be traced.
 export function settingsError(error) {
   const msg = error?.message || String(error);
-  const fix = /league_settings/.test(msg) && /does not exist|schema cache/.test(msg)
+  const fix = /league_config/.test(msg) && /does not exist|schema cache/.test(msg)
     ? 'The settings table is missing, or Supabase hasn\'t picked it up yet. Run supabase/upgrade-settings.sql in the Supabase SQL editor (it also refreshes the API).'
     : /is_admin/.test(msg) ? 'Run supabase/admin.sql, then supabase/upgrade-settings.sql, in the Supabase SQL editor.'
     : /row-level security|permission denied/.test(msg) ? 'Only commissioners can change league settings. Check your account is in the admins table, then sign out and back in.'
