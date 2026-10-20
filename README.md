@@ -55,6 +55,7 @@ Sign out and back in. A **Commissioner** tab appears with:
   - **Season settings:** lives, drops, decrees a season, the Bounty size and the commissioner name on certificates. These apply to the whole season; raising lives gives everyone more.
   - **Adjustments:** add or take away points or lives for one member in a locked week, with a reason. They're shown publicly on that week's Results.
   - `src/config.js` keeps the defaults. The settings live in `league_settings` (public to read, commissioners only to write). The app and the hourly job apply them through `src/settings.js`.
+- **Week board** (Insights section; run `supabase/upgrade-commissioner-ops.sql`): every pick, backup and card play for a week **once it has locked**, the same things everyone can see at the lock, on one page. The database refuses an open week, so the commissioner gets no early look either.
 - **Remove member:** deletes the account with its picks and jokers, and by default blocks that email from signing up again. Blocked emails are listed with an **Unblock** button.
 
 The database only answers these requests for accounts in the `admins` table. Before a lock, the check-in shows how many slots each person has filled, never which players.

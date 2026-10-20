@@ -72,7 +72,11 @@ create or replace function public.admin_vote_turnout(w int)
     where v.week = w and public.is_admin()
   $$;
 
--- ---- Week rows for commissioner office tools ----
+-- ---- Week board: every pick and card play, for weeks that have locked ----
+-- Like everyone else, the commissioner sees a week's picks and cards only once it locks.
+create or replace function public.week_locked(w int) returns boolean
+  language sql stable security definer set search_path = public
+  as $$ select exists (select 1 from weeks wk where wk.week = w and wk.lock_at <= now()) $$;
 
 create or replace function public.admin_week_rows(w int)
   returns table (
@@ -88,17 +92,18 @@ create or replace function public.admin_week_rows(w int)
   as $$
     select pk.user_id, pk.slot, pk.player_id, pk.alt_id, pk.double_down, coalesce(pk.auto, false), pk.updated_at
     from picks pk
-    where pk.week = w and public.is_admin()
+    where pk.week = w and public.is_admin() and public.week_locked(w)
   $$;
 
 create or replace function public.admin_week_plays(w int)
   returns setof public.card_plays
   language sql stable security definer set search_path = public
   as $$
-    select c.* from card_plays c where c.week = w and public.is_admin()
+    select c.* from card_plays c where c.week = w and public.is_admin() and public.week_locked(w)
   $$;
 
--- Pack seeds for every member and week (same hmac as pack_seeds).
+-- Pack seeds for every member, for locked weeks only (pack_seeds already gives everyone those).
+-- An open week's seed would reveal someone's hand before the lock.
 create or replace function public.admin_pack_seeds()
   returns table (user_id uuid, week int, seed text)
   language sql stable security definer set search_path = public, extensions
@@ -106,15 +111,17 @@ create or replace function public.admin_pack_seeds()
     select p.id, w.week,
       encode(extensions.hmac(p.id::text || '|' || w.week::text, (select secret from league_secret where id), 'sha256'), 'hex')
     from profiles p cross join weeks w
-    where public.is_admin()
+    where public.is_admin() and w.lock_at <= now()
   $$;
 
+revoke execute on function public.week_locked(int) from public, anon;
 revoke execute on function public.admin_checkin(int) from public, anon;
 revoke execute on function public.admin_vote_turnout(int) from public, anon;
 revoke execute on function public.admin_week_rows(int) from public, anon;
 revoke execute on function public.admin_week_plays(int) from public, anon;
 revoke execute on function public.admin_pack_seeds() from public, anon;
 
+grant execute on function public.week_locked(int) to authenticated;
 grant execute on function public.admin_checkin(int) to authenticated;
 grant execute on function public.admin_vote_turnout(int) to authenticated;
 grant execute on function public.admin_week_rows(int) to authenticated;

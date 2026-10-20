@@ -58,7 +58,6 @@ async function boot() {
   window.addEventListener('beforeunload', e => { if (S.draft?.dirty) { e.preventDefault(); e.returnValue = ''; } });
   setInterval(tick, 1000);
   await start();
-  bindBrandGesture();
   if (!DEMO) {
     setInterval(async () => { if (!S.league) return; S.data = await loadData().catch(() => S.data); safeRefresh(); }, 5 * 60e3);
     document.addEventListener('visibilitychange', () => { if (!document.hidden && S.league) safeRefresh(); });
@@ -1669,7 +1668,10 @@ function viewAdmin() {
   if (tab === 'rules') return `<div class="grid">${head}${adminRules()}${adminSeason()}${adminAdjust()}</div>`;
   if (tab === 'decrees') return `<div class="grid">${head}${adminDecree()}</div>`;
   const st = funStats(L, S.data.players, S.data.teams);
+  const locked = lockedWeeks();
   return `<div class="grid">${head}
+    <section class="panel"><div class="panel-title"><h2>📋 Week board</h2>${locked.length ? '<button class="btn small" data-act="ops-open">Open week board</button>' : ''}</div>
+      <p class="muted" style="margin:0">Every pick, backup and card play for a week, once it has locked. ${locked.length ? '' : 'Opens after Week 1 locks.'}</p></section>
     ${adminTiles(st)}
     ${adminStrategy(perfectPlay(L, S.data.totals))}
     ${adminLedger(st)}
@@ -2044,10 +2046,11 @@ function adminStyles(st) {
     </div></section>`;
 }
 
-// ---- Office week board (commissioner tooling; opened from the brand mark) ----
+// ---- Week board: every pick and card for a locked week (Commissioner tab, Insights) ----
+// Locked weeks only, like everyone else: the database refuses anything earlier.
 
 function defaultOpsWeek() {
-  return S.league.openWeek ?? lockedWeeks().at(-1)?.week ?? S.league.weeks[0]?.week ?? 1;
+  return lockedWeeks().at(-1)?.week ?? null;
 }
 
 function loadOps(week) {
@@ -2094,7 +2097,7 @@ function loadOps(week) {
 }
 
 function openOfficeModal() {
-  if (!S.isAdmin) return;
+  if (!S.isAdmin || defaultOpsWeek() == null) return;
   S.opsOpen = true;
   const week = S.opsWeek || defaultOpsWeek();
   if (!S.opsData || S.opsData.week !== week) loadOps(week);
@@ -2107,7 +2110,7 @@ function renderOfficeModal() {
   const body = !S.opsData || S.opsLoading ? '<p class="muted">Loading week board…</p>'
     : S.opsData.error ? `<p class="err">${esc(S.opsData.error)}</p><p class="note">Run supabase/upgrade-commissioner-ops.sql if the functions are missing.</p>`
     : officeBoard(week);
-  const weeks = S.league.weeks;
+  const weeks = lockedWeeks();
   $('#modal-root').innerHTML = `<div class="modal-bg" data-act="close-modal-bg"><div class="modal office-modal" role="dialog" aria-modal="true" aria-label="Office week board">
     <div class="modal-head"><div class="ttl"><h3>Week board</h3>
       <div class="row-actions">
@@ -2210,25 +2213,6 @@ function officeBoard(week) {
       <div><h3 class="kicker" style="margin:0 0 8px">Adjustments</h3>${adjs.length ? adjs.map(a =>
         `<div class="own-row"><b>${esc(userName(a.user_id))}</b><span>${adjText(a)}</span><span class="dim">${esc(a.reason || '')}</span></div>`).join('') : '<p class="dim">None this week.</p>'}</div>
     </div>`;
-}
-
-function bindBrandGesture() {
-  const brand = document.querySelector('.brand');
-  if (!brand || brand.dataset.opsBound) return;
-  brand.dataset.opsBound = '1';
-  let clicks = 0, last = 0;
-  brand.addEventListener('click', e => {
-    if (!S.isAdmin) return;
-    const t = Date.now();
-    if (t - last > 500) clicks = 0;
-    last = t;
-    clicks++;
-    if (clicks >= 3) {
-      e.preventDefault();
-      clicks = 0;
-      openOfficeModal();
-    }
-  });
 }
 
 // ---------- Rules ----------
@@ -2652,6 +2636,7 @@ const ACTIONS = {
     try { await navigator.clipboard.writeText(emails.join(', ')); toast(`Copied ${emails.length} email${emails.length === 1 ? '' : 's'}.`); }
     catch { toast('Could not copy. Your browser blocked clipboard access.', true); }
   },
+  'ops-open': () => openOfficeModal(),
   'ops-refresh': () => { S.opsData = null; loadOps(S.opsWeek || defaultOpsWeek()); renderOfficeModal(); },
   'tour-next': () => openTour(S.tour + 1),
   'tour-back': () => openTour(S.tour - 1),

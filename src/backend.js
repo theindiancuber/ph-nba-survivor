@@ -484,7 +484,14 @@ export class DemoBackend {
     return (this.state.votes || []).filter(v => v.week === week).map(v => ({ user_id: v.user_id }));
   }
 
+  // Like the database: nothing about a week before its lock, the commissioner included.
+  weekLocked(week) {
+    const w = this.seed.weeks.find(x => x.week === week);
+    return !!w && this.now() >= Date.parse(w.lockAt);
+  }
+
   async adminWeekRows(week) {
+    if (!this.weekLocked(week)) return [];
     return this.state.picks.filter(p => p.week === week).map(p => ({
       user_id: p.user_id, slot: p.slot, player_id: p.player_id, alt_id: p.alt_id ?? null,
       double_down: !!p.double_down, auto: !!p.auto,
@@ -493,13 +500,14 @@ export class DemoBackend {
   }
 
   async adminWeekPlays(week) {
+    if (!this.weekLocked(week)) return [];
     return this.state.plays.filter(p => p.week === week).map(p => ({ ...p }));
   }
 
   async adminPackSeeds() {
     const out = {};
     for (const p of this.state.profiles) {
-      for (const w of this.seed.weeks) out[`${p.id}|${w.week}`] = `demo-${p.id}-${w.week}`;
+      for (const w of this.seed.weeks) if (this.weekLocked(w.week)) out[`${p.id}|${w.week}`] = `demo-${p.id}-${w.week}`;
     }
     return out;
   }

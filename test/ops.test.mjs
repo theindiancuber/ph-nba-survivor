@@ -39,27 +39,30 @@ test('admin check-in returns every member with slot, backup, pack and play flags
   assert.ok(rows.some(r => r.slots > 0));
 });
 
-test('admin week rows expose full picks before lock (unlike load())', async () => {
+test('the week board sees nothing of a week before its lock, the commissioner included', async () => {
   const { seed, backend } = await demoAdmin();
   const open = seed.weeks.find(w => seed.now < Date.parse(w.lockAt));
   const visible = await backend.load();
   const othersVisible = visible.picks.filter(p => p.week === open.week && p.user_id !== seed.meId);
-  assert.equal(othersVisible.length, 0, 'RLS-shaped load hides others pre-lock');
+  assert.equal(othersVisible.length, 0, 'load() hides others before the lock');
 
-  const rows = await backend.adminWeekRows(open.week);
-  const othersAdmin = rows.filter(p => p.user_id !== seed.meId);
-  assert.ok(othersAdmin.length > 0, 'office tooling sees other members\' open-week picks');
-  for (const r of othersAdmin) {
+  assert.deepEqual(await backend.adminWeekRows(open.week), [], 'no open-week picks for the commissioner either');
+  assert.deepEqual(await backend.adminWeekPlays(open.week), [], 'no open-week card plays');
+  const seeds = await backend.adminPackSeeds();
+  for (const p of seed.profiles) assert.equal(seeds[`${p.id}|${open.week}`], undefined, 'no open-week pack seeds');
+});
+
+test('the week board covers the whole league once a week has locked', async () => {
+  const { seed, backend } = await demoAdmin();
+  const week = 5; // cards are on from week 5 in the demo, and week 5 is locked
+  assert.ok(seed.now >= Date.parse(seed.weeks.find(w => w.week === week).lockAt));
+  const rows = await backend.adminWeekRows(week);
+  assert.ok(rows.some(r => r.user_id !== seed.meId), 'other members\' locked picks');
+  for (const r of rows) {
     assert.ok(LEAGUE.slots.includes(r.slot));
     assert.ok(r.player_id != null);
   }
-});
-
-test('admin week plays and pack seeds cover the whole league', async () => {
-  const { seed, backend } = await demoAdmin();
-  const week = 5; // cards are on from week 5 in the demo
-  const plays = await backend.adminWeekPlays(week);
-  assert.ok(Array.isArray(plays));
+  assert.ok(Array.isArray(await backend.adminWeekPlays(week)));
   const seeds = await backend.adminPackSeeds();
   assert.ok(seeds[`${seed.meId}|${week}`]);
   for (const p of seed.profiles) assert.ok(seeds[`${p.id}|1`]);
