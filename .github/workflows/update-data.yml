@@ -2,8 +2,10 @@ name: Update NBA data
 
 on:
   schedule:
-    # Hourly through US game nights and the Monday lock (UTC hours).
-    - cron: '20 0-8,16-23 * * *'
+    # GitHub runs scheduled jobs best-effort and drops many of them (an hourly schedule was
+    # running every 5-6 hours). So ask often, and let each run that does start stay up and
+    # refresh every few minutes for as long as games are on (see the loop below).
+    - cron: '7,37 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -16,7 +18,8 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # A game night: up to ~5.5 hours of refreshing. Runs never overlap (concurrency above).
+    timeout-minutes: 345
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,17 +27,33 @@ jobs:
           node-version: 22
       - name: Run engine tests
         run: npm test
-      - name: Pull box scores, sync locks, run Autopilot
-        run: node scripts/update-data.mjs
+      - name: Pull box scores, sync locks, run Autopilot (every 8 minutes while games are on)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      - name: Commit data
+          LIVE_FLAG: ${{ runner.temp }}/live
         run: |
           git config user.name "survivor-bot"
           git config user.email "survivor-bot@users.noreply.github.com"
-          git add data
-          if git diff --cached --quiet; then echo "No data changes."; exit 0; fi
-          git commit -m "Update NBA data"
-          for i in 1 2 3; do git pull --rebase && git push && exit 0; sleep 5; done
-          exit 1
+          # 8 minutes keeps GitHub Pages under its ~10 builds an hour.
+          end=$(( $(date +%s) + 330 * 60 ))
+          ok=0
+          while :; do
+            if node scripts/update-data.mjs; then
+              ok=1
+              git add data
+              if git diff --cached --quiet; then
+                echo "No data changes."
+              else
+                git commit -q -m "Update NBA data"
+                for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+              fi
+            else
+              echo "::warning::Update failed; trying again next round."
+            fi
+            [ -s "$LIVE_FLAG" ] || break
+            [ $(( $(date +%s) + 8 * 60 )) -lt "$end" ] || break
+            sleep 480
+          done
+          # Fail the run if no round succeeded, so a broken job shows up red.
+          [ "$ok" = 1 ]

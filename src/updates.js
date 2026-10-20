@@ -4,6 +4,15 @@
 
 export const UPDATES = [
   {
+    id: 16,
+    date: '2026-10-20',
+    title: 'Burn Notice is ultra rare',
+    items: [
+      'From Week 3, Burn Notice turns up in about 1 in 330 packs for the leader, rising to about 1 in 52 for last place late in the season.',
+      'Live scores now refresh about every 8 minutes while games are on.',
+    ],
+  },
+  {
     id: 15,
     date: '2026-10-20',
     title: 'Live points only count games played',
@@ -19,7 +28,7 @@ export const UPDATES = [
     title: 'Pack odds that follow the table',
     items: [
       'From Week 3, pack odds slide with where you are in the standings and how far into the season it is. The further down you are, the better your odds of Rares and Burn Notice, and that help grows as the season goes on.',
-      'Burn Notice and Rares are rarer for everyone: Burn Notice is now about 1 in 60 packs for the leader and about 1 in 13 for last place late in the season.',
+      'Burn Notice and Rares are rarer for everyone.',
       'Heist and Blue Shell still only reach the bottom half of the standings.',
     ],
   },

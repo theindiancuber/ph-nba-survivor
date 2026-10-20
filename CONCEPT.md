@@ -121,7 +121,7 @@ There's no money, just bragging rights and a **downloadable certificate** for ev
     - Award Packs for Galaxy Brain, Heater, Ice Cold or the Fumble;
     - a Revenge Pack when you lose a life;
     - an Album Pack for each NBA division you complete in your sticker album. Every player who scores for you adds his team.
-  - **Comeback odds:** from Week 3, pack odds slide with your place in the standings and how far into the season it is. The further down you are, and the later it is, the better your odds of Rares and Burn Notice (0.5% a card for the leader up to 2.5% for last place late in the season). Only the bottom half can pull Heist and Blue Shell. Weeks 1–2 used three fixed tiers.
+  - **Comeback odds:** from Week 3, pack odds slide with your place in the standings and how far into the season it is. The further down you are, and the later it is, the better your odds of Rares and Burn Notice (ultra rare: 0.1% a card for the leader up to 0.6% for last place late in the season). Only the bottom half can pull Heist and Blue Shell. Weeks 1–2 used three fixed tiers.
   - **The deck (17 cards):**
 
     | Kind | Cards |
@@ -186,7 +186,7 @@ Built (see the README for setup):
 - **Jokers, Joker cards and Rivals:** live from day one. Cards come with pack opening, the reveal, the sticker album, and card effects on the results board.
 - **Weekly awards and Monthly Crowns:** calculated automatically.
 - **Storage:** Supabase (free tier). Row-level security handles locks and keeps picks hidden until the lock.
-- **Hourly GitHub Action:** pulls NBA.com box scores, syncs locks to the real first tip-off, and runs Autopilot.
+- **Data GitHub Action** (every 8 minutes while games are on): pulls NBA.com box scores, syncs locks to the real first tip-off, and runs Autopilot.
 - **Demo mode** (`/?demo`) for trying it before the season starts.
 
 Next:

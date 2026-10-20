@@ -390,8 +390,10 @@ test('sliding odds: Burn Notice climbs as you fall and as the season goes on; le
     assert.ok(Math.abs(sum(o) - 100) < 1e-9);
     if (pos <= 0.5) assert.equal(o.epic, 0);
   }
-  assert.equal(standingOdds('locker', { pos: 0, season: 1 }).legendary, 0.5);
-  assert.equal(standingOdds('locker', { pos: 1, season: 1 }).legendary, 2.5);
+  assert.equal(standingOdds('locker', { pos: 0, season: 1 }).legendary, 0.1);
+  assert.equal(standingOdds('locker', { pos: 1, season: 1 }).legendary, 0.6);
+  assert.ok(standingOdds('revenge', { pos: 1, season: 1 }).legendary <= 1);
+  assert.ok(standingOdds('album', { pos: 1, season: 1 }).legendary <= 1.5);
   const leg = (pos, season) => standingOdds('locker', { pos, season }).legendary;
   assert.ok(leg(0, 0.5) < leg(0.5, 0.5) && leg(0.5, 0.5) < leg(1, 0.5));
   assert.ok(leg(1, 0) < leg(1, 0.5) && leg(1, 0.5) < leg(1, 1));

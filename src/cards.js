@@ -143,14 +143,14 @@ const ODDS = {
 //   pos:    0 for the leader … 1 for last place (from the standings two weeks back)
 //   season: 0 in Week 1 … 1 in the last week
 // Standing counts for 40% of its full effect at the start of the season and 100% at the end.
-// Legendary (Burn Notice) runs 0.5% → 2.5% a card, Rare 20% → 30%; the comeback Epics
+// Legendary (Burn Notice, kept ultra rare) runs 0.1% → 0.6% a card, Rare 20% → 30%; the comeback Epics
 // (Heist, Blue Shell) only reach the bottom half, up to 16% for last place late in the season.
 export function standingOdds(kind, { pos, season }) {
   const weight = 0.4 + 0.6 * season;
   const need = pos * weight;
-  if (kind === 'revenge') return { common: 45, rare: 28, epic: 24, legendary: 3 };
-  if (kind === 'album') return pos > 0.5 ? { common: 0, rare: 72, epic: 23, legendary: 5 } : { common: 0, rare: 95, epic: 0, legendary: 5 };
-  const legendary = 0.5 + 2 * need;
+  if (kind === 'revenge') return { common: 47, rare: 28, epic: 24, legendary: 1 };
+  if (kind === 'album') return pos > 0.5 ? { common: 0, rare: 75.5, epic: 23, legendary: 1.5 } : { common: 0, rare: 98.5, epic: 0, legendary: 1.5 };
+  const legendary = 0.1 + 0.5 * need;
   const rare = 20 + 10 * need;
   const epic = 16 * Math.max(0, 2 * pos - 1) * weight;
   return { common: 100 - legendary - rare - epic, rare, epic, legendary };
