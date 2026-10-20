@@ -67,10 +67,16 @@ async function openPage(label) {
     const t = m.text();
     if (/Content Security Policy|Refused to (load|execute|connect|apply)/i.test(t)) errors.push(`CSP: ${t.slice(0, 200)}`);
   });
+  // Our own files must load. Third parties (fonts, NBA images) may be blocked in CI.
+  const ours = u => u.startsWith(base) && !/\/data\//.test(u);
   page.on('requestfailed', r => {
-    const u = r.url();
-    // Our own files must load. Third parties (fonts, NBA images) may be blocked in CI.
-    if (u.startsWith(base) && !/\/data\//.test(u)) errors.push(`failed to load ${u.slice(base.length)}: ${r.failure()?.errorText}`);
+    const why = r.failure()?.errorText || '';
+    // ERR_ABORTED is the browser cancelling a request because the page navigated or reloaded
+    // (the demo reloads while src/demo.js is still on its way), not a file that failed to load.
+    if (ours(r.url()) && !/ERR_ABORTED/.test(why)) errors.push(`failed to load ${r.url().slice(base.length)}: ${why}`);
+  });
+  page.on('response', r => {
+    if (ours(r.url()) && r.status() >= 400) errors.push(`failed to load ${r.url().slice(base.length)}: HTTP ${r.status()}`);
   });
   // Keep the test about our code: no fonts, headshots, logos or database traffic.
   await page.route(/fonts\.(googleapis|gstatic)\.com|cdn\.nba\.com|supabase\.co/, r => r.abort());
@@ -120,6 +126,16 @@ try {
         if (snag) fail(`demo #${view} hit a snag: ${text.slice(0, 200)}`);
         else if (text.length < 40 || /Loading the league/.test(text)) fail(`demo #${view} rendered almost nothing: "${text}"`);
         else if (report(page, `#${view}`)) pass(`#${view} renders`);
+      }
+      // The Commissioner tab is split into sections; each one renders on its own.
+      for (const tab of ['members', 'rules', 'decrees', 'insights']) {
+        const btn = await page.$(`[data-act="admin-tab"][data-tab="${tab}"]`);
+        if (!btn) { fail(`demo #admin has no ${tab} section`); continue; }
+        await btn.click();
+        await page.waitForTimeout(300);
+        const snag = await page.$('.view-error');
+        if (snag) fail(`demo #admin ${tab} hit a snag: ${(await appText(page)).slice(0, 200)}`);
+        else if (report(page, `#admin ${tab}`)) pass(`#admin ${tab} renders`);
       }
     }
     report(page, 'end');

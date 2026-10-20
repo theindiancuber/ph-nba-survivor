@@ -5,11 +5,13 @@
 export const UPDATES = [
   {
     id: 9,
-    date: '2026-10-20',
-    title: 'Results, your week at a glance',
+    date: '2026-10-19',
+    title: 'A fresh new look',
     items: [
-      'Jump to any locked week from the dropdown on Results — handy once the season gets long.',
-      'A strip at the top of Results shows your place, points, bars cleared, and which cards hit you that week.',
+      'The whole app has been redesigned: cleaner type, calmer colours and everything lined up, on phones too.',
+      "A new league badge: the Peakhill Capital peak on an NBA-style navy and red panel, with a shot dropping off the summit.",
+      'Pop-ups slide up from the bottom on a phone, and the news ticker pauses when you hover over it.',
+      'Signed out, you only see the sign-in page and the Rules, since everything else needs an account.',
     ],
   },
   {
