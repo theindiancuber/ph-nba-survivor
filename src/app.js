@@ -1654,15 +1654,6 @@ function stillToPick() {
   return (d?.members || []).filter(m => (d.status[m.user_id]?.slots || 0) < SLOTS.length);
 }
 
-function officeNav() {
-  const links = [
-    ['invite', 'Invite'], ['announce', 'Announce'], ['reminder', 'Reminder'], ['rules', 'Rules'],
-    ['season', 'Season'], ['adjust', 'Adjust'], ['decree', 'Decree'], ['checkin', 'Check-in'], ['stats', 'Season stats'],
-  ];
-  return `<nav class="office-nav" aria-label="Office sections">${links.map(([id, label]) =>
-    `<a class="pill" href="#admin" data-act="office-jump" data-target="office-${id}">${label}</a>`).join('')}</nav>`;
-}
-
 function viewAdmin() {
   const L = S.league;
   const open = L.openWeek != null ? weekObj(L.openWeek) : null;
@@ -1674,7 +1665,7 @@ function viewAdmin() {
   const head = `<header class="page-head"><div><span class="badge">🔒 Commissioner only</span><h1>The Commissioner's office</h1>
       <p>Everyone's picks stay hidden until each lock, including from you. Everything you change here is public.</p></div></header>
     <nav class="subnav" aria-label="Commissioner sections">${ADMIN_TABS.map(([k, label, ic]) => `<button data-act="admin-tab" data-tab="${k}" aria-pressed="${k === tab}">${ic} ${label}${count[k] ? `<span class="count${k === 'members' ? '' : ' soft'}">${count[k]}</span>` : ''}</button>`).join('')}</nav>`;
-  if (tab === 'members') return `<div class="grid">${head}${adminRoster(open)}<div class="split">${adminInvite()}${adminAnnounce()}</div></div>`;
+  if (tab === 'members') return `<div class="grid">${head}${adminRoster(open)}${adminReminder(open)}<div class="split">${adminInvite()}${adminAnnounce()}</div></div>`;
   if (tab === 'rules') return `<div class="grid">${head}${adminRules()}${adminSeason()}${adminAdjust()}</div>`;
   if (tab === 'decrees') return `<div class="grid">${head}${adminDecree()}</div>`;
   const st = funStats(L, S.data.players, S.data.teams);
@@ -1693,7 +1684,6 @@ function viewAdmin() {
     </section>
     ${adminFirepower(st)}
     ${adminStyles(st)}
-    </div>
   </div>`;
 }
 
@@ -1853,6 +1843,7 @@ function adminDecree() {
   })() : '';
   return `<section class="panel decree-admin"><div class="panel-title"><h2>📜 Commissioner's Decree</h2><span class="muted">${left} of ${C.perSeason} left this season · everyone sees it once it's posted</span></div>
     ${list ? `<div class="list-stack">${list}</div>` : ''}
+    ${turnout}
     ${left <= 0 ? '<p class="muted" style="margin:0">That\'s every decree for the season.</p>'
       : !eligible.length ? `<p class="muted" style="margin:0">No week is far enough out. Decrees go up at least ${C.noticeHours} hours before a lock.</p>`
       : `<div class="decree-form">
@@ -2648,6 +2639,20 @@ const ACTIONS = {
   'demo-reset': async () => { S.backend.reset(); location.reload(); },
   'admin-refresh': () => { S.adminData = null; render(); },
   'admin-tab': el => { S.adminTab = el.dataset.tab; render(); window.scrollTo({ top: 0 }); },
+  'checkin-filter': el => { S.checkinFilter = el.dataset.filter; render(); },
+  'copy-reminder': async () => {
+    const text = $('#reminder-text')?.value || '';
+    try { await navigator.clipboard.writeText(text); toast('Reminder copied.'); }
+    catch { toast('Could not copy. Your browser blocked clipboard access.', true); }
+  },
+  'copy-nonvoters': async () => {
+    const d = S.adminData;
+    const missing = (d?.members || []).filter(m => !(d.voters || new Set()).has(m.user_id));
+    const emails = missing.map(m => m.email).filter(Boolean);
+    try { await navigator.clipboard.writeText(emails.join(', ')); toast(`Copied ${emails.length} email${emails.length === 1 ? '' : 's'}.`); }
+    catch { toast('Could not copy. Your browser blocked clipboard access.', true); }
+  },
+  'ops-refresh': () => { S.opsData = null; loadOps(S.opsWeek || defaultOpsWeek()); renderOfficeModal(); },
   'tour-next': () => openTour(S.tour + 1),
   'tour-back': () => openTour(S.tour - 1),
   'tour-done': async () => {
