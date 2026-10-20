@@ -121,6 +121,16 @@ try {
         else if (text.length < 40 || /Loading the league/.test(text)) fail(`demo #${view} rendered almost nothing: "${text}"`);
         else if (report(page, `#${view}`)) pass(`#${view} renders`);
       }
+      // The Commissioner tab is split into sections; each one renders on its own.
+      for (const tab of ['members', 'rules', 'decrees', 'insights']) {
+        const btn = await page.$(`[data-act="admin-tab"][data-tab="${tab}"]`);
+        if (!btn) { fail(`demo #admin has no ${tab} section`); continue; }
+        await btn.click();
+        await page.waitForTimeout(300);
+        const snag = await page.$('.view-error');
+        if (snag) fail(`demo #admin ${tab} hit a snag: ${(await appText(page)).slice(0, 200)}`);
+        else if (report(page, `#admin ${tab}`)) pass(`#admin ${tab} renders`);
+      }
     }
     report(page, 'end');
     await page.close();
