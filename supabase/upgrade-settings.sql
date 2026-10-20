@@ -45,3 +45,7 @@ begin
   end if;
 end
 $$;
+
+-- Tell the API about the table straight away, so the Commissioner tab can save without waiting
+-- for Supabase to notice ("Could not find the table ... in the schema cache").
+notify pgrst, 'reload schema';
