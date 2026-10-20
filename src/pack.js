@@ -16,7 +16,9 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const reduced = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-const LOGO = `<svg viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="9" fill="#1d428a"/><path d="M0 9a9 9 0 0 1 9-9h31L0 40z" fill="#c8102e"/><circle cx="20" cy="20" r="10.5" fill="none" stroke="#fff" stroke-width="2.4"/><path d="M9.5 20h21M20 9.5v21" stroke="#fff" stroke-width="2"/><path d="M13 12.5c3 2.2 3 12.8 0 15M27 12.5c-3 2.2-3 12.8 0 15" fill="none" stroke="#fff" stroke-width="1.8"/></svg>`;
+// The league badge: Peakhill Capital's peak monogram on an NBA-style navy and red panel, with a shot dropping off the summit.
+let logoN = 0;
+const logo = (id = `phm-${++logoN}`) => `<svg viewBox="-8 0 44 44" aria-hidden="true"><defs><clipPath id="${id}"><rect x="1.2" y="1.2" width="25.6" height="41.6" rx="5"/></clipPath></defs><rect width="28" height="44" rx="6.2" fill="#fff"/><g clip-path="url(#${id})"><rect width="28" height="44" fill="#c8102e"/><rect width="14" height="44" fill="#022350"/><path fill="#fff" fill-rule="evenodd" transform="translate(3 21.6) scale(.0981)" d="M112.5 0L146 48.5L134.9 64.6L112.5 32.1L36.4 143H80.6L66 163.5H0Z M154.5 62L224.2 163.5H106.3L83.1 195.8L69.1 185.5Z M154 94.3L120.4 143H187.6Z"/><path d="M14.1 19.2C14.4 13.6 16.4 10.4 18.4 9.3" stroke="#fff" stroke-width="1.05" stroke-dasharray=".95 1.55" stroke-linecap="round" fill="none"/><circle cx="21" cy="8.2" r="3.7" fill="#fff"/><path d="M17.3 8.2h7.4M21 4.5v7.4M18.4 5.5c1.26 1.2 1.26 4.2 0 5.4M23.6 5.5c-1.26 1.2-1.26 4.2 0 5.4" stroke="#c8102e" stroke-width=".74" fill="none"/></g></svg>`;
 
 // ---------- Card faces ----------
 
@@ -36,7 +38,7 @@ export function cardFace(type, { cls = '', attrs = '' } = {}) {
 }
 
 export function cardBack(cls = '') {
-  return `<div class="tc-back ${cls}"><div class="tc-back-in">${LOGO}<b>JOKER</b><small>${esc(LEAGUE.season)}</small></div></div>`;
+  return `<div class="tc-back ${cls}"><div class="tc-back-in">${logo()}<b>JOKER</b><small>${esc(LEAGUE.season)}</small></div></div>`;
 }
 
 export function packTitle(pack) {
@@ -52,7 +54,7 @@ export function packArt(pack, extra = '') {
   return `<div class="pa ${extra}" style="--p1:${p.c1};--p2:${p.c2}">
     <div class="pa-foil"></div>
     <div class="pa-seal top"></div><div class="pa-seal bot"></div>
-    <div class="pa-brand">${LOGO}<span>PEAKHILL<b>NBA Survivor</b></span></div>
+    <div class="pa-brand">${logo()}<span>PEAKHILL<b>NBA Survivor</b></span></div>
     <div class="pa-burst"><b>KEEP 1</b><small>of 3</small></div>
     <div class="pa-title"><small>Joker cards</small><b>${esc(packTitle(pack))}</b></div>
     <div class="pa-foot">3 cards · Week ${pack.step} · ${esc(LEAGUE.season)}</div>
