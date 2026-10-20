@@ -25,7 +25,7 @@ A free, season-long NBA player-survivor league for the office. Every week you pi
 2. **Add two repository secrets** (GitHub → Settings → Secrets and variables → Actions):
    - `SUPABASE_URL`: the Project URL
    - `SUPABASE_SERVICE_ROLE_KEY`: the **service_role** key from the same page. Keep it out of `config.js`: it bypasses all security and is only used by the data job.
-3. **Merge to `main`**, then Actions → "Update NBA data" → **Run workflow** once. It should commit `data/weeks.json`, `players.json`, `totals.json` and box scores under `data/games/`. After that it runs on its own.
+3. **Merge to `main`**, then Actions → "Update NBA data" → **Run workflow** once. It should commit `data/weeks.json`, `players.json`, `totals.json`, `schedule.json` (the Calendar tab), day-by-day lines under `data/days/` and box scores under `data/games/`. After that it runs on its own.
 4. **Host it.** The repo is private, and GitHub Pages on a private repo needs a paid plan. Pick one:
    - Make the repo public and turn on Pages (Settings → Pages → Deploy from branch → `main` / root). Nothing in the repo is secret: the anon key is meant to be public, and the service key lives in Actions secrets.
    - Or connect the repo to Netlify. Leave the build command empty and set the publish directory to `/`. It redeploys whenever the data job commits data.

@@ -118,7 +118,7 @@ try {
       await enter.click();
       const tour = await page.waitForSelector('[data-act="tour-skip"]', { timeout: 5000 }).catch(() => null);
       if (tour) { await tour.click(); pass('first-login tour opened and closed'); } else fail('first-login tour did not open');
-      for (const view of ['week', 'cards', 'standings', 'survivor', 'results', 'burns', 'rivals', 'trophies', 'rules', 'admin']) {
+      for (const view of ['week', 'calendar', 'cards', 'standings', 'survivor', 'results', 'burns', 'rivals', 'trophies', 'rules', 'admin']) {
         await page.evaluate(v => { location.hash = `#${v}`; }, view);
         await page.waitForTimeout(350);
         const snag = await page.$('.view-error');
@@ -126,6 +126,24 @@ try {
         if (snag) fail(`demo #${view} hit a snag: ${text.slice(0, 200)}`);
         else if (text.length < 40 || /Loading the league/.test(text)) fail(`demo #${view} rendered almost nothing: "${text}"`);
         else if (report(page, `#${view}`)) pass(`#${view} renders`);
+      }
+      // The Calendar's day-by-day view scores the live week as it stood after each day.
+      {
+        await page.evaluate(() => { location.hash = '#calendar'; });
+        await page.waitForTimeout(300);
+        const btn = await page.$('[data-act="cal-mode"][data-mode="days"]');
+        if (!btn) fail('demo #calendar has no day-by-day view');
+        else {
+          await btn.click();
+          await page.waitForTimeout(300);
+          const days = await page.$$('[data-act="cal-day"]:not([disabled])');
+          if (days.length) { await days[0].click(); await page.waitForTimeout(300); }
+          if (await page.$('.view-error')) fail(`demo #calendar day by day hit a snag: ${(await appText(page)).slice(0, 200)}`);
+          else if (!days.length) fail('demo #calendar day by day shows no played days');
+          else if (report(page, '#calendar day by day')) pass('#calendar day by day renders');
+        }
+        await page.evaluate(() => { location.hash = '#admin'; });
+        await page.waitForTimeout(350);
       }
       // The Commissioner tab is split into sections; each one renders on its own.
       for (const tab of ['members', 'rules', 'decrees', 'insights']) {

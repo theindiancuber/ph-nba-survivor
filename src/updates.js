@@ -4,6 +4,17 @@
 
 export const UPDATES = [
   {
+    id: 17,
+    date: '2026-10-20',
+    title: 'New Calendar tab',
+    items: [
+      "Head-to-head schedule: every team's games for the week, day by day, with who they play and when. Teams with the most games are at the top, so you can plan your picks.",
+      "Your picks' teams are marked, and after the lock you can see how many people picked each team.",
+      'Day by day: tap a day to see the standings as they were after that night, and what each of your picks did.',
+      'Scores refresh every few minutes while games are on.',
+    ],
+  },
+  {
     id: 16,
     date: '2026-10-20',
     title: 'Burn Notice is ultra rare',
