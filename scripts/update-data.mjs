@@ -285,6 +285,16 @@ async function syncSupabase({ weeks, players, teams, totals, now }) {
   }
 }
 
+// True while a game is on, or tips within the next 75 minutes: the workflow keeps refreshing
+// every few minutes while this holds, so live scores don't wait for GitHub's next scheduled run.
+export function gamesActive(schedule, boxes, now) {
+  return schedule.some(g => {
+    if (!g.tipUtc || boxes[g.id]?.status === 3) return false;
+    const tip = Date.parse(g.tipUtc);
+    return tip <= now + 75 * 60e3 && tip >= now - 5 * 3600e3;
+  });
+}
+
 async function main() {
   const now = Date.now();
   await mkdir(GAMES, { recursive: true });
@@ -322,6 +332,10 @@ async function main() {
   console.log(`Players: ${Object.keys(players).length}. Weeks with stats: ${Object.keys(totals).length}. Failed fetches: ${failed}.`);
 
   await syncSupabase({ weeks, players, teams, totals, now });
+
+  const active = gamesActive(schedule, boxes, now);
+  console.log(active ? 'Games on (or tipping within 75 minutes): keep refreshing.' : 'No games on.');
+  if (process.env.LIVE_FLAG) await writeFile(process.env.LIVE_FLAG, active ? 'live' : '');
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

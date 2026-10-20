@@ -69,3 +69,16 @@ test('box scores roll into weekly totals, averages, locks and team game counts',
   assert.deepEqual(totals[1].t, { NYK: [1, 1], PHI: [1, 0], OKC: [1, 1], DEN: [1, 0] });
   assert.deepEqual(teams, { NYK: { w: 1, l: 0 }, PHI: { w: 0, l: 1 }, OKC: { w: 1, l: 0 }, DEN: { w: 0, l: 1 } });
 });
+
+test('games are "active" from 75 minutes before a tip until the game is final (or 5 hours on)', async () => {
+  const { gamesActive } = await import('../scripts/update-data.mjs');
+  const now = Date.parse('2026-10-21T00:00:00Z');
+  const at = mins => new Date(now + mins * 60e3).toISOString();
+  const g = (id, tip) => ({ id, tipUtc: tip });
+  assert.equal(gamesActive([g('a', at(60))], {}, now), true, 'tips within 75 minutes');
+  assert.equal(gamesActive([g('a', at(90))], {}, now), false, 'tips later');
+  assert.equal(gamesActive([g('a', at(-30))], { a: { status: 2 } }, now), true, 'in progress');
+  assert.equal(gamesActive([g('a', at(-30))], { a: { status: 3 } }, now), false, 'final');
+  assert.equal(gamesActive([g('a', at(-6 * 60))], {}, now), false, 'stale: tipped over 5 hours ago');
+  assert.equal(gamesActive([{ id: 'a', tipUtc: null }], {}, now), false);
+});

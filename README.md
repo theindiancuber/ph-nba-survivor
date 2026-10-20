@@ -13,7 +13,7 @@ A free, season-long NBA player-survivor league for the office. Every week you pi
 | `src/config.js` | League settings: name, commissioner, bars, calendar, Supabase keys. |
 | `supabase/schema.sql` | Accounts, picks, jokers and card plays, with row-level security. You can only write your own picks, only before the lock, and nobody can see anyone else's picks or cards until the lock. |
 | `supabase/harden.sql` | Locks the API down: nothing is readable signed out, the invite code can't be guessed over the API, and the server sets join dates and save times. Run it last, after the other SQL files. |
-| `scripts/update-data.mjs` + `.github/workflows/update-data.yml` | Hourly on game nights: pulls the NBA schedule and box scores into `data/`, moves each week's lock to the real first tip-off, and runs Autopilot for empty slots after the lock. |
+| `scripts/update-data.mjs` + `.github/workflows/update-data.yml` | Asks to run every 30 minutes (GitHub drops many scheduled runs), and each run that starts keeps refreshing every 8 minutes while games are on, for up to ~5.5 hours: pulls the NBA schedule and box scores into `data/`, moves each week's lock to the real first tip-off, and runs Autopilot for empty slots after the lock. |
 
 ## Setup (about 15 minutes)
 
@@ -24,11 +24,11 @@ A free, season-long NBA player-survivor league for the office. Every week you pi
    - Project Settings → API: copy the **Project URL** and **anon public** key into `src/config.js` (`supabaseUrl`, `supabaseAnonKey`). Set `commissioner` to the name you want on certificates.
 2. **Add two repository secrets** (GitHub → Settings → Secrets and variables → Actions):
    - `SUPABASE_URL`: the Project URL
-   - `SUPABASE_SERVICE_ROLE_KEY`: the **service_role** key from the same page. Keep it out of `config.js`: it bypasses all security and is only used by the hourly job.
+   - `SUPABASE_SERVICE_ROLE_KEY`: the **service_role** key from the same page. Keep it out of `config.js`: it bypasses all security and is only used by the data job.
 3. **Merge to `main`**, then Actions → "Update NBA data" → **Run workflow** once. It should commit `data/weeks.json`, `players.json`, `totals.json` and box scores under `data/games/`. After that it runs hourly on its own.
 4. **Host it.** The repo is private, and GitHub Pages on a private repo needs a paid plan. Pick one:
    - Make the repo public and turn on Pages (Settings → Pages → Deploy from branch → `main` / root). Nothing in the repo is secret: the anon key is meant to be public, and the service key lives in Actions secrets.
-   - Or connect the repo to Netlify. Leave the build command empty and set the publish directory to `/`. It redeploys whenever the hourly job commits data.
+   - Or connect the repo to Netlify. Leave the build command empty and set the publish directory to `/`. It redeploys whenever the data job commits data.
 5. **Share the link.** Picks for week 1 lock at the first tip-off on Tuesday, Oct 20.
 
 ## Commissioner tab
@@ -74,7 +74,7 @@ Packs are dealt from a seeded shuffle, so every browser deals the same three car
 - **What's visible when:** your own rows any time; everyone's at the lock. An Embargo is public immediately, and a duel is visible to the person challenged so they can accept or decline. A played Scout Report can't be taken back.
 - **Cards and Dub:** cards that name a slot take a team in Dub. Load Management takes off a win, Garbage Time turns a loss into a win, and Sixth Man and Switcheroo stay in the player slots.
 - **Kept cards are final.** In Week 1 only (`cards.swapsThroughWeek`), while people learned the game, each pack allowed one swap of the kept card for one of the other two, until that week's lock, and only while the card is still in your hand (not played, armed or gifted). It's a second `_keep` row with `card_uid` `repick:<pack key>`; the insert policy in `upgrade-cards.sql` enforces the rules. Those swaps still count; the app no longer offers swaps and the insert policy refuses new `repick:` rows.
-- **Pack odds:** `standingOdds()` in `src/cards.js`, from `cards.oddsFrom` (Week 3) on. Odds slide with your place in the standings two weeks back (leader → last) and the point in the season, which scales how much your place counts (40% at the start, 100% at the end). Per card drawn: Burn Notice 0.5% → 2.5%, each Rare 20% → 30% between them, Heist and Blue Shell only in the bottom half (up to 16%). Revenge and Album packs have their own fixed odds. Packs before `oddsFrom` keep the old three-tier table, because packs are re-dealt from their seeds and must come out the same.
+- **Pack odds:** `standingOdds()` in `src/cards.js`, from `cards.oddsFrom` (Week 3) on. Odds slide with your place in the standings two weeks back (leader → last) and the point in the season, which scales how much your place counts (40% at the start, 100% at the end). Per card drawn: Burn Notice 0.1% → 0.6% (ultra rare: about 1 in 330 packs for the leader, 1 in 52 for last place late in the season), each Rare 20% → 30% between them, Heist and Blue Shell only in the bottom half (up to 16%). Revenge and Album packs have their own fixed odds (Burn Notice 1% and 1.5% a card). Packs before `oddsFrom` keep the old three-tier table, because packs are re-dealt from their seeds and must come out the same.
 - **Practice packs:** everyone gets 2 on the Cards tab. They're dealt at random in the browser, never saved and never touch the real seeds.
 - **Pack opening** works with a swipe across the top of the pack, the *Rip it open* button, or Enter. Sound is synthesised and off by default (🔇 in the corner). It respects reduced-motion settings. In the demo, practice packs are unlimited.
 
@@ -109,7 +109,7 @@ The app is static files on GitHub Pages plus Supabase, and both are very reliabl
   - Once loaded, a dropped connection keeps the last data on screen and retries in the background.
   - A bug in one page shows "This page hit a snag" on that page only. The other tabs, and saving picks, keep working.
 - **No CDN:** the Supabase client is served from this repo (`vendor/`), so a CDN outage can't take the league down. The CSP no longer allows any outside scripts.
-- **Supabase free tier** pauses a project after a week with no requests. The hourly data job talks to it every hour, which keeps it awake, so leave that workflow on.
+- **Supabase free tier** pauses a project after a week with no requests. The data job talks to it many times a day, which keeps it awake, so leave that workflow on.
 
 ### Updating the vendored Supabase client
 
