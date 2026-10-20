@@ -253,7 +253,7 @@ async function syncSupabase({ weeks, players, teams, totals, now }) {
   const decreeRows = await sb.all('decrees?select=*').catch(() => []);
   const tallies = await sb('POST', 'rpc/decree_tally', {}).catch(() => []);
   // Commissioner settings (rule changes, lives, adjustments). None before upgrade-settings.sql.
-  const settingRows = await sb.all('league_settings?select=key,value').catch(() => []);
+  const settingRows = await sb.all('league_config?select=key,value').catch(() => []);
   const settings = Object.fromEntries((settingRows || []).map(r => [r.key, r.value]));
   const settingArgs = { rules: settings.rules || [], meta: settings.meta || {}, adjustments: settings.adjustments || [] };
   // Secret pack seeds, so hands (and so Copycat plays) can be checked. No seeds, no cards.

@@ -54,7 +54,7 @@ Sign out and back in. A **Commissioner** tab appears with:
   - **Survival and card rules:** the four survival bars, bars to clear, hand limit, attack cap, duel stake and heist size. A change takes effect from the week you choose (this week or later). Earlier weeks keep the rules they were played under, and every change is listed publicly on the Rules tab. You can undo a change until its week locks.
   - **Season settings:** lives, drops, decrees a season, the Bounty size and the commissioner name on certificates. These apply to the whole season; raising lives gives everyone more.
   - **Adjustments:** add or take away points or lives for one member in a locked week, with a reason. They're shown publicly on that week's Results.
-  - `src/config.js` keeps the defaults. The settings live in `league_settings` (public to read, commissioners only to write). The app and the hourly job apply them through `src/settings.js`.
+  - `src/config.js` keeps the defaults. The settings live in `league_config` (members can read it, commissioners write it). `league_settings` is the separate one-row invite-code table from `upgrade-dub-invite.sql`. The app and the hourly job apply them through `src/settings.js`.
 - **Remove member:** deletes the account with its picks and jokers, and by default blocks that email from signing up again. Blocked emails are listed with an **Unblock** button.
 
 The database only answers these requests for accounts in the `admins` table. Before a lock, the check-in shows how many slots each person has filled, never which players.

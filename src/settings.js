@@ -1,6 +1,6 @@
 // League settings the commissioner can change from the Commissioner tab.
 //
-// Two kinds, stored in the league_settings table (see supabase/upgrade-settings.sql):
+// Two kinds, stored in the league_config table (see supabase/upgrade-settings.sql):
 //  - 'rules': a list of changes, each taking effect from a week ({ from_week, bars, barsToSurvive, cards }).
 //    A change never reaches back into weeks before it, so finished weeks keep the rules they were played under.
 //  - 'meta': season-wide values (lives, drops, decrees, the commissioner's name, an announcement).

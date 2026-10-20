@@ -33,14 +33,14 @@ create or replace function public.decree_open(w int) returns boolean
   language sql stable security definer set search_path = public
   as $$ select exists (select 1 from weeks where week = w and lock_at > now() + interval '24 hours') $$;
 
--- How many decrees a season: meta.decree.perSeason in league_settings (from the
+-- How many decrees a season: meta.decree.perSeason in league_config (from the
 -- Commissioner tab), or 3 if that hasn't been set or upgrade-settings.sql hasn't run.
 create or replace function public.decree_limit() returns int
   language plpgsql stable security definer set search_path = public
   as $$
   begin
-    return coalesce((select (value #>> '{decree,perSeason}')::int from league_settings where key = 'meta'), 3);
-  exception when undefined_table then
+    return coalesce((select (value #>> '{decree,perSeason}')::int from league_config where key = 'meta'), 3);
+  exception when undefined_table or undefined_column then
     return 3;
   end
   $$;

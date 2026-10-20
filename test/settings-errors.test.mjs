@@ -4,8 +4,8 @@ import { settingsError } from '../src/backend.js';
 
 test('a missing settings table points at upgrade-settings.sql and keeps the database message', () => {
   for (const msg of [
-    'relation "public.league_settings" does not exist',
-    "Could not find the table 'public.league_settings' in the schema cache",
+    'relation "public.league_config" does not exist',
+    "Could not find the table 'public.league_config' in the schema cache",
   ]) {
     const e = settingsError({ message: msg });
     assert.match(e.message, /upgrade-settings\.sql/);
@@ -20,5 +20,5 @@ test('other "does not exist" errors are no longer blamed on upgrade-settings.sql
 });
 
 test('a policy refusal says only commissioners can save', () => {
-  assert.match(settingsError({ message: 'new row violates row-level security policy for table "league_settings"' }).message, /Only commissioners/);
+  assert.match(settingsError({ message: 'new row violates row-level security policy for table "league_config"' }).message, /Only commissioners/);
 });
