@@ -146,7 +146,7 @@ try {
         await page.waitForTimeout(350);
       }
       // The Commissioner tab is split into sections; each one renders on its own.
-      for (const tab of ['members', 'rules', 'decrees', 'insights']) {
+      for (const tab of ['members', 'recap', 'rules', 'decrees', 'insights']) {
         const btn = await page.$(`[data-act="admin-tab"][data-tab="${tab}"]`);
         if (!btn) { fail(`demo #admin has no ${tab} section`); continue; }
         await btn.click();
