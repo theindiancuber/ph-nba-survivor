@@ -166,21 +166,20 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       // An empty slot ranks below everyone and earns nothing.
       // Opposite Day: the lowest total wins, but an empty slot or a fumble still ranks last.
       const flip = is('opposite', slot);
-      // In a live week a pick only earns rank points once his first game is in, and only against
-      // the other picks that have played (and empty slots, which can't score). A pick still waiting
-      // to play scores 0 for now: otherwise everyone waiting ties at 0 and collects ½ a point per
-      // colleague. Final weeks rank everyone, as the rules say.
-      const played = s => s.missing || (s.copy ? results[s.copy]?.slots[slot]?.gp > 0 : s.gp > 0);
-      const pool = status === 'final' ? entrants : entrants.filter(id => played(results[id].slots[slot]));
-      const pts = new Map(rankPoints(pool.map(id => {
+      // In a live week: if a pick has played, it's ranked against everyone (a pick still waiting
+      // counts as 0, an empty slot as beaten). If it hasn't played yet, it scores 0 for now rather
+      // than collecting ½ a point for every other 0 it's tied with. Final weeks rank everyone.
+      const played = s => s.copy ? results[s.copy]?.slots[slot]?.gp > 0 : s.gp > 0;
+      const pts = rankPoints(entrants.map(id => {
         const s = results[id].slots[slot];
         if (s.missing) return -Infinity;
         if (!flip) return s.value;
         return s.scorer == null && !s.copy && !s.pending ? -Infinity : -s.value;
-      })).map((v, i) => [pool[i], v]));
-      entrants.forEach(id => {
+      }));
+      entrants.forEach((id, i) => {
         const s = results[id].slots[slot];
-        s.rank = s.missing || !pts.has(id) ? 0 : pts.get(id) * (s.dd ? 2 : 1) * (is('spotlight', slot) ? 2 : 1);
+        const counts = status === 'final' || played(s);
+        s.rank = s.missing || !counts ? 0 : pts[i] * (s.dd ? 2 : 1) * (is('spotlight', slot) ? 2 : 1);
         s.owned = s.scorer != null && !s.copy ? ownership[slot][s.scorer] : 0;
       });
     }
