@@ -4,6 +4,15 @@
 
 export const UPDATES = [
   {
+    id: 11,
+    date: '2026-10-20',
+    title: 'No free points at the lock',
+    items: [
+      "Before any games, every pick is tied at 0, and ties pay ½ a point per colleague, so everyone showed 22 points (27.5 with a Double Down) the moment Week 1 locked.",
+      "Now a category only starts scoring once someone's pick in it has played. Everyone starts the week at 0, and final scores are worked out exactly as before.",
+    ],
+  },
+  {
     id: 10,
     date: '2026-10-20',
     title: 'Results, your week at a glance',
