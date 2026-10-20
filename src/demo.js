@@ -1,7 +1,8 @@
 // Demo league: made-up colleagues and simulated box scores, so the app can be
 // explored before the real league has data. Nothing here is real NBA stats.
 
-import { LEAGUE, buildWeeks, defaultLockAt } from './config.js';
+import { LEAGUE, buildWeeks, defaultLockAt, easternToUtc } from './config.js';
+import { weekDays, etDate } from './calendar.js';
 import { TEAMS } from './teams.js';
 import { computeLeague } from './league.js';
 import { CARDS, NICKNAMES, TAUNTS } from './cards.js';
@@ -108,6 +109,8 @@ export function makeDemo() {
   const seasonAcc = {};
   const strength = Object.fromEntries(Object.keys(TEAMS).map(t => [t, 0.25 + rand() * 0.5]));
   const teams = Object.fromEntries(Object.keys(TEAMS).map(t => [t, { w: 0, l: 0 }]));
+  // Each simulated game, in order, so the calendar can put them on days: [pts, reb, ast] per player, won? per team.
+  const gameLines = {}, gameWins = {};
   for (const w of weeks) {
     if (now < Date.parse(w.lockAt)) continue;
     const span = (Date.parse(w.end + 'T23:59:00Z') - Date.parse(w.lockAt));
@@ -120,10 +123,14 @@ export function makeDemo() {
       if (rand() < 0.05) continue; // sat out the week
       // [games, pts, reb, ast, best game pts/reb/ast, worst game pts/reb/ast, team]
       const line = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, pl.team];
+      const games1 = (gameLines[w.week] ||= {})[pl.id] = [];
       for (let g = 0; g < played; g++) {
         line[0]++;
+        const game = [0, 0, 0];
+        games1.push(game);
         pl.avg.forEach((a, i) => {
           const v = Math.max(0, Math.round(a * (0.55 + rand() * 0.9)));
+          game[i] = v;
           line[i + 1] += v;
           line[i + 4] = Math.max(line[i + 4], v);
           line[i + 7] = g ? Math.min(line[i + 7], v) : v;
@@ -139,7 +146,8 @@ export function makeDemo() {
     for (const tri of Object.keys(TEAMS)) {
       const played = Math.round(w.gamesByTeam[tri] * frac);
       let wins = 0;
-      for (let g = 0; g < played; g++) if (rand() < strength[tri]) wins++;
+      const flags = (gameWins[w.week] ||= {})[tri] = [];
+      for (let g = 0; g < played; g++) { const won = rand() < strength[tri]; flags.push(won); if (won) wins++; }
       t[tri] = [played, wins];
       teams[tri].w += wins;
       teams[tri].l += played - wins;
@@ -206,7 +214,81 @@ export function makeDemo() {
     decrees.push({ week: next.week, options: ['mercy', 'opposite:AST', 'pack_day'], created_at: new Date(now - 86400e3).toISOString() });
     profiles.filter(p => p.id !== meId).forEach(p => { if (rand() < 0.7) votes.push({ week: next.week, user_id: p.id, choice: Math.floor(rand() * 3) }); });
   }
-  return { version: 6, now, players, teams, weeks, totals, profiles, picks, unburns, plays, decrees, votes, meId, cardsFrom: CARDS_FROM };
+  const { schedule, days } = demoCalendar({ weeks, totals, players, gameLines, gameWins, now });
+  return { version: 6, now, players, teams, weeks, totals, profiles, picks, unburns, plays, decrees, votes, meId, cardsFrom: CARDS_FROM, schedule, days };
+}
+
+// A made-up schedule that matches the simulated weeks: each team's games are spread over the
+// week and paired into match-ups, the games already played land before today, and each one
+// carries the simulated lines in order, so the days add back up to the week's totals.
+// Its own random numbers, so the rest of the demo stays the same.
+function demoCalendar({ weeks, totals, players, gameLines, gameWins, now }) {
+  const rand = rng(1225);
+  const today = etDate(now);
+  const tris = Object.keys(TEAMS);
+  const roster = Object.fromEntries(tris.map(t => [t, Object.values(players).filter(p => p.team === t).map(p => p.id)]));
+  const schedule = [], days = {};
+  const TIPS = [[19, 0], [19, 30], [20, 0], [21, 0], [22, 0]];
+  let n = 0;
+
+  // Pairs teams up day by day. A team that must play every remaining day to fit its games in
+  // always plays; the rest play at random. An odd one out gets a free team as its opponent.
+  const plan = (dates, need) => {
+    const games = [];
+    const left = { ...need };
+    dates.forEach((date, i) => {
+      const daysLeft = dates.length - i;
+      const on = tris.filter(t => left[t] > 0 && (left[t] >= daysLeft || rand() < left[t] / daysLeft));
+      for (let k = on.length - 1; k > 0; k--) { const j = Math.floor(rand() * (k + 1)); [on[k], on[j]] = [on[j], on[k]]; }
+      if (on.length % 2) {
+        const spare = tris.find(t => !on.includes(t) && left[t] > 0) || tris.find(t => !on.includes(t));
+        on.push(spare);
+      }
+      for (let k = 0; k < on.length; k += 2) {
+        games.push({ date, home: on[k], away: on[k + 1] });
+        left[on[k]]--; left[on[k + 1]]--;
+      }
+    });
+    return games;
+  };
+
+  for (const w of weeks) {
+    const dates = weekDays(w);
+    const tot = totals[w.week];
+    const played = Object.fromEntries(tris.map(t => [t, tot?.t?.[t]?.[0] || 0]));
+    const rest = Object.fromEntries(tris.map(t => [t, (w.gamesByTeam[t] || 0) - played[t]]));
+    const past = tot ? dates.filter(d => d < today) : [];
+    const next = dates.filter(d => !past.includes(d));
+    const seen = Object.fromEntries(tris.map(t => [t, 0]));
+    const dayData = {};
+    for (const g of plan(past, played)) {
+      const d = dayData[g.date] ||= { p: {}, t: {} };
+      const won = {};
+      for (const tri of [g.home, g.away]) {
+        const k = seen[tri]++;
+        if (k >= played[tri]) continue; // the spare in an odd pairing: a game with no simulated lines
+        for (const pid of roster[tri]) {
+          const line = gameLines[w.week]?.[pid]?.[k];
+          if (line) d.p[pid] = [1, ...line, tri];
+        }
+        won[tri] = gameWins[w.week][tri][k];
+        const y = d.t[tri] ||= [0, 0];
+        y[0]++; if (won[tri]) y[1]++;
+      }
+      // Each team's own result decides the score; when both (or neither) won, the home side takes it.
+      const homeWins = won[g.home] ?? !won[g.away];
+      const win = 100 + Math.floor(rand() * 30), lose = win - 1 - Math.floor(rand() * 18);
+      const [hh, mm] = TIPS[Math.floor(rand() * TIPS.length)];
+      schedule.push([`demo-${++n}`, g.date, easternToUtc(g.date, hh, mm), g.home, g.away, 3, homeWins ? win : lose, homeWins ? lose : win]);
+    }
+    for (const g of plan(next, rest)) {
+      const [hh, mm] = TIPS[Math.floor(rand() * TIPS.length)];
+      schedule.push([`demo-${++n}`, g.date, easternToUtc(g.date, hh, mm), g.home, g.away, 1, null, null]);
+    }
+    if (Object.keys(dayData).length) days[w.week] = dayData;
+  }
+  schedule.sort((a, b) => a[2].localeCompare(b[2]));
+  return { schedule, days };
 }
 
 // The colleagues keep the spiciest card from each pack and play one a week,

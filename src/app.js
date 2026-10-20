@@ -1,4 +1,5 @@
-import { LEAGUE, buildWeeks, defaultLockAt, MONTH_LABELS } from './config.js';
+import { LEAGUE, buildWeeks, defaultLockAt, MONTH_LABELS, addDays } from './config.js';
+import { weekDays, totalsThrough, etDate, seasonThrough } from './calendar.js';
 import { computeLeague, headToHead, blockedReason, projection, teamProjection, fmt } from './league.js';
 import { TEAMS, TEAM_BY_ID, DIVISIONS, isTeamId, teamLogo, headshot } from './teams.js';
 import { SupabaseBackend, DemoBackend } from './backend.js';
@@ -15,7 +16,7 @@ const SLOTS = LEAGUE.slots;
 const INFO = LEAGUE.slotInfo;
 const STAT_IDX = { PTS: 0, REB: 1, AST: 2 };
 const VIEWS = [
-  ['week', 'This Week'], ['cards', 'Cards'], ['standings', 'Standings'], ['survivor', 'Survivor'], ['results', 'Results'],
+  ['week', 'This Week'], ['calendar', 'Calendar'], ['cards', 'Cards'], ['standings', 'Standings'], ['survivor', 'Survivor'], ['results', 'Results'],
   ['burns', 'Burn Book'], ['rivals', 'Rivals'], ['trophies', 'Trophies'], ['rules', 'Rules'],
 ];
 
@@ -60,7 +61,7 @@ async function boot() {
   await start();
   bindBrandGesture();
   if (!DEMO) {
-    setInterval(async () => { if (!S.league) return; S.data = await loadData().catch(() => S.data); safeRefresh(); }, 5 * 60e3);
+    setInterval(async () => { if (!S.league) return; S.data = await loadData().catch(() => S.data); safeRefresh(); if (S.cal) loadCalendar(true); }, 5 * 60e3);
     document.addEventListener('visibilitychange', () => { if (!document.hidden && S.league) safeRefresh(); });
   }
 }
@@ -81,6 +82,7 @@ async function start() {
       S.clockOffset = seed.now - Date.now();
       S.backend = new DemoBackend(seed, now);
       S.data = { weeks: seed.weeks, players: seed.players, teams: seed.teams, totals: seed.totals, cardsFrom: seed.cardsFrom, meta: { updatedAt: new Date(seed.now).toISOString(), demo: true } };
+      S.cal = { schedule: seed.schedule, days: seed.days };
       $('#demo-banner').innerHTML = `<div class="demo-banner">Demo league · made-up colleagues and simulated stats, frozen in early December. <button data-act="demo-reset">Reset demo</button></div>`;
     } else {
       S.backend = new SupabaseBackend();
@@ -145,7 +147,8 @@ async function refresh() {
   S.db = await S.backend.load();
   const weeks = S.data.weeks.map(w => ({ ...w, lockAt: S.db.locks[w.week] || w.lockAt }));
   S.decrees = resolveDecrees(S.db.decrees, S.db.tallies, Object.fromEntries(weeks.map(w => [w.week, w.lockAt])), now());
-  S.league = computeLeague({
+  // Kept so the Calendar can score the week as it stood after any day with the same inputs.
+  S.leagueArgs = {
     weeks, totals: S.data.totals, picks: S.db.picks, unburns: S.db.unburns, plays: S.db.plays || [], profiles: S.db.profiles,
     now: now(), players: S.data.players,
     // The real league deals from the database's secret seeds; without them (cards SQL not run yet) cards stay off.
@@ -153,7 +156,9 @@ async function refresh() {
     dealer: S.db.seeds ? seededDealer(S.db.seeds) : undefined,
     decrees: decreeCodes(S.decrees),
     rules: S.db.settings?.rules || [], meta: S.db.settings?.meta || {}, adjustments: S.db.settings?.adjustments || [],
-  });
+  };
+  S.calMemo = {};
+  S.league = computeLeague(S.leagueArgs);
   S.me = S.db.profiles.find(p => p.id === myId()) || null;
   if (S.adminFor !== myId()) {
     S.adminFor = myId();
@@ -245,7 +250,7 @@ function renderPage() {
   // Members only: signed out, everything but the rules is the sign-in page.
   else if (!signedIn && S.view !== 'rules') html = viewAuth();
   else if (S.view === 'admin') html = S.isAdmin ? viewAdmin() : viewWeek();
-  else html = ({ week: viewWeek, cards: viewCards, standings: viewStandings, survivor: viewSurvivor, results: viewResults, burns: viewBurns, rivals: viewRivals, trophies: viewTrophies, rules: viewRules })[S.view]();
+  else html = ({ week: viewWeek, calendar: viewCalendar, cards: viewCards, standings: viewStandings, survivor: viewSurvivor, results: viewResults, burns: viewBurns, rivals: viewRivals, trophies: viewTrophies, rules: viewRules })[S.view]();
   $('#app').innerHTML = (S.me ? announcementBar() : '') + html;
   tick();
   if (S.tour != null) redrawTour();
@@ -1332,6 +1337,264 @@ async function showScout(week, slot) {
     <div class="modal-body pad">${rows.length ? rows.map(r => `<div class="scout-row">${thumb(r.player_id, 'sm')}<div><div style="font-weight:600">${esc(pname(r.player_id))}</div><div class="own-bar"><i style="width:${(r.picks / Math.max(1, n)) * 100}%"></i></div></div><b class="num">${Math.round((r.picks / Math.max(1, n)) * 100)}%</b></div>`).join('')
       : '<p class="muted">Nobody has picked this slot yet.</p>'}
       <p class="note" style="margin:10px 0 0">Based on the ${n} ${n === 1 ? 'person' : 'people'} with picks saved so far. Picks can change until the lock. Check again any time this week.</p></div></div></div>`;
+}
+
+// ---------- Calendar ----------
+
+// The schedule and the day-by-day files load the first time the tab opens, then with each data refresh.
+async function loadCalendar(force = false) {
+  if (DEMO || !S.league) return;
+  const c = S.cal ||= { schedule: null, days: {}, busy: false };
+  const W = calWeek().week;
+  const needDays = weekObj(W).status !== 'open' && (force || !(W in c.days));
+  if (c.busy || (!force && c.schedule && !needDays)) return;
+  c.busy = true;
+  const get = async f => {
+    const r = await fetch(`data/${f}.json`, { cache: 'no-cache', signal: AbortSignal.timeout(15000) });
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error(`data/${f}.json: ${r.status}`);
+    return r.json();
+  };
+  try {
+    const [sched, days] = await Promise.all([
+      force || !c.schedule ? get('schedule') : null,
+      needDays ? get(`days/${W}`) : null,
+    ]);
+    if (sched || !c.schedule) c.schedule = sched?.games || [];
+    if (needDays) c.days[W] = days?.days || {};
+    c.err = null;
+    S.calMemo = {};
+  } catch (e) {
+    console.warn(e);
+    c.err = e.message || String(e);
+  } finally {
+    c.busy = false;
+  }
+  if (S.view === 'calendar') render();
+}
+
+function calWeek() {
+  const L = S.league;
+  const pick = weekObj(S.calWeek);
+  return pick || liveWeek() || (L.openWeek != null ? weekObj(L.openWeek) : L.weeks[L.weeks.length - 1]);
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const dow = iso => WEEKDAYS[new Date(iso + 'T12:00:00Z').getUTCDay()];
+const tipTime = iso => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP])M/i, (_, x) => x.toLowerCase());
+const slotTeam = pid => team(pid)?.tri || player(pid)?.team || null;
+
+// The teams of your picks this week: your draft before the lock, what you locked in after.
+function myTeams(w) {
+  const out = {};
+  const add = (pid, s) => { const t = pid != null && slotTeam(pid); if (t) (out[t] ||= []).push(INFO[s].emoji); };
+  if (w.status === 'open') {
+    if (w.week === S.league.openWeek) for (const s of SLOTS) add(S.draft?.slots[s]?.player_id, s);
+  } else {
+    const r = w.results[myId()];
+    if (r) for (const s of SLOTS) { const x = r.slots[s]; add(x.copy ? x.copyPid : x.scorer ?? x.pid, s); }
+  }
+  return out;
+}
+
+// After the lock: how many people have a scoring pick on each team.
+function leagueTeams(w) {
+  const out = {};
+  if (w.status === 'open') return out;
+  for (const id of w.entrants) {
+    const seen = new Set();
+    for (const s of SLOTS) {
+      const x = w.results[id].slots[s];
+      const t = slotTeam(x.copy ? x.copyPid : x.scorer ?? x.pid);
+      if (t && !seen.has(t)) { seen.add(t); out[t] = (out[t] || 0) + 1; }
+    }
+  }
+  return out;
+}
+
+function viewCalendar() {
+  const w = calWeek();
+  const c = S.cal;
+  if (!c?.schedule) {
+    if (!DEMO && !c?.err) queueMicrotask(() => loadCalendar());
+    return `<section class="panel empty-state"><div class="ic">📅</div><b>${c?.err ? "Couldn't load the schedule." : 'Loading the schedule…'}</b>${c?.err ? `<p class="muted">${esc(c.err)}</p><button class="btn primary" data-act="cal-retry">Try again</button>` : ''}</section>`;
+  }
+  if (w.status !== 'open' && !(w.week in c.days) && !DEMO && !c.err) queueMicrotask(() => loadCalendar());
+  const dates = weekDays(w);
+  const games = c.schedule.filter(g => g[1] >= w.start && g[1] <= w.end);
+  const locked = w.status !== 'open';
+  const mode = locked && S.calMode === 'days' ? 'days' : 'grid';
+  return `<div class="grid">
+    ${calHeader(w)}
+    <section class="panel">
+      <div class="seg cal-seg" role="group" aria-label="Calendar view">
+        <button data-act="cal-mode" data-mode="grid" aria-pressed="${mode === 'grid'}">📅 Head-to-head schedule</button>
+        <button data-act="cal-mode" data-mode="days" aria-pressed="${mode === 'days'}" ${locked ? '' : 'disabled title="Starts when the week locks"'}>📈 Day by day</button>
+      </div>
+      ${mode === 'grid' ? calGrid(w, dates, games) : calDays(w, dates, games)}
+    </section>
+  </div>`;
+}
+
+function calHeader(w) {
+  const L = S.league;
+  const weeks = L.weeks;
+  const i = weeks.indexOf(w);
+  const status = w.status === 'live' ? '<span class="badge live">Live</span>' : w.status === 'final' ? '<span class="badge final">Final</span>'
+    : w.week === L.openWeek ? '<span class="badge open">Picks open</span>' : '<span class="badge">Upcoming</span>';
+  const dec = w.decree;
+  const near = weeks.filter(x => Math.abs(x.week - w.week) <= 3);
+  return `<section class="panel cal-head">
+    <div class="cal-nav">
+      <button class="btn small icon" data-act="cal-week" data-week="${weeks[i - 1]?.week ?? ''}" ${i > 0 ? '' : 'disabled'} aria-label="Previous week">‹</button>
+      <div class="cal-title">
+        <div class="cal-badges">${status}${w.mult === 2 ? '<span class="badge gold">Double week</span>' : ''}${dec ? `<span class="badge">📜 ${esc(dec.title)}</span>` : ''}</div>
+        <h2>Week ${w.week}</h2>
+        <div class="muted">${weekRange(w)} · ${w.status === 'open' ? 'locks' : 'locked'} ${esc(lockText(w.lockAt))}</div>
+      </div>
+      <button class="btn small icon" data-act="cal-week" data-week="${weeks[i + 1]?.week ?? ''}" ${i < weeks.length - 1 ? '' : 'disabled'} aria-label="Next week">›</button>
+    </div>
+    <div class="pills cal-pills">${near.map(x => `<button class="pill ${x.status === 'live' ? 'live' : ''}" data-act="cal-week" data-week="${x.week}" aria-pressed="${x.week === w.week}">Wk ${x.week}</button>`).join('')}
+      <select class="input cal-jump" data-change="cal-week-select" aria-label="Jump to week">${weeks.map(x => `<option value="${x.week}" ${x.week === w.week ? 'selected' : ''}>Week ${x.week} · ${weekRange(x)}</option>`).join('')}</select>
+    </div>
+  </section>`;
+}
+
+function calGrid(w, dates, games) {
+  const today = etDate(now());
+  const lockDay = etDate(Date.parse(w.lockAt));
+  const at = {};
+  for (const g of games) {
+    at[`${g[3]}|${g[1]}`] = { g, home: true };
+    at[`${g[4]}|${g[1]}`] = { g, home: false };
+  }
+  const count = tri => games.filter(g => g[3] === tri || g[4] === tri).length;
+  const mine = myTeams(w), league = leagueTeams(w);
+  const teams = Object.keys(TEAMS).map(tri => ({ tri, n: count(tri) }))
+    .filter(t => !S.calMine || mine[t.tri])
+    .sort((a, b) => b.n - a.n || a.tri.localeCompare(b.tri));
+  const perDay = d => games.filter(g => g[1] === d).length;
+  const head = dates.map(d => `<th class="cal-day ${d === today ? 'today' : ''}"><span>${dow(d)}${d === lockDay ? ' 🔒' : ''}</span><b>${dshort(d)}</b><small>${perDay(d) ? `${perDay(d)} games` : 'No games'}</small></th>`).join('');
+  const cell = (tri, d) => {
+    const x = at[`${tri}|${d}`];
+    if (!x) return `<td class="cal-cell off ${d === today ? 'today' : ''}"></td>`;
+    const [, , tip, home, away, st, hp, ap] = x.g;
+    const opp = x.home ? away : home;
+    const us = x.home ? hp : ap, them = x.home ? ap : hp;
+    const res = st === 3 ? `<span class="${us > them ? 'win' : 'loss'}">${us > them ? 'W' : 'L'} ${us}–${them}</span>`
+      : st === 2 ? `<span class="live">LIVE ${us ?? 0}–${them ?? 0}</span>` : `<span class="dim">${tip ? tipTime(tip) : 'TBD'}</span>`;
+    return `<td class="cal-cell ${d === today ? 'today' : ''} ${st === 3 ? 'done' : ''}"><div class="cal-g"><span class="opp">${x.home ? 'vs' : '@'} <img src="${teamLogo(opp)}" alt="" loading="lazy">${opp}</span>${res}</div></td>`;
+  };
+  const rows = teams.map(({ tri, n }) => `<tr class="${mine[tri] ? 'me' : ''}">
+    <th class="cal-team" scope="row"><div><img src="${teamLogo(tri)}" alt="" loading="lazy"><b>${tri}</b>${gchip(n)}${mine[tri] ? `<span class="cal-mine" title="Your picks">${mine[tri].join('')}</span>` : ''}${league[tri] ? `<span class="cal-league" title="${league[tri]} ${league[tri] === 1 ? 'person has' : 'people have'} a pick on this team">👥${league[tri]}</span>` : ''}</div></th>
+    ${dates.map(d => cell(tri, d)).join('')}</tr>`).join('');
+  const heavy = Object.keys(TEAMS).filter(t => count(t) >= (w.mult === 2 ? 8 : 4)).length;
+  const light = Object.keys(TEAMS).filter(t => count(t) <= (w.mult === 2 ? 5 : 2)).length;
+  const hasMine = Object.keys(mine).length;
+  return `<div class="cal-tools">
+      <span class="muted">${games.length ? `${games.length} games · <b>${heavy}</b> teams play ${w.mult === 2 ? 8 : 4}+ · <b>${light}</b> play ${w.mult === 2 ? 5 : 2} or fewer` : 'No games on the schedule yet'}</span>
+      ${hasMine ? `<button class="pill" data-act="cal-mine" aria-pressed="${!!S.calMine}">Just my teams</button>` : ''}
+    </div>
+    ${games.length ? `<div class="table-wrap cal-wrap"><table class="cal-grid"><thead><tr><th class="cal-team">Team</th>${head}</tr></thead><tbody>${rows || `<tr><td colspan="${dates.length + 1}" class="muted">None of your picks' teams play this week.</td></tr>`}</tbody></table></div>` : ''}
+    <p class="dim cal-legend">${SLOTS.map(s => INFO[s].emoji).join(' ')} your ${w.status === 'open' ? 'picks so far' : 'picks'}${w.status === 'open' ? '' : ' · 👥 people with a pick on the team'} · ${gchip(w.mult === 2 ? 8 : 4)} games this week · tip times in your time zone · scores refresh every few minutes during games</p>`;
+}
+
+// The week as it stood after a day: the real engine run on the week's games up to that day.
+// The latest day is the live league itself, so it always matches Results.
+function dayLeague(w, date) {
+  const days = S.cal.days[w.week] || {};
+  const last = Object.keys(days).sort().pop();
+  if (!last || date >= last) return S.league;
+  const memo = S.calMemo ||= {};
+  const key = `${w.week}|${date}`;
+  if (memo[key]) return memo[key];
+  const a = S.leagueArgs;
+  return memo[key] = computeLeague({
+    ...a,
+    weeks: a.weeks.map(x => x.week === w.week ? { ...x, final: false } : x),
+    totals: { ...a.totals, [w.week]: totalsThrough(days, date) },
+  });
+}
+
+function calDays(w, dates, games) {
+  const days = S.cal.days[w.week];
+  if (!days) {
+    return S.cal.err ? `<div class="empty-state"><div class="ic">⚠️</div><b>Couldn't load the week's days.</b><p class="muted">${esc(S.cal.err)}</p><button class="btn primary" data-act="cal-retry">Try again</button></div>`
+      : `<div class="empty-state"><div class="ic">⏳</div><b>Loading the week's days…</b></div>`;
+  }
+  const played = Object.keys(days).sort();
+  if (!played.length) return `<div class="empty-state"><div class="ic">🏀</div><b>No games played yet.</b><p class="muted">The first results show here after the first tip.</p></div>`;
+  const day = played.includes(S.calDay) ? S.calDay : played[played.length - 1];
+  const prev = addDays(day, -1);
+  const L = dayLeague(w, day), P = dayLeague(w, prev);
+  const W = L.weeks.find(x => x.week === w.week), PW = P.weeks.find(x => x.week === w.week);
+  const order = wk => [...wk.entrants].sort((a, b) => wk.results[b].score - wk.results[a].score || userName(a).localeCompare(userName(b)));
+  const ranks = wk => { const o = order(wk), out = {}; o.forEach((id, i) => { out[id] = i && wk.results[o[i - 1]].score === wk.results[id].score ? out[o[i - 1]] : i + 1; }); return out; };
+  const now1 = ranks(W), before = day === w.start ? null : ranks(PW);
+  const today = etDate(now());
+  const chips = dates.map(d => {
+    const n = games.filter(g => g[1] === d).length;
+    const ok = played.includes(d);
+    return `<button class="cal-chip ${d === today ? 'today' : ''}" data-act="cal-day" data-day="${d}" aria-pressed="${d === day}" ${ok ? '' : 'disabled'}><span>${dow(d)}</span><b>${+d.slice(8)}</b><small>${ok ? `${n}G` : d === today ? 'Tonight' : d > today ? 'Later' : '—'}</small></button>`;
+  }).join('');
+  const label = `${dow(day)} ${dshort(day)}`;
+  const moved = id => {
+    if (!before) return '';
+    const d = (before[id] ?? now1[id]) - now1[id];
+    return d > 0 ? `<span class="trend-up">▲${d}</span>` : d < 0 ? `<span class="trend-down">▼${-d}</span>` : '<span class="dim">–</span>';
+  };
+  const me = meU();
+  const rows = order(W).map(id => {
+    const r = W.results[id], pr = PW.results[id];
+    const gain = r.score - (pr?.score || 0);
+    const u = L.users[id];
+    return `<tr class="${id === myId() ? 'me' : ''}"><td class="rank ${now1[id] <= 3 ? 'top' : ''}">${now1[id]}</td><td class="c">${moved(id)}</td>
+      <td><div class="who">${avatar(id)}<div><b>${esc(userName(id))}</b>${me?.rival === id ? ' <span class="badge cal-rival">Rival</span>' : ''}</div></div></td>
+      <td class="c dim hide-sm">${r.cleared}/${SLOTS.length}</td>
+      <td class="r"><span class="pts">${fmt(r.score)}</span>${gain ? ` <small class="${gain > 0 ? 'trend-up' : 'trend-down'}">${gain > 0 ? '+' : ''}${fmt(gain)}</small>` : ''}</td>
+      <td class="r num">${fmt(seasonThrough(L, u, w.week))}</td></tr>`;
+  }).join('');
+  return `<div class="cal-chips" role="group" aria-label="Day">${chips}</div>
+    ${myWeekByDay(w, dates, days, played)}
+    <div class="panel-title cal-sub"><h3>Standings after ${label}</h3><span class="muted">${day === played[played.length - 1] && w.status === 'live' ? `Latest · stats updated ${S.data.meta?.updatedAt ? ago(S.data.meta.updatedAt) : '—'}` : 'Rank points as they stood that night'}</span></div>
+    <div class="table-wrap"><table class="board"><thead><tr><th>#</th><th class="c">Day</th><th>Player</th><th class="c hide-sm">Bars</th><th class="r">Week pts</th><th class="r">Season</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="dim cal-legend">Week points are scored the way the live week is: a pick who hasn't played yet doesn't take rank points. ▲▼ is the change in place from the day before.</p>`;
+}
+
+// Your four picks, one column per day: what each did that night, and your week points after it.
+function myWeekByDay(w, dates, days, played) {
+  const r = w.results[myId()];
+  if (!r) return '';
+  const today = etDate(now());
+  // A day without a line: no game, a game still to come (or on now), or a game he sat out.
+  const noLine = (tri, d) => {
+    const g = S.cal.schedule.find(x => x[1] === d && (x[3] === tri || x[4] === tri));
+    if (!g) return '·';
+    if (g[5] === 3) return 'DNP';
+    return g[5] === 2 ? 'Live' : `${g[3] === tri ? 'vs' : '@'} ${g[3] === tri ? g[4] : g[3]}`;
+  };
+  const rows = SLOTS.map(s => {
+    const x = r.slots[s];
+    if (x.missing) return `<tr><td class="cal-rowh">${INFO[s].emoji} <span class="dim">No pick</span></td>${dates.map(() => '<td></td>').join('')}<td class="r">—</td></tr>`;
+    const pid = x.copy ? x.copyPid : x.scorer ?? x.pid;
+    const tri = slotTeam(pid);
+    const cells = dates.map(d => {
+      const day = days[d];
+      if (s === 'WIN') {
+        const t = day?.t?.[tri];
+        if (t?.[0]) return `<td class="c"><b class="${t[1] ? 'win' : 'loss'}">${t[1] ? 'W' : 'L'}</b></td>`;
+      } else {
+        const l = day?.p?.[pid];
+        if (l?.[0]) return `<td class="c"><b>${l[1 + STAT_IDX[s]]}</b></td>`;
+      }
+      return `<td class="c"><span class="dim cal-o">${noLine(tri, d)}</span></td>`;
+    }).join('');
+    return `<tr><td class="cal-rowh"><div class="cal-pick">${thumb(pid, 'sm')}<div><small>${INFO[s].emoji} ${INFO[s].name}</small><b>${esc(shortName(pid))}</b></div></div></td>${cells}<td class="r"><b>${x.value}</b> <small class="dim">${INFO[s].short}</small></td></tr>`;
+  }).join('');
+  const pts = dates.map(d => played.includes(d) ? `<td class="c"><b class="pts">${fmt(dayLeague(w, d).weeks.find(x => x.week === w.week).results[myId()]?.score || 0)}</b></td>` : '<td></td>').join('');
+  return `<div class="panel-title cal-sub"><h3>Your week, day by day</h3><span class="muted">${fmt(r.score)} pts so far</span></div>
+    <div class="table-wrap"><table class="board cal-mine-t"><thead><tr><th>Pick</th>${dates.map(d => `<th class="c ${d === today ? 'today' : ''}">${dow(d)} ${+d.slice(8)}</th>`).join('')}<th class="r">Week</th></tr></thead>
+    <tbody>${rows}<tr class="cal-total"><td class="cal-rowh">Your points after the day</td>${pts}<td class="r"><b class="pts">${fmt(r.score)}</b></td></tr></tbody></table></div>`;
 }
 
 // ---------- Standings ----------
@@ -2524,6 +2787,11 @@ const ACTIONS = {
   'unburn-choose': el => unburn(el.dataset.slot, +el.dataset.pid),
   'unburn-undo': async () => { try { await S.backend.setUnburn(null); toast('Un-burn returned to your hand.'); } catch (e) { toast(e.message, true); } await refresh(); },
   'results-week': el => { S.resultsWeek = +el.dataset.week; render(); },
+  'cal-week': el => { if (el.dataset.week) { S.calWeek = +el.dataset.week; S.calDay = null; render(); } },
+  'cal-mode': el => { S.calMode = el.dataset.mode; render(); },
+  'cal-day': el => { S.calDay = el.dataset.day; render(); },
+  'cal-mine': () => { S.calMine = !S.calMine; render(); },
+  'cal-retry': () => { if (S.cal) S.cal.err = null; loadCalendar(true); render(); },
   'pack-open': el => openWaitingPack(el.dataset.key),
   'pack-practice': () => practicePack(),
   'decree-mode': el => { S.decreeDraft.mode = el.dataset.mode; S.decreeDraft.picks = S.decreeDraft.picks.slice(0, el.dataset.mode === 'vote' ? 3 : 1); render(); },
@@ -2694,6 +2962,7 @@ document.addEventListener('change', async e => {
   if (el.dataset.change === 'decree-week') { S.decreeDraft.week = +el.value; render(); }
   if (el.dataset.change === 'decree-slot') { S.decreeDraft.slots[el.dataset.kind] = el.value; render(); }
   if (el.dataset.change === 'results-week-select') { S.resultsWeek = +el.value; render(); }
+  if (el.dataset.change === 'cal-week-select') { S.calWeek = +el.value; S.calDay = null; render(); }
   if (el.dataset.change === 'ops-week') {
     S.opsWeek = +el.value;
     S.opsData = null;

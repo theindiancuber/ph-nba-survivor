@@ -162,7 +162,42 @@ export function buildData({ schedule, boxes, now = Date.now() }) {
     }
     if (Object.keys(p).length || Object.keys(t).length) totals[w.week] = { final: w.final, p, t };
   }
-  return { weeks, players, teams, totals };
+
+  // The season's calendar, for the Calendar tab: every regular-season game with its score once it has one.
+  // [id, ET date, tip (UTC), home, away, status (1 scheduled, 2 live, 3 final), home pts, away pts]
+  const teamPts = box => {
+    const pts = {};
+    for (const [, team, , p] of box.players) pts[team] = (pts[team] || 0) + p;
+    return pts;
+  };
+  const calendar = schedule.filter(g => g.kind === 'reg' && g.home && g.away).map(g => {
+    const box = boxes[g.id];
+    const status = box?.status ?? g.status;
+    const pts = box && status >= 2 ? teamPts(box) : null;
+    return [g.id, g.etDate, g.tipUtc, g.home, g.away, status, pts ? pts[g.home] || 0 : null, pts ? pts[g.away] || 0 : null];
+  }).sort((a, b) => (a[2] || a[1]).localeCompare(b[2] || b[1]));
+
+  // Day by day, per week: each day's player lines [games, pts, reb, ast, team] and team results
+  // [finished games, wins], the same counting as the weekly totals, so the app can rebuild the week
+  // up to any day and score it with the real engine.
+  const days = {};
+  for (const w of weeks) {
+    for (const box of ordered) {
+      if (box.kind !== 'reg' || box.etDate < w.start || box.etDate > w.end) continue;
+      const d = ((days[w.week] ||= {})[box.etDate] ||= { p: {}, t: {} });
+      for (const [pid, team, played, pts, reb, ast] of box.players) {
+        if (!played) continue;
+        const x = d.p[pid] ||= [0, 0, 0, 0, team];
+        x[0]++; x[1] += pts; x[2] += reb; x[3] += ast;
+      }
+      const r = result(box);
+      if (r) {
+        (d.t[r.winner] ||= [0, 0])[0]++; d.t[r.winner][1]++;
+        (d.t[r.loser] ||= [0, 0])[0]++;
+      }
+    }
+  }
+  return { weeks, players, teams, totals, calendar, days };
 }
 
 async function getJson(url) {
@@ -318,8 +353,12 @@ async function main() {
     }
   });
 
-  const { weeks, players, teams, totals } = buildData({ schedule, boxes, now });
+  const { weeks, players, teams, totals, calendar, days } = buildData({ schedule, boxes, now });
+  await mkdir(path.join(DATA, 'days'), { recursive: true });
+  const dayFiles = await Promise.all(Object.entries(days).map(([w, d]) => writeJson(path.join(DATA, 'days', `${w}.json`), { season: LEAGUE.season, week: +w, days: d })));
   const changed = [
+    ...dayFiles,
+    await writeJson(path.join(DATA, 'schedule.json'), { season: LEAGUE.season, games: calendar }),
     await writeJson(path.join(DATA, 'weeks.json'), { season: LEAGUE.season, weeks }),
     await writeJson(path.join(DATA, 'players.json'), { season: LEAGUE.season, players }),
     await writeJson(path.join(DATA, 'teams.json'), { season: LEAGUE.season, teams }),

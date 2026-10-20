@@ -44,7 +44,7 @@ export const LEAGUE = {
 
 // Weeks run Monday–Sunday on US Eastern dates. Week 1 and the All-Star week
 // span two calendar weeks (mult 2); the survivor bars stay the same.
-function addDays(iso, n) {
+export function addDays(iso, n) {
   const d = new Date(iso + 'T12:00:00Z');
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);

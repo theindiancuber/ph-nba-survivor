@@ -1189,3 +1189,77 @@ footer .link { font-size: 12.5px; }
 }
 .checkin-flags .tag:not(.green):not(.gold) { background: rgba(107, 147, 255, .12); border-color: rgba(107, 147, 255, .32); color: #b3c8ff; }
 .decree-admin > .section-gap { margin: 0 0 18px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+
+/* Calendar: week header, the head-to-head grid (teams × days) and the day-by-day boards. */
+.cal-head { display: grid; gap: 14px; }
+.cal-nav { display: flex; align-items: center; gap: 14px; }
+.cal-nav .btn.icon { width: 38px; height: 38px; padding: 0; font-size: 20px; line-height: 1; display: grid; place-items: center; flex: none; }
+.cal-title { flex: 1; min-width: 0; text-align: center; }
+.cal-title h2 { margin: 6px 0 2px; font: 700 30px/1 var(--display); text-transform: uppercase; letter-spacing: .01em; }
+.cal-title .muted { font-size: 13px; }
+.cal-badges { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; min-height: 22px; }
+.cal-pills { justify-content: center; align-items: center; }
+.cal-pills .cal-jump { width: auto; min-width: 0; min-height: 0; padding: 5px 30px 5px 12px; font-size: 12.5px; border-radius: 999px; background-position: right 9px center; }
+.cal-seg { max-width: 460px; }
+.cal-seg button:disabled { opacity: .45; cursor: not-allowed; }
+.cal-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; font-size: 13px; }
+.cal-tools b { color: var(--text); }
+.cal-wrap { -webkit-overflow-scrolling: touch; }
+.cal-grid { border-collapse: separate; border-spacing: 0; font-size: 12.5px; min-width: 100%; }
+.cal-grid th, .cal-grid td { border-top: 1px solid var(--line); }
+.cal-grid thead th { border-top: 0; border-bottom: 1px solid var(--line-2); }
+.cal-day { min-width: 92px; padding: 0 6px 10px; text-align: center; font-weight: 400; }
+.cal-day span { display: block; font: 600 11px/1 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.cal-day b { display: block; margin: 5px 0 3px; font: 600 14px/1 var(--body); color: var(--text); }
+.cal-day small { color: var(--dim); font-size: 11px; }
+.cal-day.today span, .cal-day.today b { color: var(--blue-hot); }
+.cal-team { position: sticky; left: 0; z-index: 1; background: var(--panel); text-align: left; padding: 7px 12px 7px 0; min-width: 136px; font-weight: 400; }
+thead .cal-team { font: 500 11px/1 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); vertical-align: bottom; padding-bottom: 10px; }
+.cal-team > div { display: flex; align-items: center; gap: 6px; }
+.cal-team img { width: 22px; height: 22px; object-fit: contain; }
+.cal-team b { font: 600 13px/1 var(--body); min-width: 32px; }
+.cal-mine { font-size: 12px; letter-spacing: -1px; }
+.cal-league { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.cal-grid tr.me .cal-team { box-shadow: inset 2px 0 0 var(--blue-hot); background: linear-gradient(90deg, rgba(107, 147, 255, .1), var(--panel) 70%), var(--panel); padding-left: 8px; }
+.cal-grid tr.me .cal-cell:not(.off) .cal-g { border-color: rgba(107, 147, 255, .35); background: rgba(107, 147, 255, .08); }
+.cal-cell { padding: 4px; text-align: center; vertical-align: middle; }
+.cal-cell.today { background: rgba(107, 147, 255, .04); }
+.cal-cell.off::after { content: ''; display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: var(--track); }
+.cal-g { display: grid; gap: 3px; padding: 6px 4px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); white-space: nowrap; }
+.cal-g .opp { display: inline-flex; align-items: center; justify-content: center; gap: 4px; font-weight: 600; color: var(--soft); }
+.cal-g .opp img { width: 15px; height: 15px; object-fit: contain; }
+.cal-g > span:last-child { font: 500 11px/1 var(--mono); }
+.cal-g .win, .cal-mine-t .win { color: var(--green); }
+.cal-g .loss, .cal-mine-t .loss { color: var(--red-hot); }
+.cal-g .live { color: #ffb3c1; }
+.cal-cell.done .cal-g { background: transparent; }
+.cal-legend { font-size: 12px; margin: 12px 0 0; }
+.cal-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 18px; scrollbar-width: none; }
+.cal-chip { flex: 1 0 58px; max-width: 86px; display: grid; gap: 3px; justify-items: center; padding: 8px 4px; border-radius: 12px; border: 1px solid var(--line-2); background: transparent; color: var(--muted); transition: background .15s, border-color .15s, color .15s; }
+.cal-chip span { font: 600 10.5px/1 var(--body); letter-spacing: .1em; text-transform: uppercase; }
+.cal-chip b { font: 700 18px/1 var(--body); color: var(--text); }
+.cal-chip small { font-size: 10.5px; }
+.cal-chip:hover:not(:disabled) { border-color: rgba(255, 255, 255, .25); color: var(--text); }
+.cal-chip[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: #0a0b0f; }
+.cal-chip[aria-pressed="true"] b { color: #0a0b0f; }
+.cal-chip:disabled { opacity: .4; cursor: default; }
+.cal-chip.today:not([aria-pressed="true"]) { border-color: rgba(107, 147, 255, .5); }
+.cal-sub { margin-top: 6px; }
+.cal-mine-t { margin-bottom: 22px; }
+.cal-mine-t .cal-rowh { text-align: left; white-space: nowrap; }
+.cal-mine-t thead th.today { color: var(--blue-hot); }
+.cal-pick { display: flex; align-items: center; gap: 8px; }
+.cal-pick small { display: block; font-size: 11px; color: var(--muted); }
+.cal-pick b { font-weight: 600; }
+.cal-o { font-size: 11.5px; white-space: nowrap; }
+.cal-total td { background: rgba(255, 255, 255, .025); }
+.cal-total .cal-rowh { color: var(--muted); font-size: 12.5px; }
+.cal-total .pts { font-size: 15px; }
+.cal-rival { padding: 1px 6px; font-size: 10px; background: rgba(240, 53, 90, .14); border-color: rgba(240, 53, 90, .4); color: #ffb3c1; }
+@media (max-width: 600px) {
+  .cal-title h2 { font-size: 24px; }
+  .cal-pills .cal-jump { display: none; }
+  .cal-day { min-width: 80px; }
+  .cal-team { min-width: 112px; }
+  .cal-league { display: none; }
+}
