@@ -1,5 +1,6 @@
 import { LEAGUE, buildWeeks, defaultLockAt, MONTH_LABELS, addDays } from './config.js';
 import { weekDays, totalsThrough, etDate, seasonThrough } from './calendar.js';
+import { nightStatus, recapNights, recapBoard, recapStats } from './recap.js';
 import { computeLeague, headToHead, blockedReason, projection, teamProjection, fmt } from './league.js';
 import { TEAMS, TEAM_BY_ID, DIVISIONS, isTeamId, teamLogo, headshot } from './teams.js';
 import { SupabaseBackend, DemoBackend } from './backend.js';
@@ -61,7 +62,7 @@ async function boot() {
   await start();
   bindBrandGesture();
   if (!DEMO) {
-    setInterval(async () => { if (!S.league) return; S.data = await loadData().catch(() => S.data); safeRefresh(); if (S.cal) loadCalendar(true); }, 5 * 60e3);
+    setInterval(async () => { if (!S.league) return; S.data = await loadData().catch(() => S.data); safeRefresh(); if (S.cal) { loadCalendar(true); if (S.recapWeek) loadCalendar(true, S.recapWeek); } }, 5 * 60e3);
     document.addEventListener('visibilitychange', () => { if (!document.hidden && S.league) safeRefresh(); });
   }
 }
@@ -165,6 +166,8 @@ async function refresh() {
     S.greeted = false;
     S.isAdmin = S.me ? await S.backend.isAdmin().catch(() => false) : false;
     S.adminData = null;
+    // The commissioner's tab shows a dot when a night's recap is ready, which needs the schedule.
+    if (S.isAdmin && !S.cal) loadCalendar();
   }
   if (!S.draft || !S.draft.dirty || S.draft.week !== S.league.openWeek) resetDraft();
   render();
@@ -252,6 +255,7 @@ function renderPage() {
   else if (S.view === 'admin') html = S.isAdmin ? viewAdmin() : viewWeek();
   else html = ({ week: viewWeek, calendar: viewCalendar, cards: viewCards, standings: viewStandings, survivor: viewSurvivor, results: viewResults, burns: viewBurns, rivals: viewRivals, trophies: viewTrophies, rules: viewRules })[S.view]();
   $('#app').innerHTML = (S.me ? announcementBar() : '') + html;
+  if ($('#recap-canvas')) drawRecap();
   tick();
   if (S.tour != null) redrawTour();
 }
@@ -286,7 +290,7 @@ function renderTabs() {
   const cur = !S.me && S.view !== 'rules' ? 'week' : S.view;
   $('#tabs').innerHTML = views().map(([k, label]) => {
     const cardsDot = k === 'cards' && S.me && (waitingPacks().length || unansweredDuels().length);
-    const dot = (k === 'week' && needsPicks()) || (k === 'results' && liveWeek()) || cardsDot ? '<span class="dot"></span>' : '';
+    const dot = (k === 'week' && needsPicks()) || (k === 'results' && liveWeek()) || cardsDot || (k === 'admin' && recapDot()) ? '<span class="dot"></span>' : '';
     return `<a class="tab" role="tab" href="#${k}" aria-selected="${cur === k}">${label}${dot}</a>`;
   }).join('');
   const sel = $('#tabs [aria-selected="true"]');
@@ -1342,13 +1346,14 @@ async function showScout(week, slot) {
 // ---------- Calendar ----------
 
 // The schedule and the day-by-day files load the first time the tab opens, then with each data refresh.
-async function loadCalendar(force = false) {
+async function loadCalendar(force = false, W = calWeek().week) {
   if (DEMO || !S.league) return;
-  const c = S.cal ||= { schedule: null, days: {}, busy: false };
-  const W = calWeek().week;
-  const needDays = weekObj(W).status !== 'open' && (force || !(W in c.days));
-  if (c.busy || (!force && c.schedule && !needDays)) return;
-  c.busy = true;
+  const c = S.cal ||= { schedule: null, days: {}, busy: new Set() };
+  const needSched = force || !c.schedule;
+  const needDays = weekObj(W)?.status !== 'open' && (force || !(W in c.days));
+  const key = `${needSched}|${needDays && W}`;
+  if (c.busy.has(key) || (!needSched && !needDays)) return;
+  c.busy.add(key);
   const get = async f => {
     const r = await fetch(`data/${f}.json`, { cache: 'no-cache', signal: AbortSignal.timeout(15000) });
     if (r.status === 404) return null;
@@ -1357,7 +1362,7 @@ async function loadCalendar(force = false) {
   };
   try {
     const [sched, days] = await Promise.all([
-      force || !c.schedule ? get('schedule') : null,
+      needSched ? get('schedule') : null,
       needDays ? get(`days/${W}`) : null,
     ]);
     if (sched || !c.schedule) c.schedule = sched?.games || [];
@@ -1368,9 +1373,11 @@ async function loadCalendar(force = false) {
     console.warn(e);
     c.err = e.message || String(e);
   } finally {
-    c.busy = false;
+    c.busy.delete(key);
   }
-  if (S.view === 'calendar') render();
+  // Only redraw pages that show this data; elsewhere a redraw could wipe a half-typed form.
+  if (S.view === 'calendar' || (S.view === 'admin' && S.adminTab === 'recap')) render();
+  else if (S.league) renderTabs();
 }
 
 function calWeek() {
@@ -1896,13 +1903,14 @@ function viewAdmin() {
   const tab = ADMIN_TABS.some(([k]) => k === S.adminTab) ? S.adminTab : 'members';
   const toPick = open && S.adminData?.members ? stillToPick().length : 0;
   const decreesLeft = Math.max(0, LEAGUE.decree.perSeason - Object.keys(S.decrees || {}).length);
-  const count = { members: toPick, decrees: decreesLeft };
+  const count = { members: toPick, decrees: decreesLeft, recap: recapDot() ? 'New' : 0 };
   const head = `<header class="page-head"><div><span class="badge">🔒 Commissioner only</span><h1>The Commissioner's office</h1>
       <p>Everyone's picks stay hidden until each lock, including from you. Everything you change here is public.</p></div></header>
-    <nav class="subnav" aria-label="Commissioner sections">${ADMIN_TABS.map(([k, label, ic]) => `<button data-act="admin-tab" data-tab="${k}" aria-pressed="${k === tab}">${ic} ${label}${count[k] ? `<span class="count${k === 'members' ? '' : ' soft'}">${count[k]}</span>` : ''}</button>`).join('')}</nav>`;
+    <nav class="subnav" aria-label="Commissioner sections">${ADMIN_TABS.map(([k, label, ic]) => `<button data-act="admin-tab" data-tab="${k}" aria-pressed="${k === tab}">${ic} ${label}${count[k] ? `<span class="count${k === 'decrees' ? ' soft' : ''}">${count[k]}</span>` : ''}</button>`).join('')}</nav>`;
   if (tab === 'members') return `<div class="grid">${head}${adminRoster(open)}${adminReminder(open)}<div class="split">${adminInvite()}${adminAnnounce()}</div></div>`;
   if (tab === 'rules') return `<div class="grid">${head}${adminRules()}${adminSeason()}${adminAdjust()}</div>`;
   if (tab === 'decrees') return `<div class="grid">${head}${adminDecree()}</div>`;
+  if (tab === 'recap') return `<div class="grid">${head}${adminRecap()}</div>`;
   const st = funStats(L, S.data.players, S.data.teams);
   return `<div class="grid">${head}
     ${adminTiles(st)}
@@ -1922,7 +1930,201 @@ function viewAdmin() {
   </div>`;
 }
 
-const ADMIN_TABS = [['members', 'Members', '👥'], ['rules', 'Rules & settings', '⚙️'], ['decrees', 'Decrees', '📜'], ['insights', 'Insights', '📈']];
+// ---- Nightly recap (Commissioner tab): a leaderboard image and fun stats to share ----
+
+const recapWeekOf = date => S.league.weeks.find(w => date >= w.start && date <= w.end);
+
+// The latest night that's over (every game final), for the tab's "New" dot.
+function recapLatest() {
+  if (!S.cal?.schedule) return null;
+  const nights = recapNights(S.cal.schedule, S.league.weeks, etDate(now()));
+  return [...nights].reverse().find(d => nightStatus(S.cal.schedule, d, now()).over) || null;
+}
+const recapSeenKey = () => `phs-recap-${myId()}`;
+function recapDot() {
+  if (!S.isAdmin) return false;
+  const d = recapLatest();
+  if (!d) return false;
+  try { return (localStorage.getItem(recapSeenKey()) || '') < d; } catch { return false; }
+}
+
+function adminRecap() {
+  const c = S.cal;
+  if (!c?.schedule) {
+    if (!DEMO && !c?.err) queueMicrotask(() => loadCalendar());
+    return `<section class="panel empty-state"><div class="ic">📸</div><b>${c?.err ? "Couldn't load the schedule." : 'Loading…'}</b>${c?.err ? `<p class="muted">${esc(c.err)}</p><button class="btn primary" data-act="cal-retry">Try again</button>` : ''}</section>`;
+  }
+  const nights = recapNights(c.schedule, S.league.weeks, etDate(now()));
+  if (!nights.length) return `<section class="panel empty-state"><div class="ic">📸</div><b>No nights to recap yet.</b><p class="muted">After the first night of games in a locked week, its leaderboard and fun stats show here.</p></section>`;
+  const date = nights.includes(S.recapDate) ? S.recapDate : recapLatest() || nights[nights.length - 1];
+  const w = recapWeekOf(date);
+  S.recapWeek = w.week;
+  const i = nights.indexOf(date);
+  const st = nightStatus(c.schedule, date, now());
+  const label = `${dow(date)}, ${dshort(date)}`;
+  const nav = `<div class="recap-nav">
+      <button class="btn small icon" data-act="recap-night" data-date="${nights[i - 1] || ''}" ${i > 0 ? '' : 'disabled'} aria-label="Night before">‹</button>
+      <div><b>${label}</b><span class="muted">Week ${w.week} · ${st.games} game${st.games === 1 ? '' : 's'}</span></div>
+      <button class="btn small icon" data-act="recap-night" data-date="${nights[i + 1] || ''}" ${i < nights.length - 1 ? '' : 'disabled'} aria-label="Night after">›</button>
+    </div>`;
+  const status = st.over ? `<span class="badge open">Final · all ${st.games} games done</span>`
+    : `<span class="badge live">${st.done} of ${st.games} games final</span> <span class="muted">Share it after the last game. It updates as scores come in.</span>`;
+  const days = c.days[w.week];
+  if (!days) {
+    if (!DEMO && !c.err) queueMicrotask(() => loadCalendar(false, w.week));
+    return `<section class="panel">${nav}<div class="empty-state"><div class="ic">⏳</div><b>Loading the night's stats…</b></div></section>`;
+  }
+  if (!days[date]) {
+    return `<section class="panel">${nav}<div class="recap-status">${status}</div><div class="empty-state"><div class="ic">🏀</div><b>No box scores for this night yet.</b><p class="muted">They show here once the first game tips off.</p></div></section>`;
+  }
+  if (st.over && date === recapLatest()) { try { localStorage.setItem(recapSeenKey(), date); } catch { /* storage blocked */ } }
+  const after = dayLeague(w, date), before = dayLeague(w, addDays(date, -1));
+  const kind = S.recapKind === 'week' ? 'week' : 'season';
+  const rows = recapBoard(after, before, w.week, kind);
+  const text = recapStats({ after, before, W: w.week, date, day: days[date], schedule: c.schedule, players: S.data.players, label });
+  S.recap = { date, rows, kind, W: w.week, label, final: st.over, text };
+  const canShare = typeof navigator.canShare === 'function';
+  return `<section class="panel">
+      <div class="panel-title"><h2>Nightly recap</h2><span class="muted">Ready after each night's last game</span></div>
+      ${nav}
+      <div class="recap-status">${status}</div>
+    </section>
+    <div class="split recap-split">
+      <section class="panel">
+        <div class="panel-title"><h3>Leaderboard image</h3>
+          <div class="seg recap-seg" role="group" aria-label="Which leaderboard">
+            <button data-act="recap-board" data-kind="season" aria-pressed="${kind === 'season'}">Season</button>
+            <button data-act="recap-board" data-kind="week" aria-pressed="${kind === 'week'}">Week ${w.week}</button>
+          </div></div>
+        <canvas id="recap-canvas" class="recap-canvas" role="img" aria-label="Leaderboard after ${esc(label)}"></canvas>
+        <div class="recap-actions">
+          ${canShare ? '<button class="btn primary" data-act="recap-share">Share…</button>' : ''}
+          <button class="btn ${canShare ? '' : 'primary'}" data-act="recap-download">Download image</button>
+          <button class="btn" data-act="recap-copy-img">Copy image</button>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-title"><h3>Fun stats</h3><button class="btn small primary" data-act="recap-copy-text">Copy text</button></div>
+        <textarea class="input recap-text" readonly rows="18" aria-label="Fun stats to copy">${esc(text)}</textarea>
+        <p class="dim" style="font-size:12px;margin:8px 0 0">Everything here comes from picks that have already locked, so it's safe to share.</p>
+      </section>
+    </div>`;
+}
+
+const recapFile = () => `peakhill-${S.recap?.kind || 'season'}-${S.recap?.date || 'recap'}.png`;
+const recapBlob = () => new Promise(res => { const cv = $('#recap-canvas'); if (!cv) res(null); else cv.toBlob(res, 'image/png'); });
+
+// The brand mark from the header, as an image the canvas can draw.
+let brandImg = null;
+function brandImage() {
+  if (brandImg) return brandImg;
+  const svg = document.querySelector('.brand-mark');
+  if (!svg) return Promise.resolve(null);
+  let src = new XMLSerializer().serializeToString(svg);
+  if (!src.includes('xmlns=')) src = src.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ');
+  src = src.replace('<svg ', '<svg width="56" height="88" ');
+  brandImg = new Promise(res => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => res(null);
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(src)}`;
+  });
+  return brandImg;
+}
+
+// Draws the leaderboard as a 1080px-wide image, sized for phones and group chats.
+async function drawRecap() {
+  const R = S.recap;
+  if (!R) return;
+  try { await Promise.all(['700 80px Oswald', '600 28px Geist', '500 20px "Geist Mono"', '600 16px Montserrat'].map(f => document.fonts.load(f))); } catch { /* fall back to system fonts */ }
+  const logo = await brandImage();
+  const cv = $('#recap-canvas');
+  if (!cv || S.recap !== R) return;
+  const W = 1080, PAD = 64, ROW = 64, TOP = 352;
+  const H = TOP + Math.max(1, R.rows.length) * ROW + 120;
+  cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+  const font = (f, color) => { c.font = f; c.fillStyle = color; };
+  const spaced = px => { if ('letterSpacing' in c) c.letterSpacing = `${px}px`; };
+  const right = (t, x, y) => { c.textAlign = 'right'; c.fillText(t, x, y); c.textAlign = 'left'; };
+  const fit = (t, max) => { if (c.measureText(t).width <= max) return t; while (t.length > 1 && c.measureText(`${t}…`).width > max) t = t.slice(0, -1); return `${t}…`; };
+
+  const bg = c.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#11141c'); bg.addColorStop(1, '#08090d');
+  c.fillStyle = bg; c.fillRect(0, 0, W, H);
+  for (const [x, col] of [[W * 0.92, 'rgba(200,16,46,.30)'], [W * 0.05, 'rgba(29,66,138,.35)']]) {
+    const g = c.createRadialGradient(x, 0, 0, x, 0, 560);
+    g.addColorStop(0, col); g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g; c.fillRect(0, 0, W, 620);
+  }
+  c.fillStyle = '#022350'; c.fillRect(0, 0, W / 2, 8);
+  c.fillStyle = '#c8102e'; c.fillRect(W / 2, 0, W / 2, 8);
+
+  if (logo) c.drawImage(logo, PAD, 52, 42, 66);
+  spaced(1); font('600 34px Geist, sans-serif', '#f5f6f8'); c.fillText('PEAKHILL', PAD + 60, 88);
+  spaced(5); font('600 15px Montserrat, Geist, sans-serif', '#9198a6'); c.fillText('NBA SURVIVOR', PAD + 62, 114);
+  // Status pill, top right.
+  spaced(3); font('600 16px Geist, sans-serif', R.final ? '#8ef0c6' : '#ffb3c1');
+  const pill = R.final ? 'FINAL' : 'LIVE';
+  const pw = c.measureText(pill).width + 44;
+  c.fillStyle = R.final ? 'rgba(52,211,153,.14)' : 'rgba(240,53,90,.16)';
+  c.beginPath(); c.roundRect(W - PAD - pw, 66, pw, 40, 20); c.fill();
+  c.fillStyle = R.final ? '#34d399' : '#f0355a';
+  c.beginPath(); c.arc(W - PAD - pw + 20, 86, 5, 0, Math.PI * 2); c.fill();
+  font('600 16px Geist, sans-serif', R.final ? '#8ef0c6' : '#ffb3c1'); c.fillText(pill, W - PAD - pw + 32, 92);
+
+  spaced(1); font('700 96px Oswald, "Arial Narrow", sans-serif', '#f5f6f8');
+  c.fillText(R.kind === 'week' ? `WEEK ${R.W} STANDINGS` : 'LEADERBOARD', PAD, 236);
+  spaced(0); font('500 28px Geist, sans-serif', '#d3d7df');
+  c.fillText(`Week ${R.W} · after ${R.label}`, PAD, 284);
+
+  // Columns: rank, move, name, then three numbers on the right.
+  const X = { rank: PAD + 6, move: PAD + 64, name: PAD + 140, a: 744, b: 870, c: W - PAD - 8 };
+  const cols = R.kind === 'week' ? ['BARS', 'TONIGHT', 'WEEK'] : ['TONIGHT', 'WEEK', 'SEASON'];
+  spaced(2); font('600 15px Geist, sans-serif', '#646b79');
+  c.fillText('#', X.rank, TOP - 22); c.fillText('PLAYER', X.name, TOP - 22);
+  right(cols[0], X.a, TOP - 22); right(cols[1], X.b, TOP - 22); right(cols[2], X.c, TOP - 22);
+  spaced(0);
+  c.fillStyle = 'rgba(255,255,255,.13)'; c.fillRect(PAD, TOP - 8, W - PAD * 2, 1);
+
+  const MEDAL = ['#f5c451', '#d7dbe3', '#e39a62'];
+  const signed = n => `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmt(Math.abs(n))}`;
+  R.rows.forEach((r, i) => {
+    const y = TOP + i * ROW, mid = y + ROW / 2 + 9;
+    if (i % 2 === 0) { c.fillStyle = 'rgba(255,255,255,.028)'; c.beginPath(); c.roundRect(PAD - 8, y + 3, W - PAD * 2 + 16, ROW - 6, 12); c.fill(); }
+    font('700 32px Oswald, sans-serif', MEDAL[r.rank - 1] || '#9198a6'); c.fillText(String(r.rank), X.rank, mid + 2);
+    if (r.move == null || r.move === 0) { font('600 20px Geist, sans-serif', '#646b79'); c.fillText('–', X.move + 6, mid); }
+    else { font('600 20px Geist, sans-serif', r.move > 0 ? '#34d399' : '#f0355a'); c.fillText(`${r.move > 0 ? '▲' : '▼'}${Math.abs(r.move)}`, X.move, mid); }
+    font('600 28px Geist, sans-serif', r.out ? '#646b79' : '#f5f6f8');
+    const name = fit(r.name, X.a - X.name - 200);
+    c.fillText(name, X.name, mid);
+    // Lives as small dots after the name (season board), or OUT.
+    let lx = X.name + c.measureText(name).width + 18;
+    if (R.kind === 'season') {
+      if (r.out) { font('600 15px Geist, sans-serif', '#f0355a'); spaced(2); c.fillText('OUT', lx, mid - 3); spaced(0); }
+      else for (let k = 0; k < LEAGUE.lives; k++) { c.fillStyle = k < r.lives ? '#f0355a' : 'rgba(255,255,255,.14)'; c.beginPath(); c.arc(lx + k * 16, mid - 9, 5, 0, Math.PI * 2); c.fill(); }
+    }
+    const tonight = r.tonight ? signed(r.tonight) : '0';
+    const tColor = r.tonight > 0 ? '#34d399' : r.tonight < 0 ? '#f0355a' : '#646b79';
+    if (R.kind === 'week') {
+      font('500 24px "Geist Mono", monospace', '#9198a6'); right(`${r.cleared ?? 0}/${SLOTS.length}`, X.a, mid);
+      font('500 24px "Geist Mono", monospace', tColor); right(tonight, X.b, mid);
+      font('700 30px Geist, sans-serif', '#f5f6f8'); right(fmt(r.week), X.c, mid);
+    } else {
+      font('500 24px "Geist Mono", monospace', tColor); right(tonight, X.a, mid);
+      font('500 26px Geist, sans-serif', '#d3d7df'); right(fmt(r.week), X.b, mid);
+      font('700 30px Geist, sans-serif', '#f5f6f8'); right(fmt(r.season), X.c, mid);
+    }
+  });
+
+  const fy = TOP + R.rows.length * ROW + 44;
+  c.fillStyle = 'rgba(255,255,255,.1)'; c.fillRect(PAD, fy - 6, W - PAD * 2, 1);
+  font('500 19px Geist, sans-serif', '#646b79');
+  c.fillText(R.kind === 'week' ? 'Tonight = week points gained tonight · Bars = survival bars cleared' : 'Tonight = points gained tonight · dots = lives left', PAD, fy + 34);
+  right('Box scores from NBA.com', W - PAD, fy + 34);
+}
+
+const ADMIN_TABS = [['members', 'Members', '👥'], ['recap', 'Nightly recap', '📸'], ['rules', 'Rules & settings', '⚙️'], ['decrees', 'Decrees', '📜'], ['insights', 'Insights', '📈']];
 
 // ---- League settings (Commissioner tab) ----
 
@@ -2791,6 +2993,21 @@ const ACTIONS = {
   'cal-mode': el => { S.calMode = el.dataset.mode; render(); },
   'cal-day': el => { S.calDay = el.dataset.day; render(); },
   'cal-mine': () => { S.calMine = !S.calMine; render(); },
+  'recap-night': el => { S.recapDate = el.dataset.date; render(); },
+  'recap-board': el => { S.recapKind = el.dataset.kind; render(); },
+  'recap-download': () => recapBlob().then(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = recapFile(); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); }),
+  'recap-copy-img': async () => {
+    try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': recapBlob() })]); toast('Image copied. Paste it into the chat.'); } catch { toast("This browser can't copy images. Use Download instead.", true); }
+  },
+  'recap-share': async () => {
+    const b = await recapBlob();
+    if (!b) return;
+    try { await navigator.share({ files: [new File([b], recapFile(), { type: 'image/png' })], text: S.recap?.text || '' }); } catch (e) { if (e?.name !== 'AbortError') toast("Couldn't open sharing. Use Download instead.", true); }
+  },
+  'recap-copy-text': async () => {
+    try { await navigator.clipboard.writeText(S.recap?.text || ''); toast('Fun stats copied.'); }
+    catch { toast('Could not copy. Your browser blocked clipboard access.', true); }
+  },
   'cal-retry': () => { if (S.cal) S.cal.err = null; loadCalendar(true); render(); },
   'pack-open': el => openWaitingPack(el.dataset.key),
   'pack-practice': () => practicePack(),
