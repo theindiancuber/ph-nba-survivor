@@ -224,3 +224,33 @@ test('season awards: category titles, fun and shame awards, decided at season en
   // Nobody qualifies for awards with a zero count.
   assert.equal(fame.insurance.leader, null);
 });
+
+test('a live week pays nothing in a category until a pick in it has played', () => {
+  const live = wk(1, { final: false, lockAt: '2026-10-20T19:00:00Z', start: '2026-10-20', end: '2026-11-01' });
+  const now = Date.parse('2026-10-20T20:00:00Z');
+  const picks = [
+    pick('a', 1, 'PTS', 1, { double_down: true }), pick('a', 1, 'REB', 2),
+    pick('b', 1, 'PTS', 3), pick('b', 1, 'REB', 4),
+    pick('c', 1, 'PTS', 5), pick('c', 1, 'REB', 6),
+  ];
+  // Nothing played yet: everyone ties at 0 but nobody collects tie points, Double Down included.
+  let L = computeLeague({ weeks: [live], totals: {}, picks, profiles, now });
+  assert.equal(L.weeks[0].status, 'live');
+  for (const id of ['a', 'b', 'c']) assert.equal(L.weeks[0].results[id].score, 0);
+
+  // One rebounder has played: REB scores (ties included), PTS still doesn't.
+  L = computeLeague({ weeks: [live], totals: { 1: { final: false, p: { 4: [1, 2, 9, 1] } } }, picks, profiles, now });
+  const r = L.weeks[0].results;
+  assert.equal(r.b.slots.REB.rank, 2);
+  assert.equal(r.a.slots.REB.rank, 0.5);
+  assert.equal(r.c.slots.REB.rank, 0.5);
+  for (const id of ['a', 'b', 'c']) assert.equal(r[id].slots.PTS.rank, 0);
+});
+
+test('a final week still pays ½ per tie, even at 0', () => {
+  const totals = { 1: { final: true, p: { 1: [2, 0, 0, 0], 3: [2, 0, 0, 0] } } };
+  const picks = [pick('a', 1, 'PTS', 1), pick('b', 1, 'PTS', 3)];
+  const L = computeLeague({ weeks: [wk(1)], totals, picks, profiles, now: NOW });
+  assert.equal(L.weeks[0].results.a.slots.PTS.rank, 0.5);
+  assert.equal(L.weeks[0].results.b.slots.PTS.rank, 0.5);
+});

@@ -166,6 +166,10 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       // An empty slot ranks below everyone and earns nothing.
       // Opposite Day: the lowest total wins, but an empty slot or a fumble still ranks last.
       const flip = is('opposite', slot);
+      // In a live week a category pays nothing until someone's pick in it has played. Otherwise
+      // the whole league ties at 0 at the lock and everyone collects ½ a point per colleague
+      // (doubled for a Double Down) before a game has been played.
+      const started = status === 'final' || entrants.some(id => results[id].slots[slot].gp > 0);
       const pts = rankPoints(entrants.map(id => {
         const s = results[id].slots[slot];
         if (s.missing) return -Infinity;
@@ -174,7 +178,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       }));
       entrants.forEach((id, i) => {
         const s = results[id].slots[slot];
-        s.rank = s.missing ? 0 : pts[i] * (s.dd ? 2 : 1) * (is('spotlight', slot) ? 2 : 1);
+        s.rank = s.missing || !started ? 0 : pts[i] * (s.dd ? 2 : 1) * (is('spotlight', slot) ? 2 : 1);
         s.owned = s.scorer != null && !s.copy ? ownership[slot][s.scorer] : 0;
       });
     }
