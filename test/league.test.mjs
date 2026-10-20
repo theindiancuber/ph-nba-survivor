@@ -238,13 +238,27 @@ test('a live week pays nothing in a category until a pick in it has played', () 
   assert.equal(L.weeks[0].status, 'live');
   for (const id of ['a', 'b', 'c']) assert.equal(L.weeks[0].results[id].score, 0);
 
-  // Two rebounders have played: they rank against each other; the one still waiting scores 0 for now.
-  L = computeLeague({ weeks: [live], totals: { 1: { final: false, p: { 4: [1, 2, 9, 1], 6: [1, 2, 5, 1] } } }, picks, profiles, now });
-  const r = L.weeks[0].results;
-  assert.equal(r.b.slots.REB.rank, 1);
-  assert.equal(r.c.slots.REB.rank, 0);
+  // Only b's rebounder has played: he beats everyone (the others count as 0); they score 0 for now.
+  L = computeLeague({ weeks: [live], totals: { 1: { final: false, p: { 4: [1, 2, 9, 1] } } }, picks, profiles, now });
+  let r = L.weeks[0].results;
+  assert.equal(r.b.slots.REB.rank, 2);
   assert.equal(r.a.slots.REB.rank, 0, 'a pick that has not played earns nothing yet, even tied at 0');
+  assert.equal(r.c.slots.REB.rank, 0);
   for (const id of ['a', 'b', 'c']) assert.equal(r[id].slots.PTS.rank, 0);
+
+  // c's rebounder plays too (5): b still beats both, c beats a (still waiting); a scores 0.
+  L = computeLeague({ weeks: [live], totals: { 1: { final: false, p: { 4: [1, 2, 9, 1], 6: [1, 2, 5, 1] } } }, picks, profiles, now });
+  r = L.weeks[0].results;
+  assert.equal(r.b.slots.REB.rank, 2);
+  assert.equal(r.c.slots.REB.rank, 1);
+  assert.equal(r.a.slots.REB.rank, 0);
+
+  // A played pick that scored 0 ties with the waiting picks: ½ each for him, nothing for them.
+  L = computeLeague({ weeks: [live], totals: { 1: { final: false, p: { 4: [1, 0, 0, 0] } } }, picks, profiles, now });
+  r = L.weeks[0].results;
+  assert.equal(r.b.slots.REB.rank, 1);
+  assert.equal(r.a.slots.REB.rank, 0);
+  assert.equal(r.c.slots.REB.rank, 0);
 });
 
 test('a live week: a played pick beats an empty slot, but not a pick still waiting to play', () => {
