@@ -9,7 +9,7 @@ export const UPDATES = [
     title: 'A fresh new look',
     items: [
       'The whole app has been redesigned: cleaner type, calmer colours and everything lined up, on phones too.',
-      "A new league badge: Peakhill's peak and hill on NBA red and blue, with a shot dropping off the summit.",
+      "A new league badge: the Peakhill Capital peak on an NBA-style navy and red panel, with a shot dropping off the summit.",
       'Pop-ups slide up from the bottom on a phone, and the news ticker pauses when you hover over it.',
       'Signed out, you only see the sign-in page and the Rules, since everything else needs an account.',
     ],

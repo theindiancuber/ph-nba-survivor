@@ -16,9 +16,9 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const reduced = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-// The league badge: an NBA-style split panel with Peakhill's peak and hill, and a shot dropping off the summit.
+// The league badge: Peakhill Capital's peak monogram on an NBA-style navy and red panel, with a shot dropping off the summit.
 let logoN = 0;
-const logo = (id = `phm-${++logoN}`) => `<svg viewBox="-7 0 40 40" aria-hidden="true"><defs><clipPath id="${id}"><rect x="1" y="1" width="24" height="38" rx="5"/></clipPath></defs><rect width="26" height="40" rx="6" fill="#fff"/><g clip-path="url(#${id})"><rect width="26" height="40" fill="#c8102e"/><rect width="13" height="40" fill="#1d428a"/><path d="M-2 41L6.2 25.5L13 33.5V41Z" fill="#fff" fill-opacity=".62"/><path d="M1 41L15 18L29 41Z" fill="#fff"/><path d="M6.6 23.4C7.6 16.6 11.4 11.3 15.6 9.6" stroke="#fff" stroke-width="1.15" stroke-dasharray="1 1.65" stroke-linecap="round" fill="none"/><circle cx="19.2" cy="8.4" r="3.8" fill="#fff"/><path d="M15.4 8.4h7.6M19.2 4.6v7.6M16.5 5.6c1.3 1.2 1.3 4.4 0 5.6M21.9 5.6c-1.3 1.2-1.3 4.4 0 5.6" stroke="#c8102e" stroke-width=".75" fill="none"/></g></svg>`;
+const logo = (id = `phm-${++logoN}`) => `<svg viewBox="-8 0 44 44" aria-hidden="true"><defs><clipPath id="${id}"><rect x="1.2" y="1.2" width="25.6" height="41.6" rx="5"/></clipPath></defs><rect width="28" height="44" rx="6.2" fill="#fff"/><g clip-path="url(#${id})"><rect width="28" height="44" fill="#c8102e"/><rect width="14" height="44" fill="#022350"/><path fill="#fff" fill-rule="evenodd" transform="translate(3 21.6) scale(.0981)" d="M112.5 0L146 48.5L134.9 64.6L112.5 32.1L36.4 143H80.6L66 163.5H0Z M154.5 62L224.2 163.5H106.3L83.1 195.8L69.1 185.5Z M154 94.3L120.4 143H187.6Z"/><path d="M14.1 19.2C14.4 13.6 16.4 10.4 18.4 9.3" stroke="#fff" stroke-width="1.05" stroke-dasharray=".95 1.55" stroke-linecap="round" fill="none"/><circle cx="21" cy="8.2" r="3.7" fill="#fff"/><path d="M17.3 8.2h7.4M21 4.5v7.4M18.4 5.5c1.26 1.2 1.26 4.2 0 5.4M23.6 5.5c-1.26 1.2-1.26 4.2 0 5.4" stroke="#c8102e" stroke-width=".74" fill="none"/></g></svg>`;
 
 // ---------- Card faces ----------
 
