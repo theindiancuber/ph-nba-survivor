@@ -367,3 +367,17 @@ test('one swap per pack before the lock; a late or second swap is ignored', () =
   assert.deepEqual([pack('c').keep, pack('c').auto, pack('c').repicked], [null, true, false]);
   assert.equal(L.users.c.cards.hand[0].card, 'embargo');
 });
+
+test('kept cards are final after Week 1: a swap on a later pack is ignored', () => {
+  const weeks = [wk(1), wk(2)];
+  const deal = () => ['embargo', 'jinx', 'leech'];
+  const keep = (uid, pick, at) => ({ id: `a${uid}${pick}`, user_id: 'a', week: 2, card: '_keep', card_uid: uid, params: { pick }, created_at: at });
+  const t = s => new Date(Date.parse(before(2)) + s * 1000).toISOString();
+  // Cards start in week 2 here, so the Starter Pack is a week-2 pack.
+  const plays = [keep('pack:w2:starter', 0, t(1)), keep('repick:w2:starter', 2, t(2))];
+  const L = computeLeague({ weeks, totals: {}, picks: [], plays, profiles, now: NOW, cardsFrom: 2, dealer: deal });
+  const pack = L.users.a.cards.packs[0];
+  assert.equal(pack.step, 2);
+  assert.deepEqual([pack.first, pack.keep, pack.repicked], [0, 0, false]);
+  assert.equal(L.users.a.cards.hand[0].card, 'embargo');
+});

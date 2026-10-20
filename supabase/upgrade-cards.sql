@@ -1,6 +1,6 @@
 -- Peakhill NBA Survivor: Joker cards. Run once in the Supabase SQL editor. Safe to re-run.
 --
--- What's stored: the card you kept from each pack ('_keep', plus one 'repick:' change of mind), duel answers ('_reply'),
+-- What's stored: the card you kept from each pack ('_keep'; in Week 1 also one 'repick:' change of mind), duel answers ('_reply'),
 -- gifts and plays. The league engine rebuilds every hand from these rows and ignores
 -- (and flags at the reveal) any play for a card you don't actually hold.
 -- Packs are dealt from a secret seed, so nobody can work out a colleague's hand early.
@@ -65,22 +65,12 @@ create policy "card plays readable" on public.card_plays for select to authentic
     user_id = auth.uid() or public.week_locked(week) or card = 'embargo'
     or (card in ('duel', '_reply') and target_id = auth.uid())
   );
--- A change of mind is a second '_keep' row, 'repick:<pack key>': one per pack (the unique
--- index), before the lock, only after a first keep, and not while that card is played,
--- armed or gifted.
+-- Kept cards are final. (Week 1 allowed one change of mind per pack, a second '_keep' row
+-- 'repick:<pack key>'; those rows still count, but no new ones are accepted.)
 create policy "card plays insert own" on public.card_plays for insert to authenticated
   with check (
     user_id = auth.uid() and public.card_window(card, week)
-    and (
-      card <> '_keep' or coalesce(card_uid, '') not like 'repick:%'
-      or (
-        exists (select 1 from public.card_plays k
-                where k.user_id = auth.uid() and k.card = '_keep' and k.week = card_plays.week
-                  and k.card_uid = 'pack:' || substr(card_plays.card_uid, 8))
-        and not exists (select 1 from public.card_plays x
-                where x.user_id = auth.uid() and x.card_uid = substr(card_plays.card_uid, 8))
-      )
-    )
+    and (card <> '_keep' or coalesce(card_uid, '') not like 'repick:%')
   );
 -- Kept cards are final, and a Scout Report can't be taken back once it's been read:
 -- a made-up Scout play stays on the record and is flagged at the reveal.

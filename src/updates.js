@@ -4,6 +4,15 @@
 
 export const UPDATES = [
   {
+    id: 12,
+    date: '2026-10-20',
+    title: 'Kept cards are final',
+    items: [
+      'Swapping the card you kept from a pack was a Week 1 thing while everyone learned the cards. From now on, the card you keep is the one you get.',
+      'Swaps made in Week 1 still stand.',
+    ],
+  },
+  {
     id: 11,
     date: '2026-10-20',
     title: 'No free points at the lock',

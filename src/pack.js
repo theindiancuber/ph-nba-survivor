@@ -433,7 +433,7 @@ export function openPack({ pack, cards, onKeep, practice = false }) {
     function chooseMode() {
       if (state !== 'flip') return;
       setState('keep');
-      hint.textContent = practice ? 'Keep one. The other two burn.' : 'Keep one. Changed your mind? You get one swap before the lock.';
+      hint.textContent = practice ? 'Keep one. The other two burn.' : 'Keep one. The other two burn, and your choice is final.';
       actions.innerHTML = '<button class="btn primary pk-keep" type="button" disabled>Pick a card to keep</button>';
       actions.querySelector('.pk-keep').addEventListener('click', keep);
     }

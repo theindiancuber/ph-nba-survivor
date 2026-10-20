@@ -32,7 +32,8 @@ export const LEAGUE = {
 
   // Joker cards. startWeek is the first week packs are dealt. A card played on
   // someone counts as an attack; each person takes at most attackCap a week.
-  cards: { startWeek: 1, handLimit: 4, attackCap: 2, duelStake: 5, heist: 3, embargoHours: 24 },
+  // swapsThroughWeek: packs up to this week could swap their kept card once (a learning week). Later kept cards are final.
+  cards: { startWeek: 1, handLimit: 4, attackCap: 2, duelStake: 5, heist: 3, embargoHours: 24, swapsThroughWeek: 1 },
 
   // Commissioner's Decree: a one-week rule twist, posted at least noticeHours before
   // the lock (votes close then too). perSeason must match supabase/upgrade-decree.sql.

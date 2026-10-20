@@ -211,7 +211,8 @@ function newSlotMaps() { return Object.fromEntries(SLOTS.map(s => [s, new Map()]
 
 // Rebuilds everyone's packs and hands week by week, and decides which plays are valid.
 // A '_keep' row's card_uid is `pack:<pack key>`; the card it keeps then goes by the pack key.
-// One change of mind per pack is allowed before the lock: a second '_keep' row with `repick:<pack key>`.
+// Packs up to LEAGUE.cards.swapsThroughWeek allowed one change of mind before the lock: a second '_keep'
+// row with `repick:<pack key>`. After that, kept cards are final and repick rows are ignored.
 // The league engine calls begin() before scoring a week and end() after it.
 export class CardTable {
   constructor({ users, plays, weeks, byWeek, from, dealer, decrees = {} }) {
@@ -279,7 +280,7 @@ export class CardTable {
           && (!k.created_at || Date.parse(k.created_at) < lockT);
         const k = this.keeps[`${u.id}|${st.key}`], r = this.repicks[`${u.id}|${st.key}`];
         const first = valid(k) ? k.params.pick : null;
-        const repicked = first != null && valid(r) && byTime(k, r) <= 0;
+        const repicked = W <= LEAGUE.cards.swapsThroughWeek && first != null && valid(r) && byTime(k, r) <= 0;
         const keep = repicked ? r.params.pick : first;
         c.packs.push({ ...st, step: W, tier, cards, keep, first, repicked, auto: keep == null && locked });
         if (keep != null || locked) c.hand.push({ uid: st.key, card: cards[keep ?? 0], step: W, from: st.kind });
