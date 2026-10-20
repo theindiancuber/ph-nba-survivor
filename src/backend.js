@@ -158,6 +158,35 @@ Object.assign(SupabaseBackend.prototype, {
     if (error) throw error;
     return data;
   },
+  // Prefer admin_checkin when upgrade-commissioner-ops.sql has been run; fall back to slot counts only.
+  async adminCheckin(week) {
+    const { data, error } = await this.sb.rpc('admin_checkin', { w: week });
+    if (!error && Array.isArray(data)) return data;
+    if (error && !/does not exist|schema cache|function/i.test(error.message || '')) throw error;
+    const status = await this.adminPickStatus(week);
+    return status.map(r => ({ ...r, pack_kept: false, played: false }));
+  },
+  async adminVoteTurnout(week) {
+    const { data, error } = await this.sb.rpc('admin_vote_turnout', { w: week });
+    if (error) throw error;
+    return data || [];
+  },
+  async adminWeekRows(week) {
+    const { data, error } = await this.sb.rpc('admin_week_rows', { w: week });
+    if (error) throw error;
+    return data || [];
+  },
+  async adminWeekPlays(week) {
+    const { data, error } = await this.sb.rpc('admin_week_plays', { w: week });
+    if (error) throw error;
+    return data || [];
+  },
+  async adminPackSeeds() {
+    const { data, error } = await this.sb.rpc('admin_pack_seeds');
+    if (error) throw error;
+    if (!Array.isArray(data)) return null;
+    return Object.fromEntries(data.map(x => [`${x.user_id}|${x.week}`, x.seed]));
+  },
   async adminBlocked() {
     const { data, error } = await this.sb.rpc('admin_blocked');
     if (error) throw error;
@@ -426,5 +455,43 @@ export class DemoBackend {
       if (p.alt_id != null) r.backups++;
     }
     return Object.values(by);
+  }
+
+  async adminCheckin(week) {
+    const by = Object.fromEntries((await this.adminPickStatus(week)).map(r => [r.user_id, { ...r, pack_kept: false, played: false }]));
+    const MAIN = new Set([
+      'jinx', 'load', 'heist', 'blue_shell', 'burn_notice', 'clown', 'nickname',
+      'sixth', 'copycat', 'leech', 'switcheroo', 'garbage', 'embargo', 'scout', 'duel',
+    ]);
+    for (const p of this.state.profiles) {
+      const r = by[p.id] ||= { user_id: p.id, slots: 0, backups: 0, last_saved: null, pack_kept: false, played: false };
+      r.pack_kept = this.state.plays.some(x => x.user_id === p.id && x.week === week && x.card === '_keep' && String(x.card_uid || '').startsWith(`pack:w${week}:`));
+      r.played = this.state.plays.some(x => x.user_id === p.id && x.week === week && MAIN.has(x.card));
+    }
+    return Object.values(by);
+  }
+
+  async adminVoteTurnout(week) {
+    return (this.state.votes || []).filter(v => v.week === week).map(v => ({ user_id: v.user_id }));
+  }
+
+  async adminWeekRows(week) {
+    return this.state.picks.filter(p => p.week === week).map(p => ({
+      user_id: p.user_id, slot: p.slot, player_id: p.player_id, alt_id: p.alt_id ?? null,
+      double_down: !!p.double_down, auto: !!p.auto,
+      updated_at: p.updated_at || new Date(this.now() - 3600e3).toISOString(),
+    }));
+  }
+
+  async adminWeekPlays(week) {
+    return this.state.plays.filter(p => p.week === week).map(p => ({ ...p }));
+  }
+
+  async adminPackSeeds() {
+    const out = {};
+    for (const p of this.state.profiles) {
+      for (const w of this.seed.weeks) out[`${p.id}|${w.week}`] = `demo-${p.id}-${w.week}`;
+    }
+    return out;
   }
 }
