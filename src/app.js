@@ -58,6 +58,7 @@ async function boot() {
   window.addEventListener('beforeunload', e => { if (S.draft?.dirty) { e.preventDefault(); e.returnValue = ''; } });
   setInterval(tick, 1000);
   await start();
+  bindBrandGesture();
   if (!DEMO) {
     setInterval(async () => { if (!S.league) return; S.data = await loadData().catch(() => S.data); safeRefresh(); }, 5 * 60e3);
     document.addEventListener('visibilitychange', () => { if (!document.hidden && S.league) safeRefresh(); });
@@ -635,7 +636,7 @@ function choose(pid) {
   render();
 }
 
-function closeModal() { $('#modal-root').innerHTML = ''; S.picker = null; S.play = null; }
+function closeModal() { $('#modal-root').innerHTML = ''; S.picker = null; S.play = null; S.opsOpen = false; }
 
 async function save() {
   const d = S.draft;
@@ -1429,10 +1430,29 @@ function weekAdjustments(week) {
 const signed = n => `${n > 0 ? '+' : ''}${fmt(n)}`;
 const adjText = a => [a.points ? `${signed(a.points)} pts` : '', a.lives ? `${signed(a.lives)} ${Math.abs(a.lives) === 1 ? 'life' : 'lives'}` : ''].filter(Boolean).join(', ');
 
+function resultsMineStrip(w) {
+  const id = myId();
+  if (!id || !w.results[id]) return '';
+  const r = w.results[id];
+  const rank = [...w.entrants].sort((a, b) => w.results[b].score - w.results[a].score).findIndex(x => x === id) + 1;
+  const hits = (w.cards?.plays || []).filter(p => p.ok && p.target_id === id && !['_keep', '_reply'].includes(p.card));
+  const hitTxt = hits.length
+    ? hits.slice(0, 4).map(p => `${CARDS[p.card]?.icon || '🎴'} ${CARDS[p.card]?.name || p.card}${p.user_id ? ` · ${userName(p.user_id)}` : ''}`).join(' · ')
+    : 'Nothing landed on you';
+  return `<div class="results-mine">
+    <div class="stat"><b>#${rank}</b><small>Your place</small></div>
+    <div class="stat"><b class="num">${fmt(r.score)}</b><small>Your points</small></div>
+    <div class="stat"><b>${r.cleared}/${SLOTS.length}</b><small>Bars cleared</small></div>
+    <div class="stat"><b>${w.status === 'final' ? (r.survived ? '✓' : 'Lost a life') : '…'}</b><small>Survivor</small></div>
+    <div class="results-mine-hits"><small class="kicker">Cards that hit you</small><div>${esc(hitTxt)}</div></div>
+  </div>`;
+}
+
 function viewResults() {
   const weeks = lockedWeeks();
   if (!weeks.length) return `<section class="panel empty-state"><div class="ic">🔒</div><b>Nothing to show yet.</b><p>Everyone's picks are revealed when Week 1 locks.</p></section>`;
   const w = weekObj(S.resultsWeek) && weekObj(S.resultsWeek).status !== 'open' ? weekObj(S.resultsWeek) : weeks[weeks.length - 1];
+  const recent = weeks.slice(-8);
   const rows = [...w.entrants].sort((a, b) => w.results[b].score - w.results[a].score);
   let prevScore = null, rank = 0;
   const body = rows.map((id, i) => {
@@ -1452,7 +1472,14 @@ function viewResults() {
   return `<div class="grid">
     <section class="panel">
       <div class="panel-title"><h2>Week ${w.week} ${w.status === 'live' ? '<span class="badge live">Live</span>' : '<span class="badge final">Final</span>'}</h2>
-        <div class="pills">${weeks.map(x => `<button class="pill ${x.status === 'live' ? 'live' : ''}" data-act="results-week" data-week="${x.week}" aria-pressed="${x.week === w.week}">Wk ${x.week}</button>`).join('')}</div></div>
+        <div class="results-week-nav">
+          <label class="field" style="margin:0;min-width:140px"><span class="dim" style="font-size:11px">Jump to week</span>
+            <select class="input" data-change="results-week-select" aria-label="Results week">${[...weeks].reverse().map(x =>
+              `<option value="${x.week}" ${x.week === w.week ? 'selected' : ''}>Week ${x.week}${x.status === 'live' ? ' · live' : ''}</option>`).join('')}
+            </select></label>
+          <div class="pills">${recent.map(x => `<button class="pill ${x.status === 'live' ? 'live' : ''}" data-act="results-week" data-week="${x.week}" aria-pressed="${x.week === w.week}">Wk ${x.week}</button>`).join('')}</div>
+        </div></div>
+      ${resultsMineStrip(w)}
       ${weekAdjustments(w.week)}
       ${w.decree ? `<div class="decree slim"><span>📜 Decree: <b>${w.decree.icon} ${esc(w.decree.title)}</b></span> <span class="dim">${esc(w.decree.text)}</span></div>` : ''}
       <p class="muted" style="margin:-6px 0 12px;font-size:13px">${weekRange(w)} · bars ${SLOTS.map(s => `${LEAGUE.bars[s]} ${INFO[s].short}`).join(' / ')} · (B) backup scored · 🔥 Double Down · card icons show what hit a pick (hover for who)</p>
@@ -1583,11 +1610,23 @@ function loadAdmin() {
   if (S.adminLoading) return;
   S.adminLoading = true;
   const wk = S.league.openWeek;
+  const voteWeek = Object.values(S.decrees || {}).find(d => d.vote && !d.closed)?.week;
   Promise.all([
-    S.backend.adminMembers(), wk != null ? S.backend.adminPickStatus(wk) : [],
-    S.backend.adminBlocked().catch(() => []), S.backend.adminGetInvite().catch(() => undefined),
+    S.backend.adminMembers(),
+    wk != null ? S.backend.adminCheckin(wk).catch(() => S.backend.adminPickStatus(wk)) : [],
+    S.backend.adminBlocked().catch(() => []),
+    S.backend.adminGetInvite().catch(() => undefined),
+    voteWeek != null ? S.backend.adminVoteTurnout(voteWeek).catch(() => []) : [],
   ])
-    .then(([members, status, blocked, invite]) => { S.adminData = { members, blocked, invite, status: Object.fromEntries(status.map(r => [r.user_id, r])), week: wk }; })
+    .then(([members, status, blocked, invite, voters]) => {
+      S.adminData = {
+        members, blocked, invite,
+        status: Object.fromEntries(status.map(r => [r.user_id, r])),
+        voters: new Set((voters || []).map(v => v.user_id)),
+        voteWeek,
+        week: wk,
+      };
+    })
     .catch(e => { S.adminData = { error: e.message || String(e), week: wk }; })
     .finally(() => { S.adminLoading = false; if (S.view === 'admin') render(); });
 }
@@ -1610,6 +1649,15 @@ function stillToPick() {
   return (d?.members || []).filter(m => (d.status[m.user_id]?.slots || 0) < SLOTS.length);
 }
 
+function officeNav() {
+  const links = [
+    ['invite', 'Invite'], ['announce', 'Announce'], ['reminder', 'Reminder'], ['rules', 'Rules'],
+    ['season', 'Season'], ['adjust', 'Adjust'], ['decree', 'Decree'], ['checkin', 'Check-in'], ['stats', 'Season stats'],
+  ];
+  return `<nav class="office-nav" aria-label="Office sections">${links.map(([id, label]) =>
+    `<a class="pill" href="#admin" data-act="office-jump" data-target="office-${id}">${label}</a>`).join('')}</nav>`;
+}
+
 function viewAdmin() {
   const L = S.league;
   const open = L.openWeek != null ? weekObj(L.openWeek) : null;
@@ -1617,14 +1665,17 @@ function viewAdmin() {
   const st = funStats(L, S.data.players, S.data.teams);
   return `<div class="grid">
     <section class="hero"><span class="badge">🔒 Commissioner only</span><h1>The Commissioner's office</h1>
-      <div class="sub">Only accounts in the admins table can open this. Everyone's picks stay hidden until each lock, including from you.</div></section>
-    ${adminInvite()}
-    ${adminAnnounce()}
-    ${adminRules()}
-    ${adminSeason()}
-    ${adminAdjust()}
-    ${adminDecree()}
-    ${adminRoster(open)}
+      <div class="sub">Only accounts in the admins table can open this. Check-in shows slot counts, never which players — safe to glance at before lock.</div></section>
+    ${officeNav()}
+    <div id="office-invite">${adminInvite()}</div>
+    <div id="office-announce">${adminAnnounce()}</div>
+    <div id="office-reminder">${adminReminder(open)}</div>
+    <div id="office-rules">${adminRules()}</div>
+    <div id="office-season">${adminSeason()}</div>
+    <div id="office-adjust">${adminAdjust()}</div>
+    <div id="office-decree">${adminDecree()}</div>
+    <div id="office-checkin">${adminRoster(open)}</div>
+    <div id="office-stats">
     ${adminTiles(st)}
     ${adminStrategy(perfectPlay(L, S.data.totals))}
     ${adminLedger(st)}
@@ -1639,6 +1690,7 @@ function viewAdmin() {
     </section>
     ${adminFirepower(st)}
     ${adminStyles(st)}
+    </div>
   </div>`;
 }
 
@@ -1658,6 +1710,44 @@ function adminAnnounce() {
       <textarea class="input" name="text" maxlength="280" rows="2" placeholder="e.g. Picks lock tonight at 7pm. Don't let Autopilot pick for you." required></textarea>
       <div><button class="btn" type="submit">${a?.text ? 'Replace announcement' : 'Post announcement'}</button></div>
     </form></section>`;
+}
+
+function reminderText(open) {
+  if (!open) return 'No open week right now.';
+  const need = stillToPick();
+  const dec = S.decrees?.[open.week];
+  const lines = [
+    `Peakhill NBA Survivor — Week ${open.week}`,
+    `Picks lock ${lockText(open.lockAt)}. Don't leave it to Autopilot.`,
+  ];
+  if (dec?.vote && !dec.closed) lines.push(`Vote open on this week's decree (${dec.options.map(c => parseDecree(c).title).join(' / ')}).`);
+  else if (dec?.decree) lines.push(`Decree this week: ${dec.decree.icon} ${dec.decree.title} — ${dec.decree.text}`);
+  lines.push('');
+  if (need.length) {
+    lines.push(`${need.length} still to pick:`);
+    for (const m of need) lines.push(`- ${m.display_name}${m.email ? ` <${m.email}>` : ''}`);
+  } else {
+    lines.push('Everyone has all four slots filled. Nice.');
+  }
+  lines.push('', 'Pick here: ' + location.origin + location.pathname + '#week');
+  return lines.join('\n');
+}
+
+function adminReminder(open) {
+  const text = reminderText(open);
+  const need = stillToPick();
+  const emails = need.map(m => m.email).filter(Boolean);
+  const mailto = emails.length
+    ? `mailto:?bcc=${encodeURIComponent(emails.join(','))}&subject=${encodeURIComponent(`Peakhill Survivor — Week ${open?.week} locks soon`)}&body=${encodeURIComponent(text)}`
+    : '';
+  return `<section class="panel"><div class="panel-title"><h2>📨 Lock-night reminder</h2><span class="muted">Copy or mail a nudge. Counts and names only — never which players.</span></div>
+    <textarea class="input" id="reminder-text" rows="8" readonly style="font-family:var(--body);font-size:13px;line-height:1.45">${esc(text)}</textarea>
+    <div class="row-actions" style="margin-top:12px">
+      <button class="btn" data-act="copy-reminder" ${open ? '' : 'disabled'}>Copy text</button>
+      ${mailto ? `<a class="btn ghost" href="${mailto}">Open email draft</a>` : `<button class="btn ghost" disabled>Open email draft</button>`}
+      <button class="btn ghost" data-act="copy-emails" ${need.length ? '' : 'disabled'}>Copy emails still to pick</button>
+    </div>
+  </section>`;
 }
 
 // Weeks a rule change can still start from: the open week and later.
@@ -1740,8 +1830,25 @@ function adminDecree() {
       : `${d.decree.icon} <b>${esc(d.decree.title)}</b>`;
     return `<div class="own-row"><span class="tag">Wk ${d.week}</span><div style="flex:1">${what}</div>${open ? `<button class="link danger" data-act="decree-cancel" data-week="${d.week}">Cancel</button>` : '<span class="dim">Locked in</span>'}</div>`;
   }).join('');
+  const openVote = all.find(d => d.vote && !d.closed);
+  const turnout = openVote && S.adminData && !S.adminData.error ? (() => {
+    const voters = S.adminData.voters || new Set();
+    const members = S.adminData.members || [];
+    const missing = members.filter(m => !voters.has(m.user_id));
+    return `<div class="section-gap"><h3 class="kicker" style="margin:0 0 8px">Week ${openVote.week} vote turnout</h3>
+      <div class="scoreline" style="margin-bottom:10px">
+        <div class="stat"><b>${voters.size}</b><small>Voted</small></div>
+        <div class="stat"><b style="color:var(--orange)">${missing.length}</b><small>Not yet</small></div>
+        <div class="stat"><b>${members.length ? Math.round((voters.size / members.length) * 100) : 0}%</b><small>Turnout</small></div>
+      </div>
+      <p class="note" style="margin:0 0 8px">Shows who has voted, never which option. Choices stay private.</p>
+      ${missing.length ? `<div class="row-actions"><button class="btn small" data-act="copy-nonvoters">Copy non-voter emails</button></div>
+        <p class="dim" style="font-size:12.5px;margin:8px 0 0">${missing.map(m => esc(m.display_name)).join(' · ')}</p>` : '<p class="muted" style="margin:0">Everyone has voted.</p>'}
+    </div>`;
+  })() : '';
   return `<section class="panel decree-admin"><div class="panel-title"><h2>📜 Commissioner's Decree</h2><span class="muted">${left} of ${C.perSeason} left this season · everyone sees it once it's posted</span></div>
     ${list ? `<div style="display:grid;gap:8px;margin-bottom:16px">${list}</div>` : ''}
+    ${turnout}
     ${left <= 0 ? '<p class="muted" style="margin:0">That\'s every decree for the season.</p>'
       : !eligible.length ? `<p class="muted" style="margin:0">No week is far enough out. Decrees go up at least ${C.noticeHours} hours before a lock.</p>`
       : `<div class="decree-form">
@@ -1792,19 +1899,45 @@ function adminInvite() {
   </section>`;
 }
 
+function rosterFilterMatch(m, r, filter) {
+  const n = r?.slots || 0;
+  const backups = r?.backups || 0;
+  if (filter === 'none') return n === 0;
+  if (filter === 'partial') return n > 0 && n < SLOTS.length;
+  if (filter === 'full') return n === SLOTS.length;
+  if (filter === 'nobackup') return n > 0 && backups === 0;
+  return true;
+}
+
 function adminRoster(open) {
   const d = S.adminData;
   if (!d) return `<section class="panel"><div class="panel-title"><h2>Members</h2></div><p class="muted">Loading members…</p></section>`;
-  if (d.error) return `<section class="panel"><div class="panel-title"><h2>Members</h2></div><p class="err">${esc(d.error)}</p><p class="note">If this says the function doesn't exist, run supabase/admin.sql in the Supabase SQL editor.</p></section>`;
+  if (d.error) return `<section class="panel"><div class="panel-title"><h2>Members</h2></div><p class="err">${esc(d.error)}</p><p class="note">If this says the function doesn't exist, run supabase/admin.sql (and upgrade-commissioner-ops.sql for the richer check-in) in the Supabase SQL editor.</p></section>`;
+  const filter = S.checkinFilter || 'all';
   const full = d.members.filter(m => (d.status[m.user_id]?.slots || 0) === SLOTS.length).length;
-  const none = d.members.filter(m => !d.status[m.user_id]).length;
-  const rows = d.members.map(m => {
+  const none = d.members.filter(m => !(d.status[m.user_id]?.slots)).length;
+  const noBackup = d.members.filter(m => {
+    const r = d.status[m.user_id];
+    return (r?.slots || 0) > 0 && !(r?.backups);
+  }).length;
+  const packKept = d.members.filter(m => d.status[m.user_id]?.pack_kept).length;
+  const played = d.members.filter(m => d.status[m.user_id]?.played).length;
+  const filtered = d.members.filter(m => rosterFilterMatch(m, d.status[m.user_id], filter));
+  const filters = [
+    ['all', 'All', d.members.length],
+    ['none', 'Not started', none],
+    ['partial', 'Partial', d.members.length - full - none],
+    ['full', 'Full', full],
+    ['nobackup', 'No backups', noBackup],
+  ];
+  const rows = filtered.map(m => {
     const r = d.status[m.user_id];
     const n = r?.slots || 0;
-    const tag = n === SLOTS.length ? `<span class="tag green">${n}/${n} ✓</span>` : n ? `<span class="tag gold">${n}/${SLOTS.length}</span>` : '<span class="tag">Not started</span>';
+    const tag = n === SLOTS.length ? `<span class="tag green">${n}/${SLOTS.length} ✓</span>` : n ? `<span class="tag gold">${n}/${SLOTS.length}</span>` : '<span class="tag">Not started</span>';
+    const flags = open ? `<span class="checkin-flags">${r?.pack_kept ? '<span class="tag" title="Opened a pack this week">Pack</span>' : ''}${r?.played ? '<span class="tag green" title="Main card play in">Card</span>' : ''}${n && !r?.backups ? '<span class="tag gold" title="No backups set">0 bak</span>' : ''}</span>` : '';
     return `<tr class="${m.user_id === myId() ? 'me' : ''}"><td><div class="who">${avatar(m.user_id)}<b>${esc(m.display_name)}</b></div></td>
       <td class="hide-sm"><span class="muted" style="font-size:13px">${esc(m.email || '')}</span></td>
-      ${open ? `<td>${tag}${r?.backups ? ` <span class="dim" style="font-size:12px">+${r.backups} backup${r.backups > 1 ? 's' : ''}</span>` : ''}</td><td class="hide-sm dim" style="font-size:13px">${r ? ago(r.last_saved) : '—'}</td>` : ''}
+      ${open ? `<td>${tag}${r?.backups ? ` <span class="dim" style="font-size:12px">+${r.backups} bak</span>` : ''} ${flags}</td><td class="hide-sm dim" style="font-size:13px">${r?.last_saved ? ago(r.last_saved) : '—'}</td>` : ''}
       <td class="hide-sm dim" style="font-size:13px">${m.last_sign_in_at ? ago(m.last_sign_in_at) : '—'}</td>
       <td class="hide-sm dim" style="font-size:13px">${dshort(m.joined_at.slice(0, 10))}</td>
       <td class="r">${m.user_id === myId() ? '' : `<button class="link danger" data-act="remove-open" data-id="${m.user_id}">Remove</button>`}</td></tr>`;
@@ -1817,10 +1950,15 @@ function adminRoster(open) {
       ${open ? `<div class="stat"><b style="color:var(--green)">${full}</b><small>All ${SLOTS.length} picks in</small></div>
       <div class="stat"><b style="color:var(--orange)">${d.members.length - full - none}</b><small>Partly picked</small></div>
       <div class="stat"><b style="color:var(--red-hot)">${none}</b><small>Not started</small></div>
+      <div class="stat"><b>${packKept}</b><small>Pack kept</small></div>
+      <div class="stat"><b>${played}</b><small>Card played</small></div>
       <div class="stat"><b class="num" style="font-size:18px">${esc(lockText(open.lockAt))}</b><small>Lock</small></div>` : ''}
     </div>
-    <div class="table-wrap"><table class="board"><thead><tr><th>Member</th><th class="hide-sm">Email</th>${open ? `<th>Wk ${open.week}</th><th class="hide-sm">Last saved</th>` : ''}<th class="hide-sm">Last seen</th><th class="hide-sm">Joined</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-    <p class="note" style="margin:10px 0 0">Shows how many slots each person has filled, never which players, until the lock.</p>
+    ${open ? `<div class="pills checkin-filters" style="margin:0 0 12px">${filters.map(([id, label, n]) =>
+      `<button class="pill" data-act="checkin-filter" data-filter="${id}" aria-pressed="${filter === id}">${label} (${n})</button>`).join('')}</div>
+      ${noBackup ? `<p class="note" style="margin:-4px 0 12px">${noBackup} people have picks in but zero backups — risky if someone sits.</p>` : ''}` : ''}
+    <div class="table-wrap"><table class="board"><thead><tr><th>Member</th><th class="hide-sm">Email</th>${open ? `<th>Wk ${open.week}</th><th class="hide-sm">Last saved</th>` : ''}<th class="hide-sm">Last seen</th><th class="hide-sm">Joined</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="dim">Nobody in this filter.</td></tr>'}</tbody></table></div>
+    <p class="note" style="margin:10px 0 0">Shows how many slots each person has filled (and pack / card flags), never which players or cards, until the lock.</p>
     ${d.blocked?.length ? `<div class="section-gap"><h3 class="kicker" style="margin:0 0 8px">Blocked from signing up</h3>${d.blocked.map(b => `
       <div class="alt-row" style="margin-bottom:6px"><span>${esc(b.email)}</span><span class="dim" style="font-size:12px">since ${dshort(b.blocked_at.slice(0, 10))}</span><button class="link" data-act="unblock" data-email="${esc(b.email)}">Unblock</button></div>`).join('')}</div>` : ''}
   </section>`;
@@ -1909,6 +2047,193 @@ function adminStyles(st) {
       <div><h3 class="kicker" style="margin:0 0 10px">🐐 Chalkiest</h3>${list([...st.contrarian].reverse().slice(0, 6), x => `${Math.round(x.share * 100)}% overlap`) || '<p class="dim">Not enough weeks yet.</p>'}</div>
       <div><h3 class="kicker" style="margin:0 0 10px">🤖 Autopilot regulars</h3>${list(relies, x => `${x.autos} slot${x.autos > 1 ? 's' : ''}`) || '<p class="dim">Everyone has picked for themselves.</p>'}</div>
     </div></section>`;
+}
+
+// ---- Office week board (commissioner tooling; opened from the brand mark) ----
+
+function defaultOpsWeek() {
+  return S.league.openWeek ?? lockedWeeks().at(-1)?.week ?? S.league.weeks[0]?.week ?? 1;
+}
+
+function loadOps(week) {
+  if (!S.isAdmin || S.opsLoading) return;
+  S.opsLoading = true;
+  S.opsWeek = week;
+  Promise.all([
+    S.backend.adminWeekRows(week),
+    S.backend.adminWeekPlays(week).catch(() => []),
+    S.backend.adminPackSeeds().catch(() => null),
+    S.backend.adminMembers().catch(() => S.adminData?.members || []),
+    S.backend.adminCheckin(week).catch(() => []),
+  ])
+    .then(([rows, plays, seeds, members, checkin]) => {
+      S.opsData = { week, rows, plays, seeds, members, checkin: Object.fromEntries(checkin.map(r => [r.user_id, r])) };
+      // Isolated recompute so player-facing S.league / S.db stay RLS-filtered.
+      const pickKey = p => `${p.user_id}|${p.week}|${p.slot}`;
+      const playKey = p => p.id || `${p.user_id}|${p.week}|${p.card}|${p.card_uid || ''}|${p.created_at || ''}`;
+      const picks = [...S.db.picks.filter(p => p.week !== week), ...rows.map(r => ({ ...r, week }))];
+      const seen = new Set();
+      const mergedPicks = [];
+      for (const p of picks) { const k = pickKey(p); if (seen.has(k)) continue; seen.add(k); mergedPicks.push(p); }
+      const playSeen = new Set();
+      const mergedPlays = [];
+      for (const p of [...(S.db.plays || []), ...plays]) {
+        const k = playKey(p);
+        if (playSeen.has(k)) continue;
+        playSeen.add(k);
+        mergedPlays.push(p);
+      }
+      const weeks = S.data.weeks.map(w => ({ ...w, lockAt: S.db.locks[w.week] || w.lockAt }));
+      const seedMap = seeds || S.db.seeds;
+      S.opsLeague = computeLeague({
+        weeks, totals: S.data.totals, picks: mergedPicks, unburns: S.db.unburns, plays: mergedPlays,
+        profiles: S.db.profiles, now: now(), players: S.data.players,
+        cardsFrom: seedMap ? (DEMO ? (S.data.cardsFrom ?? LEAGUE.cards.startWeek) : LEAGUE.cards.startWeek) : Infinity,
+        dealer: seedMap ? seededDealer(seedMap) : undefined,
+        decrees: decreeCodes(S.decrees),
+        rules: S.db.settings?.rules || [], meta: S.db.settings?.meta || {}, adjustments: S.db.settings?.adjustments || [],
+      });
+    })
+    .catch(e => { S.opsData = { week, error: e.message || String(e) }; S.opsLeague = null; })
+    .finally(() => { S.opsLoading = false; if (S.opsOpen) renderOfficeModal(); });
+}
+
+function openOfficeModal() {
+  if (!S.isAdmin) return;
+  S.opsOpen = true;
+  const week = S.opsWeek || defaultOpsWeek();
+  if (!S.opsData || S.opsData.week !== week) loadOps(week);
+  renderOfficeModal();
+}
+
+function renderOfficeModal() {
+  if (!S.opsOpen) return;
+  const week = S.opsWeek || defaultOpsWeek();
+  const body = !S.opsData || S.opsLoading ? '<p class="muted">Loading week board…</p>'
+    : S.opsData.error ? `<p class="err">${esc(S.opsData.error)}</p><p class="note">Run supabase/upgrade-commissioner-ops.sql if the functions are missing.</p>`
+    : officeBoard(week);
+  const weeks = S.league.weeks;
+  $('#modal-root').innerHTML = `<div class="modal-bg" data-act="close-modal-bg"><div class="modal office-modal" role="dialog" aria-modal="true" aria-label="Office week board">
+    <div class="modal-head"><div class="ttl"><h3>Week board</h3>
+      <div class="row-actions">
+        <select class="input" style="width:auto" data-change="ops-week" aria-label="Week">${weeks.map(w =>
+          `<option value="${w.week}" ${w.week === week ? 'selected' : ''}>Wk ${w.week} · ${w.status}</option>`).join('')}</select>
+        <button class="btn small ghost" data-act="ops-refresh">Refresh</button>
+        <button class="close-x" data-act="close-modal" aria-label="Close">×</button>
+      </div></div></div>
+    <div class="modal-body pad office-board">${body}</div>
+  </div></div>`;
+}
+
+function officeBoard(week) {
+  const d = S.opsData;
+  const L = S.opsLeague || S.league;
+  const wk = L.weeks.find(w => w.week === week) || weekObj(week);
+  const members = d.members?.length ? d.members : Object.values(L.users).map(u => ({ user_id: u.id, display_name: u.name }));
+  const byUser = {};
+  for (const r of d.rows || []) {
+    (byUser[r.user_id] ||= {})[r.slot] = r;
+  }
+  const checkin = d.checkin || {};
+  const full = members.filter(m => Object.keys(byUser[m.user_id] || {}).length === SLOTS.length).length;
+  const none = members.filter(m => !Object.keys(byUser[m.user_id] || {}).length).length;
+
+  // Ownership / conflict radar
+  const owners = Object.fromEntries(SLOTS.map(s => [s, {}]));
+  for (const [uid, slots] of Object.entries(byUser)) {
+    for (const s of SLOTS) {
+      const pid = slots[s]?.player_id;
+      if (pid == null) continue;
+      (owners[s][pid] ||= []).push(uid);
+    }
+  }
+  const chalk = SLOTS.map(s => {
+    const top = Object.entries(owners[s]).sort((a, b) => b[1].length - a[1].length).slice(0, 4);
+    return `<div><h3 class="kicker" style="margin:0 0 8px">${INFO[s].emoji} ${INFO[s].name}</h3>${top.map(([pid, who]) =>
+      `<div class="own-row">${thumb(+pid, 'sm')}<div><div style="font-weight:600">${esc(shortName(+pid))}</div><div class="dim" style="font-size:12px">${who.map(id => esc(userName(id))).join(', ')}</div></div><b class="num">${who.length}</b></div>`).join('') || '<p class="dim">Nobody yet.</p>'}</div>`;
+  }).join('');
+
+  const pickCell = (uid, s) => {
+    const r = byUser[uid]?.[s];
+    if (!r) return '<span class="dim">—</span>';
+    return `<div class="cell-pick">${thumb(r.player_id, 'sm')}<div><div class="n">${esc(shortName(r.player_id))}${r.double_down ? ' 🔥' : ''}${r.auto ? ' · auto' : ''}</div>
+      ${r.alt_id != null ? `<div class="dim" style="font-size:11px">B: ${esc(shortName(r.alt_id))}</div>` : ''}</div></div>`;
+  };
+
+  const pickRows = members.map(m => {
+    const u = L.users[m.user_id];
+    const n = Object.keys(byUser[m.user_id] || {}).length;
+    const c = checkin[m.user_id];
+    return `<tr class="${m.user_id === myId() ? 'me' : ''}"><td><div class="who">${avatar(m.user_id)}<div><b>${esc(m.display_name || userName(m.user_id))}</b>
+      <div class="dim" style="font-size:11px">${n}/${SLOTS.length}${c?.pack_kept ? ' · pack' : ''}${c?.played ? ' · card' : ''} · ${u ? hearts(u.lives) : ''}</div></div></div></td>
+      ${SLOTS.map(s => `<td>${pickCell(m.user_id, s)}</td>`).join('')}</tr>`;
+  }).join('');
+
+  const handRows = members.map(m => {
+    const u = L.users[m.user_id];
+    const hand = u?.cards?.hand || [];
+    const armed = u?.cards?.armed || [];
+    const packs = (u?.cards?.packs || []).filter(p => p.step === week && p.keep == null && !p.auto);
+    const handTxt = hand.map(h => `${CARDS[h.card]?.icon || ''} ${CARDS[h.card]?.name || h.card}`).join(' · ') || '—';
+    const armedTxt = armed.map(h => `${CARDS[h.card]?.icon || ''} ${CARDS[h.card]?.name || h.card}`).join(' · ') || '—';
+    const packTxt = packs.length ? `${packs.length} waiting` : '—';
+    return `<tr><td><b>${esc(m.display_name || userName(m.user_id))}</b></td><td style="font-size:13px">${esc(handTxt)}</td><td style="font-size:13px">${esc(armedTxt)}</td><td class="dim">${esc(packTxt)}</td></tr>`;
+  }).join('');
+
+  const weekPlays = (d.plays || []).filter(p => !['_keep'].includes(p.card));
+  const playRows = weekPlays.length ? weekPlays.map(p => {
+    const c = CARDS[p.card];
+    return `<div class="ct-row"><span>${c?.icon || '🎴'}</span><div><b>${esc(c?.name || p.card)}</b> · ${esc(userName(p.user_id))}
+      ${p.target_id ? ` → ${esc(userName(p.target_id))}` : ''}${p.slot ? ` · ${INFO[p.slot]?.emoji || p.slot}` : ''}
+      ${p.player_id != null ? ` · ${esc(shortName(p.player_id))}` : ''}</div></div>`;
+  }).join('') : '<p class="dim">No plays this week.</p>';
+
+  const dec = S.decrees?.[week];
+  const adjs = (S.db.settings?.adjustments || []).filter(a => a.week === week);
+  const standing = (L.standings || []).slice(0, 8).map((u, i) =>
+    `<div class="own-row"><span class="rank ${i < 3 ? 'top' : ''}">${i + 1}</span>${avatar(u.id)}<b>${esc(u.name)}</b><span class="num">${fmt(u.counted)} · ${hearts(u.lives)}</span></div>`).join('');
+
+  return `
+    <div class="scoreline" style="margin-bottom:14px">
+      <div class="stat"><b>${members.length}</b><small>Members</small></div>
+      <div class="stat"><b style="color:var(--green)">${full}</b><small>Full picks</small></div>
+      <div class="stat"><b style="color:var(--orange)">${members.length - full - none}</b><small>Partial</small></div>
+      <div class="stat"><b style="color:var(--red-hot)">${none}</b><small>Empty</small></div>
+      ${wk ? `<div class="stat"><b class="num" style="font-size:16px">${esc(lockText(wk.lockAt))}</b><small>Lock · ${wk.status}</small></div>` : ''}
+    </div>
+    ${dec ? `<div class="decree slim" style="margin-bottom:12px"><span>📜 ${dec.vote && !dec.closed ? 'Vote open' : 'Decree'}: <b>${esc(dec.decree?.title || dec.options?.map(c => parseDecree(c).title).join(' / ') || '')}</b></span></div>` : ''}
+    <h3 class="kicker" style="margin:0 0 8px">Picks</h3>
+    <div class="table-wrap"><table class="board"><thead><tr><th>Member</th>${SLOTS.map(s => `<th>${INFO[s].emoji}</th>`).join('')}</tr></thead><tbody>${pickRows}</tbody></table></div>
+    <h3 class="kicker" style="margin:16px 0 8px">Ownership / conflicts</h3>
+    <div class="own-cols">${chalk}</div>
+    <h3 class="kicker" style="margin:16px 0 8px">Hands & traps</h3>
+    <div class="table-wrap"><table class="board"><thead><tr><th>Member</th><th>Hand</th><th>Armed</th><th>Packs</th></tr></thead><tbody>${handRows}</tbody></table></div>
+    <h3 class="kicker" style="margin:16px 0 8px">Card plays</h3>
+    <div class="ct-list">${playRows}</div>
+    <div class="own-cols" style="margin-top:16px">
+      <div><h3 class="kicker" style="margin:0 0 8px">Standings (top)</h3>${standing || '<p class="dim">—</p>'}</div>
+      <div><h3 class="kicker" style="margin:0 0 8px">Adjustments</h3>${adjs.length ? adjs.map(a =>
+        `<div class="own-row"><b>${esc(userName(a.user_id))}</b><span>${adjText(a)}</span><span class="dim">${esc(a.reason || '')}</span></div>`).join('') : '<p class="dim">None this week.</p>'}</div>
+    </div>`;
+}
+
+function bindBrandGesture() {
+  const brand = document.querySelector('.brand');
+  if (!brand || brand.dataset.opsBound) return;
+  brand.dataset.opsBound = '1';
+  let clicks = 0, last = 0;
+  brand.addEventListener('click', e => {
+    if (!S.isAdmin) return;
+    const t = Date.now();
+    if (t - last > 500) clicks = 0;
+    last = t;
+    clicks++;
+    if (clicks >= 3) {
+      e.preventDefault();
+      clicks = 0;
+      openOfficeModal();
+    }
+  });
 }
 
 // ---------- Rules ----------
@@ -2318,6 +2643,25 @@ const ACTIONS = {
   'boot-retry': () => { $('#app').innerHTML = '<div class="empty-state"><div class="ic">🏀</div>Loading the league…</div>'; start(); },
   'demo-reset': async () => { S.backend.reset(); location.reload(); },
   'admin-refresh': () => { S.adminData = null; render(); },
+  'office-jump': (el, e) => {
+    e.preventDefault();
+    const t = document.getElementById(el.dataset.target);
+    if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+  'checkin-filter': el => { S.checkinFilter = el.dataset.filter; render(); },
+  'copy-reminder': async () => {
+    const text = $('#reminder-text')?.value || '';
+    try { await navigator.clipboard.writeText(text); toast('Reminder copied.'); }
+    catch { toast('Could not copy. Your browser blocked clipboard access.', true); }
+  },
+  'copy-nonvoters': async () => {
+    const d = S.adminData;
+    const missing = (d?.members || []).filter(m => !(d.voters || new Set()).has(m.user_id));
+    const emails = missing.map(m => m.email).filter(Boolean);
+    try { await navigator.clipboard.writeText(emails.join(', ')); toast(`Copied ${emails.length} email${emails.length === 1 ? '' : 's'}.`); }
+    catch { toast('Could not copy. Your browser blocked clipboard access.', true); }
+  },
+  'ops-refresh': () => { S.opsData = null; loadOps(S.opsWeek || defaultOpsWeek()); renderOfficeModal(); },
   'tour-next': () => openTour(S.tour + 1),
   'tour-back': () => openTour(S.tour - 1),
   'tour-done': async () => {
@@ -2388,6 +2732,13 @@ document.addEventListener('change', async e => {
   if (el.dataset.change === 'rules-week') { S.rulesWeek = +el.value; render(); }
   if (el.dataset.change === 'decree-week') { S.decreeDraft.week = +el.value; render(); }
   if (el.dataset.change === 'decree-slot') { S.decreeDraft.slots[el.dataset.kind] = el.value; render(); }
+  if (el.dataset.change === 'results-week-select') { S.resultsWeek = +el.value; render(); }
+  if (el.dataset.change === 'ops-week') {
+    S.opsWeek = +el.value;
+    S.opsData = null;
+    loadOps(S.opsWeek);
+    renderOfficeModal();
+  }
   if (S.play) {
     const k = el.dataset.change;
     if (k === 'play-target') { S.play.target = el.value; if (S.play.card === 'burn_notice') S.play.player = null; renderPlay(); }
