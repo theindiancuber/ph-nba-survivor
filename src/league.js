@@ -166,19 +166,21 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       // An empty slot ranks below everyone and earns nothing.
       // Opposite Day: the lowest total wins, but an empty slot or a fumble still ranks last.
       const flip = is('opposite', slot);
-      // In a live week a category pays nothing until someone's pick in it has played. Otherwise
-      // the whole league ties at 0 at the lock and everyone collects ½ a point per colleague
-      // (doubled for a Double Down) before a game has been played.
-      const started = status === 'final' || entrants.some(id => results[id].slots[slot].gp > 0);
-      const pts = rankPoints(entrants.map(id => {
+      // In a live week a pick only earns rank points once his first game is in, and only against
+      // the other picks that have played (and empty slots, which can't score). A pick still waiting
+      // to play scores 0 for now: otherwise everyone waiting ties at 0 and collects ½ a point per
+      // colleague. Final weeks rank everyone, as the rules say.
+      const played = s => s.missing || (s.copy ? results[s.copy]?.slots[slot]?.gp > 0 : s.gp > 0);
+      const pool = status === 'final' ? entrants : entrants.filter(id => played(results[id].slots[slot]));
+      const pts = new Map(rankPoints(pool.map(id => {
         const s = results[id].slots[slot];
         if (s.missing) return -Infinity;
         if (!flip) return s.value;
         return s.scorer == null && !s.copy && !s.pending ? -Infinity : -s.value;
-      }));
-      entrants.forEach((id, i) => {
+      })).map((v, i) => [pool[i], v]));
+      entrants.forEach(id => {
         const s = results[id].slots[slot];
-        s.rank = s.missing || !started ? 0 : pts[i] * (s.dd ? 2 : 1) * (is('spotlight', slot) ? 2 : 1);
+        s.rank = s.missing || !pts.has(id) ? 0 : pts.get(id) * (s.dd ? 2 : 1) * (is('spotlight', slot) ? 2 : 1);
         s.owned = s.scorer != null && !s.copy ? ownership[slot][s.scorer] : 0;
       });
     }

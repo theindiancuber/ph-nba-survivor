@@ -238,13 +238,24 @@ test('a live week pays nothing in a category until a pick in it has played', () 
   assert.equal(L.weeks[0].status, 'live');
   for (const id of ['a', 'b', 'c']) assert.equal(L.weeks[0].results[id].score, 0);
 
-  // One rebounder has played: REB scores (ties included), PTS still doesn't.
-  L = computeLeague({ weeks: [live], totals: { 1: { final: false, p: { 4: [1, 2, 9, 1] } } }, picks, profiles, now });
+  // Two rebounders have played: they rank against each other; the one still waiting scores 0 for now.
+  L = computeLeague({ weeks: [live], totals: { 1: { final: false, p: { 4: [1, 2, 9, 1], 6: [1, 2, 5, 1] } } }, picks, profiles, now });
   const r = L.weeks[0].results;
-  assert.equal(r.b.slots.REB.rank, 2);
-  assert.equal(r.a.slots.REB.rank, 0.5);
-  assert.equal(r.c.slots.REB.rank, 0.5);
+  assert.equal(r.b.slots.REB.rank, 1);
+  assert.equal(r.c.slots.REB.rank, 0);
+  assert.equal(r.a.slots.REB.rank, 0, 'a pick that has not played earns nothing yet, even tied at 0');
   for (const id of ['a', 'b', 'c']) assert.equal(r[id].slots.PTS.rank, 0);
+});
+
+test('a live week: a played pick beats an empty slot, but not a pick still waiting to play', () => {
+  const live = wk(1, { final: false, lockAt: '2026-10-20T19:00:00Z', start: '2026-10-20', end: '2026-11-01' });
+  const now = Date.parse('2026-10-20T23:00:00Z');
+  const picks = [pick('a', 1, 'PTS', 1), pick('a', 1, 'REB', 9), pick('b', 1, 'REB', 2), pick('c', 1, 'REB', 3)];
+  const totals = { 1: { final: false, p: { 1: [1, 20, 2, 1] } } };
+  const r = computeLeague({ weeks: [live], totals, picks, profiles, now }).weeks[0].results;
+  // b and c left Bucket empty: a's played pick beats both. Nobody's REB pick has played yet.
+  assert.equal(r.a.slots.PTS.rank, 2);
+  for (const id of ['a', 'b', 'c']) assert.equal(r[id].slots.REB.rank, 0);
 });
 
 test('a final week still pays ½ per tie, even at 0', () => {
