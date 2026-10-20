@@ -25,7 +25,7 @@ A free, season-long NBA player-survivor league for the office. Every week you pi
 2. **Add two repository secrets** (GitHub → Settings → Secrets and variables → Actions):
    - `SUPABASE_URL`: the Project URL
    - `SUPABASE_SERVICE_ROLE_KEY`: the **service_role** key from the same page. Keep it out of `config.js`: it bypasses all security and is only used by the data job.
-3. **Merge to `main`**, then Actions → "Update NBA data" → **Run workflow** once. It should commit `data/weeks.json`, `players.json`, `totals.json` and box scores under `data/games/`. After that it runs hourly on its own.
+3. **Merge to `main`**, then Actions → "Update NBA data" → **Run workflow** once. It should commit `data/weeks.json`, `players.json`, `totals.json` and box scores under `data/games/`. After that it runs on its own.
 4. **Host it.** The repo is private, and GitHub Pages on a private repo needs a paid plan. Pick one:
    - Make the repo public and turn on Pages (Settings → Pages → Deploy from branch → `main` / root). Nothing in the repo is secret: the anon key is meant to be public, and the service key lives in Actions secrets.
    - Or connect the repo to Netlify. Leave the build command empty and set the publish directory to `/`. It redeploys whenever the data job commits data.
@@ -54,7 +54,7 @@ Sign out and back in. A **Commissioner** tab appears with:
   - **Survival and card rules:** the four survival bars, bars to clear, hand limit, attack cap, duel stake and heist size. A change takes effect from the week you choose (this week or later). Earlier weeks keep the rules they were played under, and every change is listed publicly on the Rules tab. You can undo a change until its week locks.
   - **Season settings:** lives, drops, decrees a season, the Bounty size and the commissioner name on certificates. These apply to the whole season; raising lives gives everyone more.
   - **Adjustments:** add or take away points or lives for one member in a locked week, with a reason. They're shown publicly on that week's Results.
-  - `src/config.js` keeps the defaults. The settings live in `league_config` (members can read it, commissioners write it). `league_settings` is the separate one-row invite-code table from `upgrade-dub-invite.sql`. The app and the hourly job apply them through `src/settings.js`.
+  - `src/config.js` keeps the defaults. The settings live in `league_config` (members can read it, commissioners write it). `league_settings` is the separate one-row invite-code table from `upgrade-dub-invite.sql`. The app and the data job apply them through `src/settings.js`.
 - **Remove member:** deletes the account with its picks and jokers, and by default blocks that email from signing up again. Blocked emails are listed with an **Unblock** button.
 
 The database only answers these requests for accounts in the `admins` table. Before a lock, the check-in shows how many slots each person has filled, never which players.
@@ -92,7 +92,7 @@ Account ids (the long codes like `3f2a…`) and NBA player ids aren't secrets. K
 
 ## Things to know
 
-- **Stats source:** NBA.com's public JSON (`cdn.nba.com`: the season schedule and per-game box scores). It's free and unofficial. Player headshots and team logos also load from there. If NBA.com ever blocks the hourly job, the parser in `scripts/update-data.mjs` is the only place that needs changing.
+- **Stats source:** NBA.com's public JSON (`cdn.nba.com`: the season schedule and per-game box scores). It's free and unofficial. Player headshots and team logos also load from there. If NBA.com ever blocks the job, the parser in `scripts/update-data.mjs` is the only place that needs changing.
 - **Player pool:** built from box scores, so it fills in from preseason games. A player who hasn't appeared in a box score yet can't be picked until he does.
 - **Scoring is computed in the browser** from picks plus `data/totals.json`, using the same engine the tests cover. A tampered pick (for example, an already-burned player) simply scores 0.
 - **Changing rules:** bars, lives and drops live in `src/config.js`. The calendar is `buildWeeks()` in the same file.
