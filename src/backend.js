@@ -211,9 +211,7 @@ Object.assign(SupabaseBackend.prototype, {
   },
   async adminSaveSetting(key, value) {
     const { error } = await this.sb.from('league_settings').upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-    if (!error) return;
-    if (/does not exist|schema cache/.test(error.message)) throw new Error('Run supabase/upgrade-settings.sql in the Supabase SQL editor first.');
-    throw error;
+    if (error) throw settingsError(error);
   },
   async adminSaveDecree(week, options) {
     const { error } = await this.sb.from('decrees').insert({ week, options });
@@ -224,6 +222,17 @@ Object.assign(SupabaseBackend.prototype, {
     if (error) throw decreeError(error);
   },
 });
+
+// Say which SQL file fixes it, and always keep the database's own words so the next error can be traced.
+export function settingsError(error) {
+  const msg = error?.message || String(error);
+  const fix = /league_settings/.test(msg) && /does not exist|schema cache/.test(msg)
+    ? 'The settings table is missing, or Supabase hasn\'t picked it up yet. Run supabase/upgrade-settings.sql in the Supabase SQL editor (it also refreshes the API).'
+    : /is_admin/.test(msg) ? 'Run supabase/admin.sql, then supabase/upgrade-settings.sql, in the Supabase SQL editor.'
+    : /row-level security|permission denied/.test(msg) ? 'Only commissioners can change league settings. Check your account is in the admins table, then sign out and back in.'
+    : '';
+  return new Error(fix ? `${fix} (Supabase said: ${msg})` : msg);
+}
 
 function decreeError(error) {
   const msg = error?.message || String(error);
