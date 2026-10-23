@@ -211,3 +211,35 @@ test('24 single weeks, Oct 26 to Apr 11', async () => {
   assert.equal(w.at(-1).end, '2027-04-11');
   assert.ok(w.every(x => x.mult === 1));
 });
+
+test('the Calendar: day lines add back up to the week, and the week can be scored through any day', async () => {
+  const { totalsThrough } = await import('../src/calendar.js');
+  const mk = (id, etDate, hs, as, sk, go, fights = {}) => ({ id, kind: 'reg', etDate, tipUtc: `${etDate}T23:00:00Z`, status: 3, home: 'TOR', away: 'BOS', hs, as, skaters: sk, goalies: go, fights });
+  const boxes = {
+    1: mk(1, '2026-10-27', 4, 3, [[1, 'TOR', 1, 1, 1, 2], [3, 'TOR', 1, 0, 0, -1]], [[10, 'TOR', 1, 29, 31]], { 1: 1 }),
+    2: mk(2, '2026-10-29', 1, 2, [[1, 'TOR', 1, 0, 0, -3], [3, 'TOR', 1, 0, 2, 1]], [[10, 'TOR', 1, 18, 20]]),
+  };
+  const sched = Object.values(boxes).map(b => ({ id: b.id, kind: 'reg', etDate: b.etDate, tipUtc: b.tipUtc, status: 3, home: 'TOR', away: 'BOS' }));
+  const { totals, days } = buildData({ schedule: sched, boxes, now: Date.parse('2026-11-03T12:00:00Z') });
+  assert.deepEqual(Object.keys(days[1]), ['2026-10-27', '2026-10-29']);
+  assert.deepEqual(days[1]['2026-10-27'].p[1], [1, 2, 2, 0, 2, 2, 0, 2, 2, 0, 'TOR', 0, 1, 1, 1], 'one game: a goal, an assist and a fight');
+  assert.deepEqual(totals[1].p, totalsThrough(days[1], '2026-11-01').p, 'the week is its days added up');
+  const w = totals[1].p;
+  assert.deepEqual(w[1].slice(0, 10), [2, 2, -1, 0, 2, 2, 0, 0, -3, 0], 'sums, best game and worst game');
+  assert.deepEqual([w[10][3], w[10][L.shots], w[10][6], w[10][9]], [47, 51, 935, 900], 'goalie saves, shots, best and worst nights');
+  assert.deepEqual(totals[1].t, { TOR: [2, 1], BOS: [2, 1] });
+  // Through the first day only: what the Calendar scores for "after Tue".
+  const tue = totalsThrough(days[1], '2026-10-27');
+  assert.deepEqual([tue.p[1][0], tue.p[1][2], tue.p[10][3], tue.p[10][L.shots]], [1, 2, 29, 31]);
+  assert.equal(tue.final, false);
+});
+
+test('the NHL demo has a schedule whose days add up to its weekly totals', async () => {
+  const { makeDemo } = await import('../src/demo-nhl.js');
+  const { totalsThrough } = await import('../src/calendar.js');
+  const d = makeDemo();
+  assert.ok(d.schedule.some(g => g[5] === 3) && d.schedule.some(g => g[5] === 1));
+  for (const w of d.weeks.filter(x => d.days[x.week])) {
+    assert.deepEqual(totalsThrough(d.days[w.week], w.end).p, d.totals[w.week].p, `week ${w.week}`);
+  }
+});

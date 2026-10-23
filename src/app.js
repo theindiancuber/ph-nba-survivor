@@ -1,7 +1,7 @@
 import { LEAGUE, SPORT, buildWeeks, defaultLockAt, MONTH_LABELS, addDays, slotValue } from './config.js';
 import { weekDays, totalsThrough, etDate, seasonThrough } from './calendar.js';
 import { nightStatus, recapNights, recapBoard, recapStats } from './recap.js';
-import { computeLeague, headToHead, blockedReason, projection, teamProjection, fmt, eligible, clearsBar } from './league.js';
+import { computeLeague, headToHead, blockedReason, projection, teamProjection, fmt, eligible, clearsBar, savePct } from './league.js';
 import { TEAMS, TEAM_BY_ID, DIVISIONS, isTeamId, teamLogo, headshot } from './teams.js';
 import { SupabaseBackend, DemoBackend } from './backend.js';
 import { downloadCertificate } from './certificate.js';
@@ -31,11 +31,10 @@ const PV = (s, x) => INFO[s].pct && !(x.line?.[LEAGUE.line.shots] > 0) && !x.cop
 const avgText = (s, v) => INFO[s].pct ? slotValue(s, v) : INFO[s].signed ? (v > 0 ? `+${fmt(v)}` : fmt(v)) : fmt(v);
 // Cards are on once LEAGUE.cards.startWeek is set (the NHL league turns them on later).
 const CARDS_ON = Number.isFinite(LEAGUE.cards.startWeek);
-// The Calendar needs day-by-day lines, which only the NBA data job writes so far.
 const VIEWS = [
   ['week', 'This Week'], ['calendar', 'Calendar'], ['cards', 'Cards'], ['standings', 'Standings'], ['survivor', 'Survivor'], ['results', 'Results'],
   ['burns', 'Burn Book'], ['rivals', 'Rivals'], ['trophies', 'Trophies'], ['rules', 'Rules'],
-].filter(([k]) => (k !== 'cards' || CARDS_ON) && (k !== 'calendar' || SPORT === 'nba'));
+].filter(([k]) => k !== 'cards' || CARDS_ON);
 
 const params = new URLSearchParams(location.search);
 const DEMO = params.has('demo') || !LEAGUE.supabaseUrl;
@@ -1459,10 +1458,11 @@ function myTeams(w) {
   const out = {};
   const add = (pid, s) => { const t = pid != null && slotTeam(pid); if (t) (out[t] ||= []).push(INFO[s].emoji); };
   if (w.status === 'open') {
-    if (w.week === S.league.openWeek) for (const s of SLOTS) add(S.draft?.slots[s]?.player_id, s);
+    if (w.week === S.league.openWeek) for (const s of PICK_SLOTS) add(S.draft?.slots[s]?.player_id, s);
   } else {
     const r = w.results[myId()];
     if (r) for (const s of SLOTS) { const x = r.slots[s]; add(x.copy ? x.copyPid : x.scorer ?? x.pid, s); }
+    if (r?.bonus) add(r.bonus.pid, r.bonus.slot);
   }
   return out;
 }
@@ -1566,7 +1566,7 @@ function calGrid(w, dates, games) {
       ${hasMine ? `<button class="pill" data-act="cal-mine" aria-pressed="${!!S.calMine}">Just my teams</button>` : ''}
     </div>
     ${games.length ? `<div class="table-wrap cal-wrap"><table class="cal-grid"><thead><tr><th class="cal-team">Team</th>${head}</tr></thead><tbody>${rows || `<tr><td colspan="${dates.length + 1}" class="muted">None of your picks' teams play this week.</td></tr>`}</tbody></table></div>` : ''}
-    <p class="dim cal-legend">${SLOTS.map(s => INFO[s].emoji).join(' ')} your ${w.status === 'open' ? 'picks so far' : 'picks'}${w.status === 'open' ? '' : ' · 👥 people with a pick on the team'} · ${gchip(w.mult === 2 ? 8 : 4)} games this week · tip times in your time zone · scores refresh every few minutes during games</p>`;
+    <p class="dim cal-legend">${PICK_SLOTS.map(s => INFO[s].emoji).join(' ')} your ${w.status === 'open' ? 'picks so far' : 'picks'}${w.status === 'open' ? '' : ' · 👥 people with a pick on the team'} · ${gchip(w.mult === 2 ? 8 : 4)} games this week · ${W_.startShort} times in your time zone · scores refresh every few minutes during games</p>`;
 }
 
 // The week as it stood after a day: the real engine run on the week's games up to that day.
@@ -1593,7 +1593,7 @@ function calDays(w, dates, games) {
       : `<div class="empty-state"><div class="ic">⏳</div><b>Loading the week's days…</b></div>`;
   }
   const played = Object.keys(days).sort();
-  if (!played.length) return `<div class="empty-state"><div class="ic">🏀</div><b>No games played yet.</b><p class="muted">The first results show here after the first tip.</p></div>`;
+  if (!played.length) return `<div class="empty-state"><div class="ic">${LEAGUE.emoji}</div><b>No games played yet.</b><p class="muted">The first results show here after the first ${W_.startShort}.</p></div>`;
   const day = played.includes(S.calDay) ? S.calDay : played[played.length - 1];
   const prev = addDays(day, -1);
   const L = dayLeague(w, day), P = dayLeague(w, prev);
@@ -1631,7 +1631,7 @@ function calDays(w, dates, games) {
     <p class="dim cal-legend">Week points are scored the way the live week is: a pick who hasn't played yet doesn't take rank points. ▲▼ is the change in place from the day before.</p>`;
 }
 
-// Your four picks, one column per day: what each did that night, and your week points after it.
+// Your picks, one column per day: what each did that night, and your week points after it.
 function myWeekByDay(w, dates, days, played) {
   const r = w.results[myId()];
   if (!r) return '';
@@ -1655,11 +1655,23 @@ function myWeekByDay(w, dates, days, played) {
         if (t?.[0]) return `<td class="c"><b class="${t[1] ? 'win' : 'loss'}">${t[1] ? 'W' : 'L'}</b></td>`;
       } else {
         const l = day?.p?.[pid];
-        if (l?.[0]) return `<td class="c"><b>${l[1 + STAT_IDX[s]]}</b></td>`;
+        // A goalie's night is his save percentage that night.
+        if (l?.[0]) return `<td class="c"><b>${INFO[s].pct ? V(s, savePct(l[INFO[s].idx], l[LEAGUE.line.shots])) : V(s, l[1 + STAT_IDX[s]])}</b></td>`;
       }
       return `<td class="c"><span class="dim cal-o">${noLine(tri, d)}</span></td>`;
     }).join('');
-    return `<tr><td class="cal-rowh"><div class="cal-pick">${thumb(pid, 'sm')}<div><small>${INFO[s].emoji} ${INFO[s].name}</small><b>${esc(shortName(pid))}</b></div></div></td>${cells}<td class="r"><b>${x.value}</b> <small class="dim">${INFO[s].short}</small></td></tr>`;
+    return `<tr><td class="cal-rowh"><div class="cal-pick">${thumb(pid, 'sm')}<div><small>${INFO[s].emoji} ${INFO[s].name}</small><b>${esc(shortName(pid))}</b></div></div></td>${cells}<td class="r"><b>${PV(s, x)}</b> <small class="dim">${INFO[s].short}</small></td></tr>`;
+  }).join('') + BONUS.map(s => {
+    // Gloves Off: his fights each night (not ranked; the bonus is in your points).
+    const b = r.bonus;
+    if (!b) return `<tr><td class="cal-rowh">${INFO[s].emoji} <span class="dim">No ${INFO[s].name} pick</span></td>${dates.map(() => '<td></td>').join('')}<td class="r">—</td></tr>`;
+    const tri = slotTeam(b.pid);
+    const cells = dates.map(d => {
+      const l = days[d]?.p?.[b.pid];
+      if (l?.[0]) return `<td class="c"><b>${l[LEAGUE.line.fights] ? `${l[LEAGUE.line.fights]} 🥊` : '0'}</b></td>`;
+      return `<td class="c"><span class="dim cal-o">${noLine(tri, d)}</span></td>`;
+    }).join('');
+    return `<tr><td class="cal-rowh"><div class="cal-pick">${thumb(b.pid, 'sm')}<div><small>${INFO[s].emoji} ${INFO[s].name}</small><b>${esc(shortName(b.pid))}</b></div></div></td>${cells}<td class="r"><b>${b.fights}</b> <small class="dim">${b.pts ? `+${b.pts} pts` : INFO[s].short}</small></td></tr>`;
   }).join('');
   const pts = dates.map(d => played.includes(d) ? `<td class="c"><b class="pts">${fmt(dayLeague(w, d).weeks.find(x => x.week === w.week).results[myId()]?.score || 0)}</b></td>` : '<td></td>').join('');
   return `<div class="panel-title cal-sub"><h3>Your week, day by day</h3><span class="muted">${fmt(r.score)} pts so far</span></div>
