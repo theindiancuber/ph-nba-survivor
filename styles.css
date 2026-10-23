@@ -1278,3 +1278,13 @@ thead .cal-team { font: 500 11px/1 var(--body); letter-spacing: .1em; text-trans
 .recap-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .recap-text { font: 13px/1.55 var(--mono); white-space: pre-wrap; min-height: 380px; }
 @media (max-width: 900px) { .recap-split { grid-template-columns: 1fr; } }
+
+/* Results filters */
+.results-filters { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 0 0 10px; }
+.results-filters .input[type="search"] { flex: 1 1 220px; max-width: 320px; }
+.rf-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.th-sort { border: 0; background: transparent; padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; cursor: pointer; white-space: nowrap; }
+.th-sort:hover, .th-sort.on { color: var(--text); }
+@media (max-width: 640px) {
+  .results-filters .input[type="search"] { max-width: none; flex-basis: 100%; }
+}

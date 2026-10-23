@@ -101,7 +101,13 @@ export function seasonAwards(L, pname = id => `#${id}`) {
     AST: ['Assists Champion', 'Most assists from Dime picks across the season.'],
     WIN: ['Dub Champion', 'Most team wins from Dub picks across the season.'],
   };
-  const titles = [belt, ...SLOTS.map(s => award(
+  // The standings with Jinx, Load Management, Heist and Blue Shell taken out (Burn Notice still counts).
+  const cleanRanked = L.cleanStandings.filter(u => Object.keys(u.weekly).length).map(u => ({ id: u.id, v: u.clean.counted }));
+  const clean = award(
+    { key: 'clean', icon: '🕊️', title: 'Pure Hoops Champion', kind: 'champion', how: 'Top of the standings with every Jinx, Load Management, Heist and Blue Shell taken out. Burn Notice still counts.' },
+    cleanRanked, x => `${fmt(x.v)} points without attack cards`,
+  );
+  const titles = [clean, belt, ...SLOTS.map(s => award(
     { key: `cat-${s}`, icon: INFO[s].emoji, title: catTitles[s][0], kind: 'champion', how: catTitles[s][1] },
     rank(L, stats, p => p.raw[s], { min: 0 }), x => `${unit(s, x.v)} from ${INFO[s].name} picks`,
   ))];

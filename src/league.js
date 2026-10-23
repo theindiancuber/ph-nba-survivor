@@ -81,6 +81,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
     users[pr.id] = {
       id: pr.id, name: pr.display_name, rival: pr.rival_id || null, team: pr.fav_team || null, joined: pr.created_at || null,
       weekly: {}, total: 0, counted: 0, dropped: [], lives: LEAGUE.lives, eliminatedWeek: null,
+      clean: { weekly: {}, total: 0, counted: 0, dropped: [], rank: null },
       burns: newBurns(), reserved: newBurns(), doubleDownWeek: null, plannedDoubleDown: null,
       unburn: unburnByUser[pr.id] || null, monthly: {},
     };
@@ -150,7 +151,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
           burn: scorer != null ? [scorer] : [], fx: [],
         };
       }
-      results[id] = { slots, adj: [] };
+      results[id] = { slots, adj: [], cleanAdj: [] };
     }
 
     const hits = table.resolveAttacks(cw, snaps[W - 1]);
@@ -170,16 +171,20 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       // counts as 0, an empty slot as beaten). If it hasn't played yet, it scores 0 for now rather
       // than collecting ½ a point for every other 0 it's tied with. Final weeks rank everyone.
       const played = s => s.copy ? results[s.copy]?.slots[slot]?.gp > 0 : s.gp > 0;
-      const pts = rankPoints(entrants.map(id => {
+      // Ranked twice: by the real values, and by the values before attack cards (cleanRank).
+      const ranked = key => rankPoints(entrants.map(id => {
         const s = results[id].slots[slot];
         if (s.missing) return -Infinity;
-        if (!flip) return s.value;
-        return s.scorer == null && !s.copy && !s.pending ? -Infinity : -s.value;
+        if (!flip) return s[key];
+        return s.scorer == null && !s.copy && !s.pending ? -Infinity : -s[key];
       }));
+      const pts = ranked('value'), clean = ranked('clean');
       entrants.forEach((id, i) => {
         const s = results[id].slots[slot];
         const counts = status === 'final' || played(s);
-        s.rank = s.missing || !counts ? 0 : pts[i] * (s.dd ? 2 : 1) * (is('spotlight', slot) ? 2 : 1);
+        const mult = s.missing || !counts ? 0 : (s.dd ? 2 : 1) * (is('spotlight', slot) ? 2 : 1);
+        s.rank = pts[i] * mult;
+        s.cleanRank = clean[i] * mult;
         s.owned = s.scorer != null && !s.copy ? ownership[slot][s.scorer] : 0;
       });
     }
@@ -188,18 +193,25 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
     // Commissioner adjustments: public point corrections, with a reason.
     for (const a of adjByWeek[W] || []) {
       const pts = Number(a.points) || 0;
-      if (pts && results[a.user_id]) results[a.user_id].adj.push({ commish: true, label: 'Commissioner', pts, note: a.reason || '' });
+      if (!pts || !results[a.user_id]) continue;
+      const row = { commish: true, label: 'Commissioner', pts, note: a.reason || '' };
+      results[a.user_id].adj.push(row);
+      results[a.user_id].cleanAdj.push(row);
     }
 
     if (is('bounty') && entrants.length) {
-      const pre = id => SLOTS.reduce((a, s) => a + results[id].slots[s].rank, 0) + results[id].adj.reduce((a, x) => a + x.pts, 0);
-      const top = Math.max(...entrants.map(pre));
-      for (const id of entrants) if (pre(id) === top) results[id].adj.push({ decree: 'bounty', label: 'Bounty', pts: LEAGUE.decree.bounty });
+      for (const [rk, adj] of [['rank', 'adj'], ['cleanRank', 'cleanAdj']]) {
+        const pre = id => SLOTS.reduce((a, s) => a + results[id].slots[s][rk], 0) + results[id][adj].reduce((a, x) => a + x.pts, 0);
+        const top = Math.max(...entrants.map(pre));
+        for (const id of entrants) if (pre(id) === top) results[id][adj].push({ decree: 'bounty', label: 'Bounty', pts: LEAGUE.decree.bounty });
+      }
     }
 
     for (const id of entrants) {
       const r = results[id], u = users[id];
       r.score = SLOTS.reduce((a, s) => a + r.slots[s].rank, 0) + r.adj.reduce((a, x) => a + x.pts, 0);
+      r.cleanScore = SLOTS.reduce((a, s) => a + r.slots[s].cleanRank, 0) + r.cleanAdj.reduce((a, x) => a + x.pts, 0);
+      u.clean.weekly[W] = r.cleanScore;
       // The Survivor Belt ignores cards: bars are checked against your own picks' real totals.
       r.cleared = SLOTS.filter(s => r.slots[s].base >= LEAGUE.bars[s]).length;
       r.survived = r.cleared >= (is('sudden_death') ? SLOTS.length : LEAGUE.barsToSurvive) || is('mercy');
@@ -273,19 +285,25 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
 
   const finals = out.filter(w => w.status === 'final');
   const dropCount = Math.min(LEAGUE.drops.max, Math.floor(finals.length / LEAGUE.drops.every));
-  for (const u of Object.values(users)) {
-    u.total = Object.values(u.weekly).reduce((a, b) => a + b, 0);
-    const finalScores = finals.map(w => ({ week: w.week, score: u.weekly[w.week] || 0 }))
+  const tally = (t, weekly) => {
+    t.total = Object.values(weekly).reduce((a, b) => a + b, 0);
+    const finalScores = finals.map(w => ({ week: w.week, score: weekly[w.week] || 0 }))
       .sort((a, b) => a.score - b.score || a.week - b.week);
-    u.dropped = finalScores.slice(0, dropCount).map(x => x.week);
-    u.counted = u.total - finalScores.slice(0, dropCount).reduce((a, x) => a + x.score, 0);
-  }
+    t.dropped = finalScores.slice(0, dropCount).map(x => x.week);
+    t.counted = t.total - finalScores.slice(0, dropCount).reduce((a, x) => a + x.score, 0);
+  };
+  for (const u of Object.values(users)) { tally(u, u.weekly); tally(u.clean, u.clean.weekly); }
 
   const standings = Object.values(users)
     .sort((a, b) => b.counted - a.counted || b.total - a.total || a.name.localeCompare(b.name));
   standings.forEach((u, i) => { u.rank = i > 0 && standings[i - 1].counted === u.counted ? standings[i - 1].rank : i + 1; });
+  // What the standings would be without attack cards (Jinx, Load Management, Heist, Blue Shell).
+  // Burn Notice stays: everyone has picked around its burns since.
+  const cleanStandings = Object.values(users)
+    .sort((a, b) => b.clean.counted - a.clean.counted || b.clean.total - a.clean.total || a.name.localeCompare(b.name));
+  cleanStandings.forEach((u, i) => { const p = cleanStandings[i - 1]; u.clean.rank = p && p.clean.counted === u.clean.counted ? p.clean.rank : i + 1; });
 
-  const league = { weeks: out, users, standings, openWeek, dropCount, players, cards: { from: cardsFrom, weeks: table.out, snaps } };
+  const league = { weeks: out, users, standings, cleanStandings, openWeek, dropCount, players, cards: { from: cardsFrom, weeks: table.out, snaps } };
   league.survivor = survivorLadder(league);
   league.months = monthlyCrowns(league);
   league.champions = champions(league);
@@ -355,6 +373,9 @@ function playValueCards({ cw, W, status, totals, results, entrants, users, hits,
       usedAlt: false, fumble: false, burn: [...x.burn, pid], fx: [...x.fx, { card: 'sixth' }],
     };
   }
+
+  // Everything so far is people's own doing. Keep it for the no-attack standings before attacks land.
+  for (const id of entrants) for (const s of SLOTS) results[id].slots[s].clean = results[id].slots[s].value;
 
   for (const h of hits) {
     const v = results[h.victim];
@@ -441,6 +462,7 @@ function playPointCards({ cw, wk, results, hits, table }) {
     if (!r) { rec.outcome = 'void'; continue; }
     rec.pts = t && !t.missing ? t.rank / 2 : 0;
     r.adj.push({ card: 'leech', pts: rec.pts, who: rec.target_id, slot: rec.slot });
+    r.cleanAdj.push({ card: 'leech', pts: t && !t.missing ? t.cleanRank / 2 : 0, who: rec.target_id, slot: rec.slot });
   }
   const lockT = Date.parse(wk.lockAt);
   for (const rec of cw.plays) {
@@ -451,7 +473,14 @@ function playPointCards({ cw, wk, results, hits, table }) {
     rec.accepted = !!replied;
     const a = results[rec.user_id], b = results[rec.target_id];
     if (!a && !b) { rec.outcome = 'void'; continue; }
-    const val = r => !r || r.slots[rec.slot].missing ? -1 : r.slots[rec.slot].value;
+    const val = (r, key = 'value') => !r || r.slots[rec.slot].missing ? -1 : r.slots[rec.slot][key];
+    // Without attack cards the duel might have gone the other way.
+    const cv = [val(a, 'clean'), val(b, 'clean')];
+    if (cv[0] !== cv[1]) {
+      const [win, lose] = cv[0] > cv[1] ? [rec.user_id, rec.target_id] : [rec.target_id, rec.user_id];
+      results[win]?.cleanAdj.push({ card: 'duel', pts: C.duelStake, who: lose, slot: rec.slot });
+      results[lose]?.cleanAdj.push({ card: 'duel', pts: -C.duelStake, who: win, slot: rec.slot });
+    }
     rec.values = [val(a), val(b)];
     if (rec.values[0] === rec.values[1]) { rec.outcome = 'push'; continue; }
     const [win, lose] = rec.values[0] > rec.values[1] ? [rec.user_id, rec.target_id] : [rec.target_id, rec.user_id];

@@ -287,6 +287,9 @@ test('heist and blue shell use the standings before the week', () => {
   const r = L.weeks[1].results;
   assert.ok(r.a.adj.some(x => x.card === 'heist' && x.pts === -3));
   assert.ok(r.c.adj.some(x => x.card === 'heist' && x.pts === 3));
+  // The no-attack standings see a's slot before the Blue Shell, and no heist.
+  assert.equal(r.a.slots[shell.hits[0].slot].cleanRank, shell.hits[0].before);
+  assert.ok(!r.a.cleanAdj.some(x => x.card === 'heist'));
 });
 
 test('burn notice burns a player for the target from next week', () => {
@@ -419,4 +422,45 @@ test('packs before cards.oddsFrom re-deal exactly as before; later packs use the
   const late = computeLeague({ weeks, totals: {}, picks: [], plays: [], profiles, now: NOW, cardsFrom: 3 }).users.a.cards.packs.find(p => p.step === 3);
   assert.deepEqual(late.tier, { pos: 0.5, season: 2 / 3 });
   assert.deepEqual(late.cards, dealPack('a', 'w3:starter', 'starter', { pos: 0.5, season: 2 / 3 }));
+});
+
+test('no-attack standings: Jinx, Heist and Blue Shell are taken out, duels and leeches replay on clean values', async () => {
+  const { seasonAwards } = await import('../src/awards.js');
+  const people = ['a', 'b', 'c', 'd', 'e'].map(id => ({ id, display_name: id.toUpperCase() }));
+  const weeks = [wk(1), wk(2)];
+  const { totals, picks } = basicWeek();
+  totals[2] = totals[1];
+  // Week 2, Bucket only: a 50, b 90, c 60, e 45.
+  const picks2 = [...picks, pick('a', 2, 'PTS', 4), pick('b', 2, 'PTS', 1), pick('c', 2, 'PTS', 2), pick('e', 2, 'PTS', 3)];
+  const own = [
+    play('e', 2, 'duel', { card_uid: 'w1:starter', target_id: 'a', slot: 'PTS' }),
+    play('b', 2, 'leech', { card_uid: 'w1:starter', target_id: 'a', slot: 'PTS' }),
+  ];
+  const attacks = [
+    play('d', 2, 'jinx', { card_uid: 'w1:starter', target_id: 'a', player_id: 4 }),
+    play('c', 2, 'heist', { card_uid: 'w1:starter', target_id: 'a' }),
+  ];
+  const deal = u => ({ a: ['clown'], b: ['leech'], c: ['heist'], d: ['jinx'], e: ['duel'] }[u]);
+  const args = { weeks, totals, picks: picks2, profiles: people, now: NOW, cardsFrom: 1, dealer: deal };
+  const L = computeLeague({ ...args, plays: [...own, ...attacks] });
+  const L0 = computeLeague({ ...args, plays: own });
+
+  const r = L.weeks[1].results;
+  assert.equal(r.a.slots.PTS.value, 25);
+  assert.equal(r.a.slots.PTS.clean, 50);
+  // Jinxed, a loses the duel. Without it, a wins it.
+  assert.deepEqual(r.a.adj.find(x => x.card === 'duel').pts, -5);
+  assert.deepEqual(r.a.cleanAdj.find(x => x.card === 'duel').pts, 5);
+  assert.ok(r.c.adj.some(x => x.card === 'heist'));
+  assert.ok(!r.c.cleanAdj.some(x => x.card === 'heist'));
+  for (const id of ['a', 'b', 'c', 'e']) {
+    assert.equal(r[id].cleanScore, L0.weeks[1].results[id].score, id);
+    assert.equal(L.users[id].clean.counted, L0.users[id].counted, id);
+    assert.equal(L.users[id].clean.rank, L0.users[id].rank, id);
+  }
+  assert.deepEqual(L.cleanStandings.map(u => u.id), L0.standings.map(u => u.id));
+  const pure = seasonAwards(L).titles.find(t => t.key === 'clean');
+  assert.equal(pure.decided, true);
+  assert.equal(pure.leader.id, L0.standings[0].id);
+  assert.equal(pure.leader.v, L0.standings[0].counted);
 });
