@@ -121,7 +121,7 @@ const HOCKEY = {
   garbage: { name: 'Empty Netter', icon: '🚨', text: "After a week ends, your pick's worst game in one slot is replaced by a copy of his best game (in Dub, one loss becomes a win)." },
   embargo: { name: 'Sin Bin', icon: '⏱️', text: `Send one player (or, in Dub, one team) to the box: nobody can use him in one category this week. Everyone sees it right away. Play it at least ${LEAGUE.cards.embargoHours} hours before the lock.` },
   scout: { name: 'Scouting Report', icon: '📋', text: 'See the five most-picked players in one category before the lock, with ownership %. No names attached.' },
-  duel: { name: 'Faceoff', icon: '⚫', text: `Take a faceoff against a colleague in one category. Winner takes ${LEAGUE.cards.duelStake} points from the loser. If they decline, they wear 🐔 for the week.` },
+  duel: { name: 'Faceoff', icon: '🆚', text: `Take a faceoff against a colleague in one category. Winner takes ${LEAGUE.cards.duelStake} points from the loser. If they decline, they wear 🐔 for the week.` },
 };
 if (LEAGUE.sport === 'nhl') for (const [k, v] of Object.entries(HOCKEY)) Object.assign(CARDS[k], v);
 

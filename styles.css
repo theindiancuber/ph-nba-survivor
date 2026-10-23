@@ -448,6 +448,9 @@ div.own-row:has(> .tag:first-child) { display: flex; padding: 10px 12px; border-
 .burn-item.reserved .nm { text-decoration: none; }
 .burn-item.reserved .thumb { filter: none; }
 .burn-item.freed .nm { text-decoration: none; color: var(--green); }
+.burn-item.partial .nm { text-decoration: none; }
+.burn-item.partial .thumb { filter: grayscale(.4); }
+.burn-item.partial .wk { color: var(--gold); }
 .slots-left { font: 500 12px/1 var(--body); color: var(--muted); }
 
 /* ---------- Rivals ---------- */
@@ -549,7 +552,8 @@ main > .empty-state[data-loading] .ic { animation: bob 1.4s ease-in-out infinite
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 12px) scale(.96); } }
 footer { max-width: 1180px; margin: 0 auto; padding: 22px 16px 34px; color: var(--dim); font-size: 12.5px; display: flex; gap: 12px; justify-content: space-between; flex-wrap: wrap; border-top: 1px solid var(--line); }
 
-.rules { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.rules { columns: 3 300px; column-gap: 14px; }
+.rules > * { break-inside: avoid; margin-bottom: 14px; }
 .rule h3 { margin: 0 0 10px; font: 600 16px/1.25 var(--body); letter-spacing: -.01em; }
 .rule p, .rule li { color: var(--soft); font-size: 14px; line-height: 1.6; margin: 0 0 8px; }
 .rule p:last-child { margin-bottom: 0; }
@@ -905,6 +909,8 @@ body.pk-open { overflow: hidden; }
 .album-div h4 { margin: 0 0 12px; display: flex; justify-content: space-between; font: 600 13.5px/1 var(--body); }
 .album-div h4 span:last-child, .album-div h4 small { color: var(--muted); font-weight: 500; font-family: var(--mono); font-size: 12px; }
 .stickers { display: flex; gap: 8px; }
+/* NHL divisions have eight teams: two rows of four. */
+html[data-sport="nhl"] .stickers { display: grid; grid-template-columns: repeat(4, 40px); justify-content: space-between; gap: 8px; }
 .sticker { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 35% 30%, #fff, #dfe6f3); box-shadow: 0 4px 12px rgba(0, 0, 0, .45); font: 700 10px/1 var(--display); color: #0b1731; }
 .sticker img { width: 30px; height: 30px; }
 .sticker.off { background: rgba(255, 255, 255, .02); box-shadow: none; border: 1px dashed var(--line-2); filter: grayscale(1); opacity: .5; }
@@ -953,8 +959,10 @@ body.pk-open { overflow: hidden; }
 @media (max-width: 1100px) {
   .slots, .live-grid, .own-cols, .burn-cols { grid-template-columns: repeat(2, 1fr); }
 }
-@media (max-width: 900px) {
+@media (max-width: 640px) {
   .slots, .live-grid, .own-cols, .burn-cols { grid-template-columns: 1fr; }
+}
+@media (max-width: 900px) {
   .slot-card { min-height: 0; }
   .add-big { padding: 22px 14px; }
   .jokers, .split { grid-template-columns: 1fr; }
@@ -1351,3 +1359,53 @@ thead .cal-team { font: 500 11px/1 var(--body); letter-spacing: .1em; text-trans
 .sort-ico i.on { opacity: 1; color: var(--text); }
 .results-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 14px; font-size: 13px; }
 .vs-real { font-size: 11px; margin-top: 3px; white-space: nowrap; }
+
+/* ---------- Bonus slots (NHL: Gloves Off) ----------
+   An optional fifth slot doesn't get a card of its own on a second row: it runs as a strip
+   the full width of the grid, under the four ranked slots. */
+.slot-card.bonus, .live-slot.bonus, .burn-col.bonus { grid-column: 1 / -1; }
+.slot-card.bonus { min-height: 0; }
+.burn-col.bonus .burn-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); column-gap: 10px; }
+.burn-col.bonus .burn-list > p { grid-column: 1 / -1; margin: 0; }
+@media (min-width: 641px) {
+  .slot-card.bonus { display: grid; grid-template-columns: 190px minmax(0, 1fr); }
+  .slot-card.bonus > .slot-head { flex-direction: column; align-items: flex-start; justify-content: center; gap: 10px; border-bottom: 0; border-right: 1px solid var(--line); }
+  .slot-card.bonus .slot-empty { padding: 12px; }
+  .slot-card.bonus .add-big { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; row-gap: 3px; justify-items: start; align-items: center; text-align: left; padding: 12px 16px; }
+  .slot-card.bonus .add-big .plus { grid-row: span 2; margin: 0; }
+  .slot-card.bonus.filled { grid-template-columns: 190px 150px minmax(0, 1fr); }
+  .slot-card.bonus.filled > .slot-head, .slot-card.bonus.filled > .player-stage { grid-row: 1 / span 3; }
+  .slot-card.bonus.filled > .player-stage { height: auto; min-height: 150px; }
+  .slot-card.bonus.filled > :is(.player-info, .statline, .slot-foot) { grid-column: 3; }
+  .live-slot.bonus { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.4fr); align-items: center; gap: 8px 24px; }
+  .live-slot.bonus .big-num { margin: 0; }
+  .live-slot.bonus .bonus-caps { grid-column: 3; }
+}
+@media (min-width: 1101px) {
+  .slot-card.bonus.filled { grid-template-columns: 190px 150px minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr); }
+  .slot-card.bonus.filled > :is(.slot-head, .player-stage) { grid-row: auto; }
+  .slot-card.bonus.filled > .player-info { grid-column: 3; align-self: center; padding: 14px; }
+  .slot-card.bonus.filled > .statline { grid-column: 4; align-self: center; margin: 14px 0; }
+  .slot-card.bonus.filled > .slot-foot { grid-column: 5; align-self: center; margin: 0; }
+}
+
+/* ---------- Balanced grids ----------
+   Cards in even rows: the app picks a column count per screen size (balancedCols in app.js)
+   so a grid of six reads 3 + 3 rather than 5 + 1. */
+:is(.trophies, .badges, .album).balanced { grid-template-columns: repeat(var(--c-lg), minmax(0, 1fr)); }
+@media (max-width: 1000px) { :is(.trophies, .badges, .album).balanced { grid-template-columns: repeat(var(--c-md), minmax(0, 1fr)); } }
+@media (max-width: 640px) { :is(.trophies, .badges, .album).balanced { grid-template-columns: repeat(var(--c-sm), minmax(0, 1fr)); } }
+@media (max-width: 420px) { :is(.trophies, .album).balanced { grid-template-columns: 1fr; } }
+
+/* ---------- NHL slot colours ----------
+   Each hockey category gets its own colour, like Bucket, Glass and Dime do. */
+:root { --slot-PM: #4d94ff; --slot-SV: #6fd3f0; --slot-FIGHT: #f0455a; }
+:is(.slot-card, .live-slot, .ladder-bar, .burn-col, .tour-slot)[data-slot="PM"] { --sc: var(--slot-PM); }
+:is(.slot-card, .live-slot, .ladder-bar, .burn-col, .tour-slot)[data-slot="SV"] { --sc: var(--slot-SV); }
+:is(.slot-card, .live-slot, .ladder-bar, .burn-col, .tour-slot)[data-slot="FIGHT"] { --sc: var(--slot-FIGHT); }
+/* Phones: an empty pick slot is a compact row, not a tall empty card. */
+@media (max-width: 640px) {
+  .slot-empty { padding: 10px; }
+  .add-big { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; row-gap: 3px; justify-items: start; align-items: center; text-align: left; padding: 12px 14px; }
+  .add-big .plus { grid-row: span 2; margin: 0; }
+}
