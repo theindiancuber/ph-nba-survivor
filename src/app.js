@@ -151,11 +151,17 @@ async function loadData() {
   const [weeks, players, teams, totals, meta] = await Promise.all([
     get('weeks').catch(() => null), get('players').catch(() => null), get('teams').catch(() => null), get('totals').catch(() => null), get('meta').catch(() => null),
   ]);
+  // The calendar is config.js's; weeks.json adds each week's games, locks and stats. After a calendar
+  // change, until the data job runs again, a week it built for the old dates is replaced by the new
+  // dates (no games or stats yet) rather than shown as it was.
+  const job = Object.fromEntries((weeks?.weeks || []).map(w => [w.week, w]));
+  const same = w => job[w.week]?.start === w.start && job[w.week]?.end === w.end;
+  const cal = buildWeeks();
   return {
-    weeks: weeks?.weeks || buildWeeks().map(w => ({ ...w, lockAt: defaultLockAt(w), final: false, gamesByTeam: {}, leftByTeam: {} })),
+    weeks: cal.map(w => same(w) ? job[w.week] : { ...w, lockAt: defaultLockAt(w), final: false, gamesByTeam: {}, leftByTeam: {} }),
     players: players?.players || {},
     teams: teams?.teams || {},
-    totals: totals?.weeks || {},
+    totals: weeks ? Object.fromEntries(Object.entries(totals?.weeks || {}).filter(([k]) => cal.some(w => w.week === +k && same(w)))) : totals?.weeks || {},
     meta,
   };
 }
