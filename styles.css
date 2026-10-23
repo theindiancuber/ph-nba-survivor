@@ -1285,3 +1285,5 @@ thead .cal-team { font: 500 11px/1 var(--body); letter-spacing: .1em; text-trans
 .sort-ico { display: inline-flex; flex-direction: column; font-size: 7px; line-height: 7px; letter-spacing: 0; color: var(--dim); }
 .sort-ico i { font-style: normal; opacity: .45; }
 .sort-ico i.on { opacity: 1; color: var(--text); }
+.results-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 14px; font-size: 13px; }
+.vs-real { font-size: 11px; margin-top: 3px; white-space: nowrap; }

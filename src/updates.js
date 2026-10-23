@@ -6,8 +6,9 @@ export const UPDATES = [
   {
     id: 19,
     date: '2026-10-23',
-    title: 'Simpler sorting on Results',
+    title: 'Raw picks on Results, and simpler sorting',
     items: [
+      "Results has the Raw picks toggle too: each week's Bucket, Glass, Dime and Dub totals, rank points and places as they'd have been with no Joker cards, with how far each score is from the actual one.",
       'The search box and filter buttons on Results are gone. Instead, every column heading has small ▲▼ arrows: tap one to sort by it, and tap again to flip the order.',
     ],
   },

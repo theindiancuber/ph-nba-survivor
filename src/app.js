@@ -1696,15 +1696,16 @@ function resultsMineStrip(w) {
   const id = myId();
   if (!id || !w.results[id]) return '';
   const r = w.results[id];
-  const rank = [...w.entrants].sort((a, b) => w.results[b].score - w.results[a].score).findIndex(x => x === id) + 1;
+  const raw = resultsRaw(), R = raw ? w.raw : w.results;
+  const rank = [...w.entrants].sort((a, b) => R[b].score - R[a].score).findIndex(x => x === id) + 1;
   const hits = (w.cards?.plays || []).filter(p => p.ok && p.target_id === id && !['_keep', '_reply'].includes(p.card));
   const hitTxt = hits.length
     ? hits.slice(0, 4).map(p => `${CARDS[p.card]?.icon || '🎴'} ${CARDS[p.card]?.name || p.card}${p.user_id ? ` · ${userName(p.user_id)}` : ''}`).join(' · ')
     : 'Nothing landed on you';
   return `<div class="results-mine">
-    <div class="stat"><b>#${rank}</b><small>Your place</small></div>
-    <div class="stat"><b class="num">${fmt(r.score)}</b><small>Your points</small></div>
-    <div class="stat"><b>${r.cleared}/${SLOTS.length}</b><small>Bars cleared</small></div>
+    <div class="stat"><b>#${rank}</b><small>${raw ? 'Raw place' : 'Your place'}</small></div>
+    <div class="stat"><b class="num">${fmt(R[id].score)}</b><small>${raw ? 'Raw points' : 'Your points'}</small></div>
+    <div class="stat"><b>${R[id].cleared}/${SLOTS.length}</b><small>Bars cleared</small></div>
     <div class="stat"><b>${w.status === 'final' ? (r.survived ? '✓' : 'Lost a life') : '…'}</b><small>Survivor</small></div>
     <div class="results-mine-hits"><small class="kicker">Cards that hit you</small><div>${esc(hitTxt)}</div></div>
   </div>`;
@@ -1720,28 +1721,39 @@ function resultsSortValue(id, r, key) {
   return x.missing ? -Infinity : x.value;
 }
 
+// Raw picks: the week as it would have been with no Joker cards (week.raw from the engine).
+const resultsRaw = () => S.resultsMode === 'raw';
+
 function resultsRows(w) {
   const { key, dir } = rsort();
-  const byScore = [...w.entrants].sort((a, b) => w.results[b].score - w.results[a].score);
-  // The place is always the real one for the week, whatever the table is sorted by.
+  const raw = resultsRaw();
+  const R = raw ? w.raw : w.results;
+  const byScore = [...w.entrants].sort((a, b) => R[b].score - R[a].score);
+  // The place is the week's place (actual or raw), whatever the table is sorted by.
   const place = {};
-  byScore.forEach((id, i) => { place[id] = i > 0 && w.results[byScore[i - 1]].score === w.results[id].score ? place[byScore[i - 1]] : i + 1; });
+  byScore.forEach((id, i) => { place[id] = i > 0 && R[byScore[i - 1]].score === R[id].score ? place[byScore[i - 1]] : i + 1; });
   const cmp = (a, b) => {
-    const x = resultsSortValue(a, w.results[a], key), y = resultsSortValue(b, w.results[b], key);
+    const x = resultsSortValue(a, R[a], key), y = resultsSortValue(b, R[b], key);
     return dir * (x < y ? -1 : x > y ? 1 : 0) || place[a] - place[b];
   };
   return [...byScore].sort(cmp).map(id => {
-    const r = w.results[id];
+    const r = R[id];
     const rank = place[id];
     const cells = SLOTS.map(s => {
       const x = r.slots[s];
       if (x.missing) return '<td><span class="dim">—</span></td>';
+      if (raw) {
+        const pid = x.scorer ?? x.pid;
+        return `<td><div class="cell-pick">${thumb(pid, 'sm')}<div><div class="v" style="color:${x.value >= LEAGUE.bars[s] ? 'var(--text)' : 'var(--muted)'}">${x.value}${x.dd ? ' 🔥' : ''}</div><div class="n">${esc(shortName(pid))}${x.usedAlt ? ' (B)' : ''}${x.auto ? ' · auto' : ''}</div><div class="rp">+${fmt(x.rank)}</div></div></div></td>`;
+      }
       const pid = x.copy ? x.copyPid : x.scorer ?? x.pid;
       const bar = LEAGUE.bars[s];
       return `<td><div class="cell-pick">${thumb(pid, 'sm')}<div><div class="v" style="color:${x.base >= bar ? 'var(--text)' : 'var(--muted)'}">${x.value}${x.dd ? ' 🔥' : ''}${fxIcons(x)}</div><div class="n">${x.copy ? `🐱 ${esc(userName(x.copy))}'s` : esc(shortName(pid))}${x.usedAlt ? ' (B)' : ''}${x.auto ? ' · auto' : ''}</div><div class="rp">+${fmt(x.rank)}</div></div></div></td>`;
     }).join('');
-    const surv = w.status === 'final' ? (r.survived ? '<span class="trend-up">✓</span>' : '<span class="trend-down">✗ ❤️</span>') : `<span class="dim">${r.cleared}/${SLOTS.length}</span>`;
-    return `<tr class="${id === myId() ? 'me' : ''}"><td class="rank ${rank <= 3 ? 'top' : ''}">${rank}</td><td><div class="who">${avatar(id)}<div><b>${esc(userName(id))}</b>${decor(id, w.week)}</div></div></td>${cells}<td class="r"><span class="pts">${fmt(r.score)}</span>${adjChip(r)}</td><td class="c">${surv}</td></tr>`;
+    const surv = w.status === 'final' && !raw ? (r.survived ? '<span class="trend-up">✓</span>' : '<span class="trend-down">✗ ❤️</span>') : `<span class="dim">${r.cleared}/${SLOTS.length}</span>`;
+    const diff = raw ? r.score - w.results[id].score : 0;
+    const vsReal = diff ? `<div class="vs-real ${diff > 0 ? 'trend-up' : 'trend-down'}" title="Against the actual ${fmt(w.results[id].score)}">${signed(diff)} vs actual</div>` : '';
+    return `<tr class="${id === myId() ? 'me' : ''}"><td class="rank ${rank <= 3 ? 'top' : ''}">${rank}</td><td><div class="who">${avatar(id)}<div><b>${esc(userName(id))}</b>${raw ? '' : decor(id, w.week)}</div></div></td>${cells}<td class="r"><span class="pts">${fmt(r.score)}</span>${adjChip(r)}${vsReal}</td><td class="c">${surv}</td></tr>`;
   }).join('');
 }
 
@@ -1769,10 +1781,14 @@ function viewResults() {
             </select></label>
           <div class="pills">${recent.map(x => `<button class="pill ${x.status === 'live' ? 'live' : ''}" data-act="results-week" data-week="${x.week}" aria-pressed="${x.week === w.week}">Wk ${x.week}</button>`).join('')}</div>
         </div></div>
+      <div class="results-mode"><div class="pills" role="group" aria-label="Results view">
+        <button class="pill" data-act="results-mode" data-mode="real" aria-pressed="${!resultsRaw()}">Actual</button>
+        <button class="pill" data-act="results-mode" data-mode="raw" aria-pressed="${resultsRaw()}">🕊️ Raw picks</button></div>
+        ${resultsRaw() ? '<span class="muted">The week from everyone\'s picks alone, as if no Joker card had been played. Places, totals and points are all worked out again.</span>' : ''}</div>
       ${resultsMineStrip(w)}
       ${weekAdjustments(w.week)}
       ${w.decree ? `<div class="decree slim"><span>📜 Decree: <b>${w.decree.icon} ${esc(w.decree.title)}</b></span> <span class="dim">${esc(w.decree.text)}</span></div>` : ''}
-      <p class="muted" style="margin:-6px 0 12px;font-size:13px">${weekRange(w)} · bars ${SLOTS.map(s => `${LEAGUE.bars[s]} ${INFO[s].short}`).join(' / ')} · (B) backup scored · 🔥 Double Down · card icons show what hit a pick (hover for who)</p>
+      <p class="muted" style="margin:-6px 0 12px;font-size:13px">${weekRange(w)} · bars ${SLOTS.map(s => `${LEAGUE.bars[s]} ${INFO[s].short}`).join(' / ')} · (B) backup scored · 🔥 Double Down${resultsRaw() ? '' : ' · card icons show what hit a pick (hover for who)'}</p>
       <div class="table-wrap"><table class="board"><thead>${resultsHead()}</thead><tbody>${resultsRows(w)}</tbody></table></div>
     </section>
     ${cardTablePanel(w)}
@@ -3039,6 +3055,7 @@ const ACTIONS = {
   'results-week': el => { S.resultsWeek = +el.dataset.week; render(); },
   'standings-mode': el => { S.standingsMode = el.dataset.mode; render(); },
   // A new column sorts high to low (names A to Z); tapping it again flips it.
+  'results-mode': el => { S.resultsMode = el.dataset.mode; render(); },
   'results-sort': el => { const R = rsort(), k = el.dataset.key; R.dir = R.key === k ? -R.dir : k === 'name' ? 1 : -1; R.key = k; render(); },
   'cal-week': el => { if (el.dataset.week) { S.calWeek = +el.dataset.week; S.calDay = null; render(); } },
   'cal-mode': el => { S.calMode = el.dataset.mode; render(); },
