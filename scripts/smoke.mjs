@@ -48,7 +48,7 @@ const ALL_VIEWS = ['week', 'calendar', 'cards', 'standings', 'survivor', 'result
 const ALL_ADMIN = ['members', 'recap', 'rules', 'decrees', 'insights'];
 const LEAGUES = [
   { name: 'NBA', path: '', views: ALL_VIEWS, admin: ALL_ADMIN, calendar: true },
-  { name: 'NHL', path: 'nhl/', views: ALL_VIEWS.filter(v => v !== 'cards'), admin: ALL_ADMIN.filter(t => t !== 'recap'), calendar: true },
+  { name: 'NHL', path: 'nhl/', views: ALL_VIEWS, admin: ALL_ADMIN.filter(t => t !== 'recap'), calendar: true },
 ];
 
 // ---- Data files ----

@@ -4,7 +4,7 @@
 import { LEAGUE, buildWeeks, defaultLockAt, easternToUtc } from './config.js';
 import { weekDays, etDate } from './calendar.js';
 import { TEAMS } from './teams.js';
-import { computeLeague } from './league.js';
+import { computeLeague, eligible } from './league.js';
 import { CARDS, NICKNAMES, TAUNTS } from './cards.js';
 
 export const DEMO_NOW = Date.parse('2026-12-02T17:00:00Z'); // Wed of week 6
@@ -296,17 +296,18 @@ function demoCalendar({ weeks, totals, players, gameLines, gameWins, now }) {
 // week 7 you can already see the duels aimed at you and any Embargo.
 const DRAMA = ['duel', 'jinx', 'embargo', 'reverse', 'blue_shell', 'heist', 'clown', 'nickname', 'load', 'burn_notice', 'leech', 'copycat', 'charge', 'sixth', 'scout'];
 
-function demoPlays({ weeks, totals, picks, unburns, profiles, players, now, meId, rand }) {
+// Shared with the NHL demo (src/demo-nhl.js).
+export function demoPlays({ weeks, totals, picks, unburns, profiles, players, now, meId, rand, cardsFrom = CARDS_FROM }) {
   const plays = [];
   const others = profiles.filter(p => p.id !== meId).map(p => p.id);
   const lockOf = w => Date.parse(weeks.find(x => x.week === w).lockAt);
   let seq = 0;
   // Step 7 is still open, so its rows have to be in the past: just after week 6 locked.
   const stamp = (step, hoursBefore) => new Date(Math.min(lockOf(step) - hoursBefore * 3600e3, now - 3600e3) + (seq++) * 1000).toISOString();
-  const compute = () => computeLeague({ weeks, totals, picks, unburns, plays, profiles, now, players, cardsFrom: CARDS_FROM });
+  const compute = () => computeLeague({ weeks, totals, picks, unburns, plays, profiles, now, players, cardsFrom });
   const pickOne = arr => arr[Math.floor(rand() * arr.length)];
-  const STAT = { PTS: 0, REB: 1, AST: 2 };
-  const stars = slot => Object.values(players).sort((a, b) => b.avg[STAT[slot]] - a.avg[STAT[slot]]).slice(0, 6);
+  const avg = slot => LEAGUE.slotInfo[slot].avg;
+  const stars = slot => Object.values(players).filter(p => eligible(p, slot)).sort((a, b) => b.avg[avg(slot)] - a.avg[avg(slot)]).slice(0, 6);
 
   for (const step of [5, 6, 7]) {
     let L = compute();

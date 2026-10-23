@@ -102,6 +102,29 @@ export const CARDS = {
   },
 };
 
+// The NHL league plays the same deck under hockey names. The rules follow the slots: a Jinx doubles a
+// minus and takes .020 off a save percentage, and Extra Attacker and Line Change respect positions.
+const HOCKEY = {
+  jinx: { name: 'Jinx', icon: '🪄', text: "Name a colleague and a player (or a team). If it's one of their picks this week: points and wins score half, a minus doubles, and a save % loses .020." },
+  load: { name: 'Healthy Scratch', icon: '🍿', text: "Pick a colleague and a slot. Their pick's best game of the week doesn't count (in Shutdown it's swapped for his worst; in Dub, one win comes off)." },
+  heist: { name: 'Poke Check', icon: '🏒', text: `Strip ${LEAGUE.cards.heist} points from anyone above you in the standings.` },
+  blue_shell: { name: 'Hip Check', icon: '💥', text: 'Lines up whoever leads the standings at the lock. Their best slot this week scores half.' },
+  burn_notice: { name: 'Waivers', icon: '📝', text: 'Put one player (or, in Dub, one team) on waivers for a colleague in one category: burned for them for the rest of the season, from next week.' },
+  clown: { name: 'Mullet', icon: '💇', text: "Give a colleague a 💇 mullet next to their name for the week. Business in the front. No effect on points." },
+  nickname: { name: 'Nickname', icon: '🏷️', text: 'Give a colleague a nickname from the official list. It sits next to their name all week.' },
+  charge: { name: 'Shot Block', icon: '🧱', text: "Set it face-down. The next attack or prank on you is blocked and the attacker's card is wasted." },
+  reverse: { name: 'Off the Boards', icon: '🔁', text: 'Set it face-down. The next attack or prank on you comes off the boards onto whoever played it.' },
+  sixth: { name: 'Extra Attacker', icon: '🥅', text: "Name an extra skater or goalie. After the week he jumps over the boards into whichever slot he can play where he'd earn the most extra rank points, and burns there." },
+  copycat: { name: 'Shadow', icon: '👥', text: 'Shadow a colleague: your slot scores whatever they picked there. Nothing burns for you, and the slot counts 0 toward the survival bars.' },
+  leech: { name: 'Linemate', icon: '🤝', text: "Ride a colleague's line: you also collect half of their rank points in one category. They lose nothing." },
+  switcheroo: { name: 'Line Change', icon: '🔀', text: 'After a week ends, swap your Lamplighter and Shutdown skaters. Each must be unburned in his new slot, and the burns move with him.' },
+  garbage: { name: 'Empty Netter', icon: '🚨', text: "After a week ends, your pick's worst game in one slot is replaced by a copy of his best game (in Dub, one loss becomes a win)." },
+  embargo: { name: 'Sin Bin', icon: '⏱️', text: `Send one player (or, in Dub, one team) to the box: nobody can use him in one category this week. Everyone sees it right away. Play it at least ${LEAGUE.cards.embargoHours} hours before the lock.` },
+  scout: { name: 'Scouting Report', icon: '📋', text: 'See the five most-picked players in one category before the lock, with ownership %. No names attached.' },
+  duel: { name: 'Faceoff', icon: '⚫', text: `Take a faceoff against a colleague in one category. Winner takes ${LEAGUE.cards.duelStake} points from the loser. If they decline, they wear 🐔 for the week.` },
+};
+if (LEAGUE.sport === 'nhl') for (const [k, v] of Object.entries(HOCKEY)) Object.assign(CARDS[k], v);
+
 export const DECK = Object.keys(CARDS);
 
 export const isAttack = card => ['attack', 'prank'].includes(CARDS[card]?.type);
@@ -110,17 +133,30 @@ export const isHindsight = card => CARDS[card]?.type === 'hindsight';
 // Plays that use up your one card a week. Traps and gifts don't.
 export const countsAsPlay = card => !!CARDS[card] && !isTrap(card);
 
-export const NICKNAMES = [
+export const NICKNAMES = LEAGUE.sport === 'nhl' ? [
+  'The Pylon', 'Sieve', 'Bender', 'The Plug', 'Press Box', 'Fourth Liner',
+  'Zamboni Driver', 'Black Ace', 'Cement Hands', 'Puck Hog', 'Waiver Wire', 'Rink Rat',
+] : [
   'The Brick Layer', 'Bench Warmer', 'Captain Autopilot', 'DNP-CD', 'Trade Bait', 'G League Call-Up',
   'Garbage Time Hero', 'The Ball Hog', 'Load Manager', 'Air Ball', 'Two-Way Contract', 'Lottery Ticket',
 ];
 
-export const TAUNTS = [
+export const TAUNTS = LEAGUE.sport === 'nhl' ? [
+  'Keep your head up.', 'Top shelf.', 'Five-hole.', 'Bar down.', 'See you in the box.', 'Off the post and out.',
+  'Snipe, snipe, celly.', 'Get pucked.', 'Not in my crease.', 'Nothing personal. Okay, a little personal.',
+] : [
   "Ball don't lie.", 'Too small.', 'Wrong building.', 'Night night.', 'Count it.', 'And one.',
   'Get that weak stuff outta here.', 'Cash me in the paint.', 'Respect the process.', 'Nothing personal. Okay, a little personal.',
 ];
 
-export const PACKS = {
+export const PACKS = LEAGUE.sport === 'nhl' ? {
+  starter: { name: 'Starter Pack', blurb: 'Welcome to the bench', c1: '#a6192e', c2: '#0b2a5b' },
+  locker: { name: 'Locker Room Pack', blurb: 'You picked your own team last week', c1: '#0b2a5b', c2: '#5b8fd6' },
+  award: { name: 'Award Pack', blurb: 'Earned on last week’s awards', c1: '#7a5a10', c2: '#e8c35a' },
+  revenge: { name: 'Revenge Pack', blurb: 'You lost a life. Drop the gloves.', c1: '#2b0a10', c2: '#d6223a' },
+  album: { name: 'Album Pack', blurb: 'You completed a division', c1: '#173e4f', c2: '#7fd3e6' },
+  decree: { name: 'Decree Pack', blurb: 'By order of the Commissioner', c1: '#1a1a1a', c2: '#c0c6cf' },
+} : {
   starter: { name: 'Starter Pack', blurb: 'Welcome to the card table', c1: '#c8102e', c2: '#1d428a' },
   locker: { name: 'Locker Room Pack', blurb: 'You picked your own team last week', c1: '#0f2a66', c2: '#3d72e0' },
   award: { name: 'Award Pack', blurb: 'Earned on last week’s awards', c1: '#8a5a00', c2: '#f2c14e' },

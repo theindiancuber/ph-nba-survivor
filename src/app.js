@@ -1,7 +1,7 @@
 import { LEAGUE, SPORT, buildWeeks, defaultLockAt, MONTH_LABELS, addDays, slotValue } from './config.js';
 import { weekDays, totalsThrough, etDate, seasonThrough } from './calendar.js';
 import { nightStatus, recapNights, recapBoard, recapStats } from './recap.js';
-import { computeLeague, headToHead, blockedReason, projection, teamProjection, fmt, eligible, clearsBar, savePct } from './league.js';
+import { computeLeague, headToHead, blockedReason, projection, teamProjection, fmt, eligible, clearsBar, savePct, SWAP_SLOTS } from './league.js';
 import { TEAMS, TEAM_BY_ID, DIVISIONS, isTeamId, teamLogo, headshot } from './teams.js';
 import { SupabaseBackend, DemoBackend } from './backend.js';
 import { downloadCertificate } from './certificate.js';
@@ -25,11 +25,14 @@ const W_ = LEAGUE.words;
 const OTHER_LEAGUE = SPORT === 'nhl' ? 'Peakhill NBA Survivor' : 'Peakhill NHL Survivor';
 // A slot's total as shown: +2 for plus-minus, .915 for a save percentage.
 const V = (s, v) => slotValue(s, v);
+const HOCKEY = SPORT === 'nhl';
+// A card's name, as this league calls it (the NHL league plays the deck under hockey names).
+const CN = c => CARDS[c].name;
 // A pick's total as shown: a goalie who hasn't faced a shot yet shows a dash rather than .000.
 const PV = (s, x) => INFO[s].pct && !(x.line?.[LEAGUE.line.shots] > 0) && !x.copy ? '—' : V(s, x.value);
 // A season average as shown in the picker and on pick cards.
 const avgText = (s, v) => INFO[s].pct ? slotValue(s, v) : INFO[s].signed ? (v > 0 ? `+${fmt(v)}` : fmt(v)) : fmt(v);
-// Cards are on once LEAGUE.cards.startWeek is set (the NHL league turns them on later).
+// Cards are on once LEAGUE.cards.startWeek is set (Infinity hides them).
 const CARDS_ON = Number.isFinite(LEAGUE.cards.startWeek);
 const VIEWS = [
   ['week', 'This Week'], ['calendar', 'Calendar'], ['cards', 'Cards'], ['standings', 'Standings'], ['survivor', 'Survivor'], ['results', 'Results'],
@@ -563,7 +566,7 @@ function slotCard(s, open, u, d) {
       ${shot ? `<img class="shot" src="${shot}" alt="">` : ''}
     </div>
     <div class="player-info"><div class="pname">${esc(pname(sel.player_id))}</div><div class="pmeta">${esc(t ? `${t.city} ${t.name}` : p?.team || '')}${p?.pos ? ` · ${esc(p.pos)}` : ''}</div>
-      ${openCw()?.embargo[s]?.has(sel.player_id) ? `<div class="err" style="margin-top:6px">🚫 Embargoed this week by ${esc(userName(openCw().embargo[s].get(sel.player_id).user_id))}. He can't score here: change the pick or add a backup.</div>` : ''}</div>
+      ${openCw()?.embargo[s]?.has(sel.player_id) ? `<div class="err" style="margin-top:6px">${CARDS.embargo.icon} ${HOCKEY ? 'In the sin bin' : 'Embargoed'} this week by ${esc(userName(openCw().embargo[s].get(sel.player_id).user_id))}. He can't score here: change the pick or add a backup.</div>` : ''}</div>
     <div class="statline">${stats.map(([v, l]) => `<div><b>${typeof v === 'number' ? fmt(v) : v}</b><small>${l}</small></div>`).join('')}</div>
     <div class="slot-foot">
       ${bonus ? `<div class="alt-row"><span class="lbl">Burn</span><span class="dim">Only if he fights</span></div>` : `<div class="alt-row"><span class="lbl">Backup</span>${sel.alt_id ? `${thumb(sel.alt_id, 'sm')}<span>${esc(shortName(sel.alt_id))}</span><button class="link danger" data-act="clear-alt" data-slot="${s}">Remove</button>` : `<span class="dim">If he ${INFO[s].pct ? `faces under ${LEAGUE.minShots} shots` : 'sits all week'}</span><button class="link" data-act="pick" data-slot="${s}" data-which="alt">+ Add</button>`}</div>`}
@@ -807,7 +810,7 @@ function cardUse(inst) {
     const limit = dk === 'free_for_all' ? 2 : 1;
     if (mine.length >= limit) return { why: limit > 1 ? `Free-for-all: you've played your ${limit} cards this week.` : `One card a week: you've played ${cardName(mine[0].card)}.` };
   }
-  if (c === 'embargo' && Date.parse(weekObj(ow).lockAt) - now() < LEAGUE.cards.embargoHours * 3600e3) return { why: `An Embargo needs ${LEAGUE.cards.embargoHours} hours' notice before the lock.` };
+  if (c === 'embargo' && Date.parse(weekObj(ow).lockAt) - now() < LEAGUE.cards.embargoHours * 3600e3) return { why: `${HOCKEY ? 'A Sin Bin' : 'An Embargo'} needs ${LEAGUE.cards.embargoHours} hours' notice before the lock.` };
   return { week: ow };
 }
 
@@ -829,8 +832,8 @@ function decor(id, week, inline = false) {
   if (!c) return '';
   const cos = c.cosmetics[id];
   let h = '';
-  if (cos?.clown) h += `<span class="cos" title="Clown Nose from ${esc(userName(cos.clown))}">🤡</span>`;
-  if (c.chickens.has(id)) h += '<span class="cos" title="Ducked a duel">🐔</span>';
+  if (cos?.clown) h += `<span class="cos" title="${CN('clown')} from ${esc(userName(cos.clown))}">${CARDS.clown.icon}</span>`;
+  if (c.chickens.has(id)) h += `<span class="cos" title="Ducked a ${HOCKEY ? 'faceoff' : 'duel'}">🐔</span>`;
   if (cos?.nickname) h += `<span class="nick" ${inline ? 'style="display:inline;margin-left:6px"' : ''} title="Nickname from ${esc(userName(cos.nickname.by))}">“${esc(NICKNAMES[cos.nickname.nick])}”</span>`;
   return h;
 }
@@ -853,25 +856,25 @@ function playStory(p, w) {
   const T = id => `<b>${esc(you(id))}</b>`;
   const Tp = id => `<b>${esc(id === myId() ? 'your' : `${userName(id)}'s`)}</b>`;
   const P = pid => `<b>${esc(pname(pid))}</b>`;
-  const hit = h => `${INFO[h.slot].name} ${fmt(h.before)} → ${fmt(h.after)}`;
+  const hit = h => `${INFO[h.slot].name} ${V(h.slot, h.before)} → ${V(h.slot, h.after)}`;
   if (p.why === 'not-in-hand') return { icon: '🚨', text: `${A} tried to play ${esc(d?.name || p.card)} without holding it. Nice try.`, res: 'No effect', cls: 'bad' };
   if (p.card === 'gift') return { icon: '🎁', text: `${A} gifted ${T(p.target_id)} ${cardMini(p.gift)}`, res: w.status === 'open' ? 'Arrives next week' : 'Delivered', cls: 'good' };
   const text = {
     jinx: () => `${A} jinxed ${Tp(p.target_id)} ${P(p.player_id)}`,
-    load: () => `${A} put ${Tp(p.target_id)} ${slotName(p.slot)} pick on load management`,
-    heist: () => `${A} pulled a heist on ${T(p.target_id)}`,
-    blue_shell: () => `${A} fired a Blue Shell${p.target ? ` at the leader, ${T(p.target)}` : ''}`,
-    burn_notice: () => `${A} served ${T(p.target_id)} a Burn Notice: ${P(p.player_id)} in ${slotName(p.slot)}`,
-    clown: () => `${A} put a clown nose on ${T(p.target_id)}`,
+    load: () => HOCKEY ? `${A} made ${Tp(p.target_id)} ${slotName(p.slot)} pick a healthy scratch` : `${A} put ${Tp(p.target_id)} ${slotName(p.slot)} pick on load management`,
+    heist: () => HOCKEY ? `${A} poke-checked ${T(p.target_id)}` : `${A} pulled a heist on ${T(p.target_id)}`,
+    blue_shell: () => HOCKEY ? `${A} lined up a hip check${p.target ? ` on the leader, ${T(p.target)}` : ''}` : `${A} fired a Blue Shell${p.target ? ` at the leader, ${T(p.target)}` : ''}`,
+    burn_notice: () => HOCKEY ? `${A} put ${Tp(p.target_id)} ${P(p.player_id)} on waivers in ${slotName(p.slot)}` : `${A} served ${T(p.target_id)} a Burn Notice: ${P(p.player_id)} in ${slotName(p.slot)}`,
+    clown: () => HOCKEY ? `${A} gave ${T(p.target_id)} a mullet` : `${A} put a clown nose on ${T(p.target_id)}`,
     nickname: () => `${A} renamed ${T(p.target_id)} “${esc(NICKNAMES[p.params?.nick] || '')}”`,
-    sixth: () => `${A} brought ${P(p.player_id)} off the bench`,
-    copycat: () => `${A} copied ${Tp(p.target_id)} ${slotName(p.slot)} pick`,
-    leech: () => `${A} latched onto ${Tp(p.target_id)} ${slotName(p.slot)}`,
-    switcheroo: () => `${A} pulled a Switcheroo`,
-    garbage: () => `${A} called Garbage Time on ${slotName(p.slot)}`,
-    embargo: () => `${A} embargoed ${P(p.player_id)} in ${slotName(p.slot)} for everyone`,
+    sixth: () => HOCKEY ? `${A} pulled the goalie for ${P(p.player_id)}` : `${A} brought ${P(p.player_id)} off the bench`,
+    copycat: () => HOCKEY ? `${A} shadowed ${Tp(p.target_id)} ${slotName(p.slot)} pick` : `${A} copied ${Tp(p.target_id)} ${slotName(p.slot)} pick`,
+    leech: () => HOCKEY ? `${A} jumped on ${Tp(p.target_id)} ${slotName(p.slot)} line` : `${A} latched onto ${Tp(p.target_id)} ${slotName(p.slot)}`,
+    switcheroo: () => HOCKEY ? `${A} called a line change` : `${A} pulled a Switcheroo`,
+    garbage: () => HOCKEY ? `${A} scored an empty netter in ${slotName(p.slot)}` : `${A} called Garbage Time on ${slotName(p.slot)}`,
+    embargo: () => HOCKEY ? `${A} sent ${P(p.player_id)} to the sin bin in ${slotName(p.slot)}` : `${A} embargoed ${P(p.player_id)} in ${slotName(p.slot)} for everyone`,
     scout: () => `${A} scouted the ${slotName(p.slot)} board`,
-    duel: () => `${A} challenged ${T(p.target_id)} to a duel on ${slotName(p.slot)}`,
+    duel: () => HOCKEY ? `${A} took a faceoff against ${T(p.target_id)} on ${slotName(p.slot)}` : `${A} challenged ${T(p.target_id)} to a duel on ${slotName(p.slot)}`,
     charge: () => `${A} has a trap set`,
     reverse: () => `${A} has a trap set`,
   }[p.card]?.() || `${A} played ${esc(d?.name)}`;
@@ -879,24 +882,24 @@ function playStory(p, w) {
   let res = '', cls = '';
   const live = w.status === 'live' ? ' (so far)' : '';
   if (w.status === 'open') res = p.card === 'embargo' ? 'Live now' : p.card === 'duel' ? 'Settles after the week' : 'Revealed at the lock';
-  else if (p.outcome === 'blocked') { res = `🛡️ ${esc(userName(p.target))} took the charge`; cls = 'gold'; }
+  else if (p.outcome === 'blocked') { res = `${CARDS.charge.icon} ${esc(userName(p.target))} ${HOCKEY ? 'blocked the shot' : 'took the charge'}`; cls = 'gold'; }
   else if (p.outcome === 'fizzled') res = FIZZ[p.why] || 'Fizzled';
   else {
-    const rev = p.outcome === 'reversed' ? `🔄 Bounced back by ${esc(you(p.target))}! ` : '';
+    const rev = p.outcome === 'reversed' ? `${CARDS.reverse.icon} ${HOCKEY ? 'Off the boards from' : 'Bounced back by'} ${esc(you(p.target))}! ` : '';
     if (rev) cls = 'gold';
     switch (p.card) {
-      case 'jinx': res = p.hits?.length ? `${rev}Hit · ${p.hits.map(hit).join(', ')}` : `${rev}Air ball`; cls ||= p.hits?.length ? 'bad' : ''; break;
+      case 'jinx': res = p.hits?.length ? `${rev}Hit · ${p.hits.map(hit).join(', ')}` : `${rev}${HOCKEY ? 'Wide of the net' : 'Air ball'}`; cls ||= p.hits?.length ? 'bad' : ''; break;
       case 'load': res = p.hits?.length ? `${rev}${hit(p.hits[0])}` : `${rev}No effect`; cls ||= p.hits?.length ? 'bad' : ''; break;
       case 'heist': res = p.pts ? `${rev}${p.pts} pts stolen` : `${rev}Came up empty`; cls ||= 'bad'; break;
       case 'blue_shell': res = p.hits?.length ? `${rev}${INFO[p.hits[0].slot].name} ${fmt(p.hits[0].before)} → ${fmt(p.hits[0].after)} rank pts` : `${rev}Missed`; cls ||= 'bad'; break;
       case 'burn_notice': res = p.burned ? `${rev}Burned for the season` : `${rev}He was already burned`; cls ||= p.burned ? 'bad' : ''; break;
       case 'clown': case 'nickname': res = rev ? `${rev}They wear it` : 'Landed'; break;
-      case 'sixth': res = p.outcome === 'played' ? `Subbed into ${INFO[p.slot].name}: ${fmt(p.before)} → ${fmt(p.after)}${live}` : 'Stayed on the bench'; cls = p.outcome === 'played' ? 'good' : ''; break;
-      case 'copycat': res = `${fmt(p.value ?? 0)} ${INFO[p.slot].short}${live}`; cls = 'good'; break;
+      case 'sixth': res = p.outcome === 'played' ? `${HOCKEY ? 'Over the boards into' : 'Subbed into'} ${INFO[p.slot].name}: ${V(p.slot, p.before)} → ${V(p.slot, p.after)}${live}` : 'Stayed on the bench'; cls = p.outcome === 'played' ? 'good' : ''; break;
+      case 'copycat': res = `${V(p.slot, p.value ?? 0)} ${INFO[p.slot].short}${live}`; cls = 'good'; break;
       case 'leech': res = `+${fmt(p.pts || 0)} pts${live}`; cls = 'good'; break;
-      case 'switcheroo': res = (p.moves || []).filter(m => m.from !== m.to).map(m => `${esc(shortName(m.pid))} → ${INFO[m.to].name} (${m.value})`).join(', '); cls = 'good'; break;
-      case 'garbage': res = `${fmt(p.before)} → ${fmt(p.after)}`; cls = 'good'; break;
-      case 'embargo': res = `${p.victims?.length || 0} pick${p.victims?.length === 1 ? '' : 's'} blocked`; break;
+      case 'switcheroo': res = (p.moves || []).filter(m => m.from !== m.to).map(m => `${esc(shortName(m.pid))} → ${INFO[m.to].name} (${V(m.to, m.value)})`).join(', '); cls = 'good'; break;
+      case 'garbage': res = `${V(p.slot, p.before)} → ${V(p.slot, p.after)}`; cls = 'good'; break;
+      case 'embargo': res = `${p.victims?.length || 0} pick${p.victims?.length === 1 ? '' : 's'} ${HOCKEY ? 'in the box' : 'blocked'}`; break;
       case 'scout': res = 'Intel gathered'; break;
       case 'duel':
         res = p.outcome === 'declined' ? '🐔 Declined' : p.outcome === 'push' ? 'Push' : p.outcome === 'void' ? 'No contest'
@@ -959,9 +962,9 @@ function weekCallouts() {
   const out = decreeCallouts();
   const packs = waitingPacks();
   if (packs.length) out.push(`<div class="callout gold"><span class="ic">📦</span><div class="txt"><b>${packs.length} pack${packs.length > 1 ? 's' : ''} waiting.</b> Open ${packs.length > 1 ? 'them' : 'it'} before the lock, or the first card is kept for you.</div><a class="btn small gold" href="#cards">Open</a></div>`);
-  for (const d of unansweredDuels()) out.push(`<div class="callout purple"><span class="ic">⚔️</span><div class="txt"><b>${esc(userName(d.user_id))}</b> challenged you to a duel on ${slotName(d.slot)}. No answer by the lock means you accepted.</div><a class="btn small" href="#cards">Answer</a></div>`);
+  for (const d of unansweredDuels()) out.push(`<div class="callout purple"><span class="ic">${CARDS.duel.icon}</span><div class="txt"><b>${esc(userName(d.user_id))}</b> challenged you to ${HOCKEY ? 'a faceoff' : 'a duel'} on ${slotName(d.slot)}. No answer by the lock means you accepted.</div><a class="btn small" href="#cards">Answer</a></div>`);
   const emb = (openCw()?.plays || []).filter(p => p.ok && p.card === 'embargo');
-  if (emb.length) out.push(`<div class="callout red"><span class="ic">🚫</span><div class="txt">Embargo this week: ${emb.map(e => `<b>${esc(pname(e.player_id))}</b> can't be used for ${INFO[e.slot].name} (thanks, ${esc(userName(e.user_id))})`).join('; ')}.</div></div>`);
+  if (emb.length) out.push(`<div class="callout red"><span class="ic">${CARDS.embargo.icon}</span><div class="txt">${HOCKEY ? 'In the sin bin' : 'Embargo'} this week: ${emb.map(e => `<b>${esc(pname(e.player_id))}</b> can't be used for ${INFO[e.slot].name} (thanks, ${esc(userName(e.user_id))})`).join('; ')}.</div></div>`);
   return out.length ? `<div class="grid" style="gap:10px">${out.join('')}</div>` : '';
 }
 
@@ -1038,12 +1041,12 @@ function thisWeekCards(ow) {
   const duels = incomingDuels().map(p => {
     const r = replyTo(p.id);
     const taunt = p.params?.taunt != null ? ` <i class="muted">“${esc(TAUNTS[p.params.taunt])}”</i>` : '';
-    return `<div class="duel-card"><span style="font-size:26px">⚔️</span><div class="txt"><b>${esc(userName(p.user_id))}</b> challenged you on ${slotName(p.slot)}. Winner takes ${LEAGUE.cards.duelStake} points.${taunt}</div>
+    return `<div class="duel-card"><span style="font-size:26px">${CARDS.duel.icon}</span><div class="txt"><b>${esc(userName(p.user_id))}</b> challenged you on ${slotName(p.slot)}. Winner takes ${LEAGUE.cards.duelStake} points.${taunt}</div>
       ${r ? `<span class="tag ${r.params?.accept ? 'green' : 'gold'}">${r.params?.accept ? 'Accepted' : 'Declined 🐔'}</span><button class="link" data-act="play-undo" data-id="${esc(r.id)}">Change</button>`
         : `<button class="btn small gold" data-act="duel-reply" data-id="${esc(p.id)}" data-to="${p.user_id}" data-accept="1">Accept</button><button class="btn small" data-act="duel-reply" data-id="${esc(p.id)}" data-to="${p.user_id}" data-accept="0">Decline 🐔</button>`}</div>`;
   });
   const embargoes = (c?.plays || []).filter(p => p.ok && p.card === 'embargo' && p.user_id !== myId())
-    .map(p => `<div class="callout red"><span class="ic">🚫</span><div class="txt"><b>${esc(userName(p.user_id))}</b> embargoed <b>${esc(pname(p.player_id))}</b> in ${slotName(p.slot)}. Nobody can use him there this week.</div></div>`);
+    .map(p => `<div class="callout red"><span class="ic">${CARDS.embargo.icon}</span><div class="txt"><b>${esc(userName(p.user_id))}</b> ${HOCKEY ? 'sent' : 'embargoed'} <b>${esc(pname(p.player_id))}</b> ${HOCKEY ? 'to the sin bin ' : ''}in ${slotName(p.slot)}. Nobody can use him there this week.</div></div>`);
   return `<section class="panel"><div class="panel-title"><h2>Week ${ow} at the table</h2><span class="muted">Locks ${esc(lockText(weekObj(ow).lockAt))}. You can take a card back until then.</span></div>
     <div class="grid" style="gap:10px">${duels.join('')}${embargoes.join('')}
     ${rows.length ? `<div class="ct-list">${rows.join('')}</div>` : `<p class="muted" style="margin:0">You haven't played a card this week.${hw ? ` Hindsight cards can still rewrite Week ${hw.week}.` : ''}</p>`}</div>
@@ -1109,7 +1112,7 @@ function achievementsPanel(u, dex) {
     { icon: '🃏', name: 'Card Shark', how: 'Play 5 cards', n: played, of: 5 },
     { icon: '🎯', name: 'First Blood', how: 'Land an attack', n: mine.filter(p => ['attack'].includes(CARDS[p.card]?.type) && p.outcome === 'landed').length, of: 1 },
     { icon: '🪤', name: "It's a Trap", how: 'Spring a trap', n: mine.filter(p => isTrap(p.card) && p.sprung).length, of: 1 },
-    { icon: '⚔️', name: 'Duelist', how: 'Win a duel', n: duelsWon, of: 1 },
+    HOCKEY ? { icon: '⚫', name: 'Faceoff King', how: 'Win a faceoff', n: duelsWon, of: 1 } : { icon: '⚔️', name: 'Duelist', how: 'Win a duel', n: duelsWon, of: 1 },
     { icon: '🎁', name: 'Secret Santa', how: 'Gift a card', n: mine.filter(p => p.card === 'gift').length, of: 1 },
     { icon: '📒', name: 'Collector', how: 'Finish an album division', n: u.cards.divisions.length, of: 1 },
     { icon: '💎', name: 'Shiny', how: 'Hold a legendary', n: [...dex].filter(c => CARDS[c].rarity === 'legendary').length, of: 1 },
@@ -1144,6 +1147,13 @@ const CARD_TIPS = {
   scout: "Can't be taken back once you've read it.",
   duel: 'Declining earns a 🐔 for the week. No answer counts as accepted.',
 };
+if (HOCKEY) Object.assign(CARD_TIPS, {
+  jinx: 'Best when you can guess their pick, like a sniper with four games this week. On a minus it hurts double.',
+  load: 'Hits hardest on a pick who had one monster night.',
+  sixth: 'Name someone with a big week. He only goes over the boards if it helps, and only in a slot he can play.',
+  switcheroo: 'Swaps your Lamplighter and Shutdown skaters. Play it after a week ends, before the next lock.',
+  garbage: 'Needs a pick who played at least two games. In The Wall it works out his save % again.',
+});
 
 function cardWhen(c) {
   if (c === 'embargo') return `At least ${LEAGUE.cards.embargoHours} hours before the lock`;
@@ -1251,11 +1261,13 @@ function playForm(use) {
   if (isHindsight(P.card)) f.push(`<p class="note" style="margin:0">This rewrites <b>Week ${use.week}</b>, which is final. You can take it back until the Week ${use.week + 1} lock.</p>`);
   if (P.card === 'blue_shell') {
     const leader = pointsOrder()[0];
-    f.push(`<div class="callout"><span class="ic">🐢</span><div class="txt">It homes in on whoever leads the season points at the lock. Right now that's <b>${esc(leader?.name || 'nobody')}</b>${leader?.id === myId() ? '. That\'s you: it fizzles if you still lead' : ''}.</div></div>`);
+    f.push(`<div class="callout"><span class="ic">${CARDS.blue_shell.icon}</span><div class="txt">It ${HOCKEY ? 'lines up' : 'homes in on'} whoever leads the season points at the lock. Right now that's <b>${esc(leader?.name || 'nobody')}</b>${leader?.id === myId() ? '. That\'s you: it fizzles if you still lead' : ''}.</div></div>`);
   }
   if (d.needs.includes('target')) {
     let list = Object.values(L.users).filter(u => u.id !== myId()).sort(byName);
-    let label = { heist: 'Who to rob (above you in season points)', copycat: 'Whose pick to copy', leech: 'Who to leech off', duel: 'Who to challenge', burn_notice: 'Who gets the notice' }[P.card] || 'Target';
+    let label = (HOCKEY
+      ? { heist: 'Who to poke-check (above you in season points)', copycat: 'Whose pick to shadow', leech: 'Whose line to join', duel: 'Who to face off against', burn_notice: 'Whose player goes on waivers' }
+      : { heist: 'Who to rob (above you in season points)', copycat: 'Whose pick to copy', leech: 'Who to leech off', duel: 'Who to challenge', burn_notice: 'Who gets the notice' })[P.card] || 'Target';
     if (P.card === 'heist') {
       const order = pointsOrder();
       const mine = meU().total;
@@ -1270,12 +1282,12 @@ function playForm(use) {
       const x = weekObj(use.week).results[myId()]?.slots[s];
       if (s === 'WIN') return x?.scorer != null && x.gp > 1 ? (x.line[2] && x.line[1] ? ' · a loss → a win' : ' · n/a') : ' · n/a';
       const hi = x?.line?.[4 + STAT_IDX[s]], lo = x?.line?.[7 + STAT_IDX[s]];
-      return x?.scorer != null && x.gp > 1 && hi != null ? ` · ${lo} → ${hi}` : ' · n/a';
+      return x?.scorer != null && x.gp > 1 && hi != null ? ` · ${V(s, lo)} → ${V(s, hi)}` : ' · n/a';
     };
     f.push(`<div class="field">${P.card === 'garbage' ? `Which Week ${use.week} pick (worst → best game)` : 'Category'}<div class="pills">${SLOTS.map(s => `<button class="pill" data-act="play-slot" data-slot="${s}" aria-pressed="${P.slot === s}">${INFO[s].emoji} ${INFO[s].name}${note(s)}</button>`).join('')}</div></div>`);
   }
   if (d.needs.includes('player')) {
-    f.push(`<div class="field">${P.card === 'sixth' ? 'Your sixth man' : P.slot === 'WIN' ? 'Team' : P.card === 'jinx' ? 'Player or team' : 'Player'}${P.player != null
+    f.push(`<div class="field">${P.card === 'sixth' ? (HOCKEY ? 'Your extra attacker' : 'Your sixth man') : P.slot === 'WIN' ? 'Team' : P.card === 'jinx' ? 'Player or team' : 'Player'}${P.player != null
       ? `<div class="chip-pick">${thumb(P.player, 'sm')}<span>${esc(pname(P.player))}</span><button class="link" data-act="play-player-clear">Change</button></div>`
       : `<input id="play-q" class="input" type="search" placeholder="Search ${P.slot === 'WIN' ? 'teams' : 'players'}" value="${esc(P.q)}" autocomplete="off" data-input="play-q"><div class="play-list" id="play-list">${playPlayerRows()}</div>`}</div>`);
   }
@@ -1286,7 +1298,7 @@ function playForm(use) {
   if (['attack', 'prank', 'duel'].includes(d.type)) {
     f.push(`<label class="field">Taunt (optional, shown at the reveal)<select class="input" data-change="play-taunt"><option value="">No taunt</option>${TAUNTS.map((t, i) => `<option value="${i}" ${P.taunt === String(i) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`);
   }
-  if (P.card === 'embargo') f.push('<p class="note" style="margin:0">Everyone sees an Embargo the moment you play it, so they can change their picks.</p>');
+  if (P.card === 'embargo') f.push(`<p class="note" style="margin:0">Everyone sees ${HOCKEY ? 'a Sin Bin' : 'an Embargo'} the moment you play it, so they can change their picks.</p>`);
   const verb = isTrap(P.card) ? 'Arm' : 'Play';
   f.push(`<button class="btn primary" data-act="play-submit">${verb} ${esc(d.name)}</button>`);
   return f.join('');
@@ -1296,15 +1308,15 @@ function swapForm(week) {
   const P = S.play;
   const r = weekObj(week).results[myId()];
   const u = meU();
-  const rows = LEAGUE.playerSlots.map(s => {
+  const rows = SWAP_SLOTS.map(s => {
     const x = r.slots[s];
     if (x.scorer == null || x.copy) return `<div class="swap-row"><span class="dim">${slotName(s)}: nothing to move</span><span></span></div>`;
     const line = S.data.totals[week]?.p?.[x.scorer] || [];
-    const opts = LEAGUE.playerSlots.map(t => {
+    const opts = SWAP_SLOTS.map(t => {
       const burned = t !== s && (u.burns[t].get(x.scorer) ?? Infinity) < week;
-      return `<option value="${t}" ${P.map[s] === t ? 'selected' : ''} ${burned ? 'disabled' : ''}>${INFO[t].name}: ${line[STAT_IDX[t] + 1] ?? 0} ${INFO[t].short}${burned ? ' (burned)' : ''}</option>`;
+      return `<option value="${t}" ${P.map[s] === t ? 'selected' : ''} ${burned ? 'disabled' : ''}>${INFO[t].name}: ${V(t, line[STAT_IDX[t] + 1] ?? 0)} ${INFO[t].short}${burned ? ' (burned)' : ''}</option>`;
     }).join('');
-    return `<div class="swap-row"><span>${slotName(s)}: <b>${esc(shortName(x.scorer))}</b> <span class="dim">${x.value} ${INFO[s].short}</span></span><select class="input" style="width:auto" data-change="play-swap" data-from="${s}">${opts}</select></div>`;
+    return `<div class="swap-row"><span>${slotName(s)}: <b>${esc(shortName(x.scorer))}</b> <span class="dim">${V(s, x.value)} ${INFO[s].short}</span></span><select class="input" style="width:auto" data-change="play-swap" data-from="${s}">${opts}</select></div>`;
   }).join('');
   return `<div class="field">Move each player to his new slot<div style="display:grid;gap:8px">${rows}</div></div>`;
 }
@@ -1328,8 +1340,9 @@ function playPlayerRows() {
       return `<button class="prow" data-act="play-player" data-pid="${t.id}" ${why ? 'disabled' : ''}>${thumb(t.id)}<div><div class="nm">${esc(t.city)} ${esc(t.name)}</div><div class="mt">${rec.w}–${rec.l}${why ? ` <span class="blocked">${esc(why)}</span>` : ''}</div></div><div></div></button>`;
     }) : [];
   if (P.slot === 'WIN') return teamRows.join('') || '<div class="empty-state">No teams match.</div>';
+  // A card aimed at one slot only lists players who can play there (NHL: goalies only in The Wall).
   const rows = Object.values(S.data.players)
-    .filter(p => !q || norm(p.name).includes(q) || norm(p.team).includes(q))
+    .filter(p => (!P.slot || eligible(p, P.slot)) && (!q || norm(p.name).includes(q) || norm(p.team).includes(q)))
     .sort((a, b) => (b.avg?.[STAT_IDX[slot]] || 0) - (a.avg?.[STAT_IDX[slot]] || 0))
     .slice(0, 30)
     .map(p => {
@@ -1341,7 +1354,7 @@ function playPlayerRows() {
       if (P.card === 'embargo' && !P.slot) why = 'Pick a category first';
       if (P.card === 'sixth') {
         if (mine.has(p.id)) why = 'Already one of your picks';
-        else if (LEAGUE.playerSlots.every(s => blockedReason(L, myId(), s, p.id))) why = 'Burned everywhere';
+        else if (LEAGUE.playerSlots.every(s => !eligible(p, s) || blockedReason(L, myId(), s, p.id))) why = 'Burned everywhere';
       }
       return `<button class="prow" data-act="play-player" data-pid="${p.id}" ${why ? 'disabled' : ''}>${thumb(p.id)}<div><div class="nm">${esc(p.name)}</div><div class="mt">${esc(p.team)} · ${LEAGUE.playerSlots.map(s => `${fmt(p.avg?.[STAT_IDX[s]] || 0)} ${INFO[s].short}`).join(' / ')}${why ? ` <span class="blocked">${esc(why)}</span>` : ''}</div></div><div></div></button>`;
     });
@@ -1375,8 +1388,8 @@ async function submitPlay(btn) {
       row.params.map = moved;
     }
     msg = isTrap(P.card) ? `${d.name} is armed. Nobody can see it.`
-      : P.card === 'embargo' ? 'Embargo is live. Everyone can see it now.'
-      : P.card === 'duel' ? `Challenge sent to ${userName(P.target)}.`
+      : P.card === 'embargo' ? `${CN('embargo')} is live. Everyone can see it now.`
+      : P.card === 'duel' ? `${HOCKEY ? 'Faceoff' : 'Challenge'} sent to ${userName(P.target)}.`
       : isHindsight(P.card) ? `Week ${use.week} rewritten.`
       : P.card === 'scout' ? null
       : `${d.name} played. It's revealed at the lock.`;
@@ -1398,8 +1411,8 @@ async function showScout(week, slot) {
   let rows;
   try { rows = await S.backend.scout(week, slot); } catch (e) { return toast(e.message || String(e), true); }
   const n = rows[0]?.entries || 0;
-  $('#modal-root').innerHTML = `<div class="modal-bg" data-act="close-modal-bg"><div class="modal narrow" role="dialog" aria-modal="true" aria-label="Scout report">
-    <div class="modal-head"><div class="ttl"><div><div class="kicker">🔭 Scout report · Week ${week}</div><h3>${slotName(slot)} board</h3></div><button class="close-x" data-act="close-modal" aria-label="Close">×</button></div></div>
+  $('#modal-root').innerHTML = `<div class="modal-bg" data-act="close-modal-bg"><div class="modal narrow" role="dialog" aria-modal="true" aria-label="${CN('scout')}">
+    <div class="modal-head"><div class="ttl"><div><div class="kicker">${CARDS.scout.icon} ${CN('scout')} · Week ${week}</div><h3>${slotName(slot)} board</h3></div><button class="close-x" data-act="close-modal" aria-label="Close">×</button></div></div>
     <div class="modal-body pad">${rows.length ? rows.map(r => `<div class="scout-row">${thumb(r.player_id, 'sm')}<div><div style="font-weight:600">${esc(pname(r.player_id))}</div><div class="own-bar"><i style="width:${(r.picks / Math.max(1, n)) * 100}%"></i></div></div><b class="num">${Math.round((r.picks / Math.max(1, n)) * 100)}%</b></div>`).join('')
       : '<p class="muted">Nobody has picked this slot yet.</p>'}
       <p class="note" style="margin:10px 0 0">Based on the ${n} ${n === 1 ? 'person' : 'people'} with picks saved so far. Picks can change until the lock. Check again any time this week.</p></div></div></div>`;
@@ -1711,7 +1724,7 @@ function viewStandings() {
     <section class="panel">
       <div class="panel-title"><h2>${raw ? 'Standings from raw picks' : 'Season standings'}</h2>${rows ? toggle : ''}</div>
       <p class="muted" style="margin:-4px 0 10px;font-size:13px">${raw
-        ? 'Just for fun: the table as it would be right now from everyone\'s picks alone, as if no Joker card had ever been played. No jinxes, heists, duels, Copycats or Sixth Men, and nothing blocked by an Embargo or a Burn Notice. Double Down, decrees and the commissioner\'s adjustments still count. The leader at the end of the season wins the ' + W_.pure + ' Champion title.'
+        ? 'Just for fun: the table as it would be right now from everyone\'s picks alone, as if no Joker card had ever been played. ' + (HOCKEY ? 'No jinxes, poke checks, faceoffs, Shadows or Extra Attackers, and nothing blocked by a Sin Bin or Waivers.' : 'No jinxes, heists, duels, Copycats or Sixth Men, and nothing blocked by an Embargo or a Burn Notice.') + ' Double Down, decrees and the commissioner\'s adjustments still count. The leader at the end of the season wins the ' + W_.pure + ' Champion title.'
         : L.dropCount ? `Worst ${L.dropCount} week${L.dropCount > 1 ? 's' : ''} dropped` : 'Drops unlock after weeks 6, 12 and 18'}</p>
       ${rows ? `<div class="table-wrap"><table class="board"><thead><tr><th>#</th><th>Player</th><th class="hide-sm">Lives</th>${lw ? `<th class="r ${raw ? 'hide-sm' : ''}">Wk ${lw.week}</th>` : ''}${L.dropCount ? '<th class="r hide-sm">Total</th>' : ''}<th class="r">${L.dropCount ? 'Counted' : 'Points'}</th>${raw ? '<th class="r" title="Places and points against the real standings">vs real</th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div>`
         : '<div class="empty-state"><div class="ic">📋</div>Standings appear once the first week locks.</div>'}
@@ -2348,8 +2361,8 @@ function adminRules() {
       <h4 class="wide">🎴 Joker cards</h4>
       ${num('cards.handLimit', 'Hand limit', cur.cards.handLimit, 'cards.handLimit')}
       ${num('cards.attackCap', 'Max attacks on one person a week', cur.cards.attackCap, 'cards.attackCap')}
-      ${num('cards.duelStake', 'Duel stake (points)', cur.cards.duelStake, 'cards.duelStake')}
-      ${num('cards.heist', 'Heist (points)', cur.cards.heist, 'cards.heist')}
+      ${num('cards.duelStake', `${CN('duel')} stake (points)`, cur.cards.duelStake, 'cards.duelStake')}
+      ${num('cards.heist', `${CN('heist')} (points)`, cur.cards.heist, 'cards.heist')}
       <div class="wide form-foot"><button class="btn primary" type="submit">Save rules from Week ${R}</button><span class="dim">Everyone sees rule changes on the Rules tab. Post an announcement too.</span></div>
     </form></section>`;
 }
@@ -2864,10 +2877,10 @@ function viewRulesNhl() {
       <div class="panel rule"><h3>❤️ Survivor</h3><p>Everyone starts with ${LEAGUE.lives} lives. Clear at least ${LEAGUE.barsToSurvive} of the ${SLOTS.length} weekly bars (${b.PTS} points / ${V('PM', b.PM)} plus-minus / ${V('SV', b.SV)} save percentage / ${b.WIN} ${b.WIN === 1 ? 'win' : 'wins'}, the same every week unless the commissioner changes them) or lose a life. Last one standing wins the Survivor Belt. You keep playing for points either way.</p></div>
       <div class="panel rule"><h3>🃏 Jokers</h3><ul><li><b>Double Down</b>: double the rank points from one slot, once a season.</li><li><b>Un-burn</b>: get one burned player back in one category, once a season.</li></ul></div>
       <div class="panel rule"><h3>📜 Commissioner's Decree</h3><p>Up to ${LEAGUE.decree.perSeason} times a season the commissioner sets a one-week twist, such as Prime Time (a category counts double), Opposite Day, Mercy Rule, Sudden Death or Amnesty. Sometimes the league votes on it instead. Decrees are posted, and votes close, at least ${LEAGUE.decree.noticeHours} hours before the lock.</p></div>
-      <div class="panel rule"><h3>🎴 Joker cards</h3><p>Coming soon: the card game from NBA Survivor (jinxes, traps, faceoffs, poke checks), with hockey names. You'll see it in What's new when it starts.</p></div>
+      <div class="panel rule"><h3>🎴 Hockey cards</h3><p>Earn packs, keep one card from each (your choice is final), and play one card a week: jinxes, poke checks, hip checks, faceoffs, traps and pranks. Attacks are revealed at the lock. Cards move points but never cost a life.</p><p>The cards follow the categories: a Jinx doubles a minus and takes .020 off a save percentage, an Extra Attacker only goes into a slot he can play, and a Line Change swaps your Lamplighter and Shutdown skaters.</p><p><button class="link" data-act="primer">How cards work →</button></p></div>
       <div class="panel rule"><h3>🤖 Autopilot</h3><p>Forgot to pick? At the lock, Autopilot fills empty ranked slots with your best unburned option (season average × games; for The Wall, the best season save percentage). It never leaves you at zero, but it spends your best players first. It leaves Gloves Off empty.</p></div>
       <div class="panel rule"><h3>🥊 Rivals</h3><p>Name one coworker as your rival and track your weekly head-to-head record. You can change your rival any time.</p></div>
-      <div class="panel rule"><h3>🏆 Titles and awards</h3><ul><li><b>Season Champion</b></li><li><b>Title belts:</b> Survivor Belt, plus Lamplighter, Shutdown, Wall and Dub Champions</li><li><b>Monthly Crowns:</b> Nov, Dec, Jan, Feb, Mar/Apr</li><li><b>Hall of Fame</b> and <b>Hall of Shame:</b> fun season awards</li></ul><p>Every award comes with a downloadable certificate. The Trophies tab shows who's leading each race and where you stand.</p></div>
+      <div class="panel rule"><h3>🏆 Titles and awards</h3><ul><li><b>Season Champion</b></li><li><b>Title belts:</b> Survivor Belt, plus Lamplighter, Shutdown, Wall and Dub Champions</li><li><b>${W_.pure} Champion:</b> top of the standings from your picks alone, with no cards at all. Flip Standings to <i>Raw picks</i> to see the race.</li><li><b>Monthly Crowns:</b> Nov, Dec, Jan, Feb, Mar/Apr</li><li><b>Hall of Fame</b> and <b>Hall of Shame:</b> fun season awards</li></ul><p>Every award comes with a downloadable certificate. The Trophies tab shows who's leading each race and where you stand.</p></div>
     </div>
   </div>`;
 }
@@ -3020,7 +3033,7 @@ const TOUR = [
   },
   {
     route: 'cards', target: ['.hud-row', tab('cards')], icon: '🎴', title: 'Joker cards',
-    text: () => `<p>Make your own picks to earn <b>packs</b>. Keep one card from each and play <b>one a week</b>: jinxes, traps, duels, heists and more. Cards move points but <b>never cost a life</b>.</p>`,
+    text: () => `<p>Make your own picks to earn <b>packs</b>. Keep one card from each and play <b>one a week</b>: ${HOCKEY ? 'jinxes, traps, faceoffs, poke checks' : 'jinxes, traps, duels, heists'} and more. Cards move points but <b>never cost a life</b>.</p>`,
   },
   {
     route: 'cards', target: ['#dex .dex-slot', '#dex'], icon: '📖', title: 'The Card Dex',
@@ -3255,7 +3268,7 @@ const ACTIONS = {
     const accept = el.dataset.accept === '1';
     try {
       await S.backend.savePlay({ week: S.league.openWeek, card: '_reply', target_id: el.dataset.to, params: { duel: el.dataset.id, accept } });
-      toast(accept ? "Duel accepted. Don't choke." : 'Declined. Enjoy the chicken. 🐔');
+      toast(accept ? `${HOCKEY ? 'Faceoff' : 'Duel'} accepted. Don't choke.` : 'Declined. Enjoy the chicken. 🐔');
     } catch (e) { toast(e.message || String(e), true); }
     await refresh();
   },

@@ -10,15 +10,20 @@
 // Then you keep one card, and the other two burn.
 
 import { LEAGUE } from './config.js';
-import { CARDS, RARITY, TYPES, PACKS, bestRarity } from './cards.js';
+import { CARDS, DECK, RARITY, TYPES, PACKS, bestRarity } from './cards.js';
+
+const HOCKEY = LEAGUE.sport === 'nhl';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const reduced = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-// The league badge: Peakhill Capital's peak monogram on an NBA-style navy and red panel, with a shot dropping off the summit.
+// The league badge: Peakhill Capital's peak monogram on an NBA-style navy and red panel, with a shot dropping off the summit
+// (in the NHL league, a puck).
 let logoN = 0;
-const logo = (id = `phm-${++logoN}`) => `<svg viewBox="-8 0 44 44" aria-hidden="true"><defs><clipPath id="${id}"><rect x="1.2" y="1.2" width="25.6" height="41.6" rx="5"/></clipPath></defs><rect width="28" height="44" rx="6.2" fill="#fff"/><g clip-path="url(#${id})"><rect width="28" height="44" fill="#c8102e"/><rect width="14" height="44" fill="#022350"/><path fill="#fff" fill-rule="evenodd" transform="translate(3 21.6) scale(.0981)" d="M112.5 0L146 48.5L134.9 64.6L112.5 32.1L36.4 143H80.6L66 163.5H0Z M154.5 62L224.2 163.5H106.3L83.1 195.8L69.1 185.5Z M154 94.3L120.4 143H187.6Z"/><path d="M14.1 19.2C14.4 13.6 16.4 10.4 18.4 9.3" stroke="#fff" stroke-width="1.05" stroke-dasharray=".95 1.55" stroke-linecap="round" fill="none"/><circle cx="21" cy="8.2" r="3.7" fill="#fff"/><path d="M17.3 8.2h7.4M21 4.5v7.4M18.4 5.5c1.26 1.2 1.26 4.2 0 5.4M23.6 5.5c-1.26 1.2-1.26 4.2 0 5.4" stroke="#c8102e" stroke-width=".74" fill="none"/></g></svg>`;
+const BALL = '<circle cx="21" cy="8.2" r="3.7" fill="#fff"/><path d="M17.3 8.2h7.4M21 4.5v7.4M18.4 5.5c1.26 1.2 1.26 4.2 0 5.4M23.6 5.5c-1.26 1.2-1.26 4.2 0 5.4" stroke="#c8102e" stroke-width=".74" fill="none"/>';
+const PUCK = '<path d="M17 7.6v1.9c0 1.1 1.8 2 4 2s4-.9 4-2V7.6" fill="#0d0f14" stroke="#fff" stroke-width=".6"/><ellipse cx="21" cy="7.6" rx="4" ry="2" fill="#2a2f3a" stroke="#fff" stroke-width=".6"/>';
+const logo = (id = `phm-${++logoN}`) => `<svg viewBox="-8 0 44 44" aria-hidden="true"><defs><clipPath id="${id}"><rect x="1.2" y="1.2" width="25.6" height="41.6" rx="5"/></clipPath></defs><rect width="28" height="44" rx="6.2" fill="#fff"/><g clip-path="url(#${id})"><rect width="28" height="44" fill="#c8102e"/><rect width="14" height="44" fill="#022350"/><path fill="#fff" fill-rule="evenodd" transform="translate(3 21.6) scale(.0981)" d="M112.5 0L146 48.5L134.9 64.6L112.5 32.1L36.4 143H80.6L66 163.5H0Z M154.5 62L224.2 163.5H106.3L83.1 195.8L69.1 185.5Z M154 94.3L120.4 143H187.6Z"/><path d="M14.1 19.2C14.4 13.6 16.4 10.4 18.4 9.3" stroke="#fff" stroke-width="1.05" stroke-dasharray=".95 1.55" stroke-linecap="round" fill="none"/>${HOCKEY ? PUCK : BALL}</g></svg>`;
 
 // ---------- Card faces ----------
 
@@ -29,7 +34,7 @@ export function cardFace(type, { cls = '', attrs = '' } = {}) {
   return `<div class="tc r-${c.rarity} ${cls}" data-card="${type}" style="--rc:${r.color};--tcol:${t.color}" ${attrs}>
     <div class="tc-in">
       <div class="tc-head"><span class="tc-name ${c.name.length > 12 ? 'long' : ''}">${esc(c.name)}</span><span class="tc-stars" aria-label="${r.label}">${'★'.repeat(r.stars)}</span></div>
-      <div class="tc-art"><span class="tc-court"></span><span class="tc-icon">${c.icon}</span></div>
+      <div class="tc-art"><span class="tc-court"></span><span class="tc-icon">${c.icon}</span><span class="tc-no">No. ${String(DECK.indexOf(type) + 1).padStart(2, '0')}</span></div>
       <div class="tc-type"><span>${t.label}</span><span>${r.label}</span></div>
       <p class="tc-text">${esc(c.text)}</p>
     </div>
@@ -38,13 +43,13 @@ export function cardFace(type, { cls = '', attrs = '' } = {}) {
 }
 
 export function cardBack(cls = '') {
-  return `<div class="tc-back ${cls}"><div class="tc-back-in">${logo()}<b>JOKER</b><small>${esc(LEAGUE.season)}</small></div></div>`;
+  return `<div class="tc-back ${cls}"><div class="tc-back-in">${logo()}<b>${HOCKEY ? 'HOCKEY' : 'JOKER'}</b><small>${esc(LEAGUE.season)}</small></div></div>`;
 }
 
 export function packTitle(pack) {
   if (pack.kind === 'award') return `${pack.label} Pack`;
   if (pack.kind === 'album') return `${pack.label} Division Pack`;
-  return PACKS[pack.kind]?.name || 'Joker Pack';
+  return PACKS[pack.kind]?.name || (HOCKEY ? 'Hockey Pack' : 'Joker Pack');
 }
 
 // The foil wrapper. Rendered twice in the opening (the strip you rip off and the
@@ -54,9 +59,9 @@ export function packArt(pack, extra = '') {
   return `<div class="pa ${extra}" style="--p1:${p.c1};--p2:${p.c2}">
     <div class="pa-foil"></div>
     <div class="pa-seal top"></div><div class="pa-seal bot"></div>
-    <div class="pa-brand">${logo()}<span>PEAKHILL<b>NBA Survivor</b></span></div>
+    <div class="pa-brand">${logo()}<span>PEAKHILL<b>${LEAGUE.short} Survivor</b></span></div>
     <div class="pa-burst"><b>KEEP 1</b><small>of 3</small></div>
-    <div class="pa-title"><small>Joker cards</small><b>${esc(packTitle(pack))}</b></div>
+    <div class="pa-title"><small>${HOCKEY ? 'Hockey cards' : 'Joker cards'}</small><b>${esc(packTitle(pack))}</b></div>
     <div class="pa-foot">3 cards · Week ${pack.step} · ${esc(LEAGUE.season)}</div>
   </div>`;
 }

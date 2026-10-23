@@ -668,6 +668,65 @@ footer { max-width: 1180px; margin: 0 auto; padding: 22px 16px 34px; color: var(
 .pa-title b { display: block; margin-top: .25em; font: 700 1.9em/.95 var(--display); text-transform: uppercase; text-shadow: 0 .08em 0 rgba(0, 0, 0, .35), 0 0 1em rgba(255, 255, 255, .25); }
 .pa-foot { position: absolute; left: 0; right: 0; bottom: 10%; text-align: center; font: 600 .55em/1 var(--body); letter-spacing: .22em; text-transform: uppercase; opacity: .85; }
 
+/* ---------- NHL league: hockey cards ----------
+   Same cards, dressed like a 90s hockey card: white card stock with a rarity frame, the picture
+   on the ice, a slanted nameplate, the card number in the corner and a dark text box below.
+   The pack is a wax pack with jersey stripes and a puck for the "keep 1" sticker. */
+.tc-no { display: none; }
+html[data-sport="nhl"] .tc { --frame: #8f9bb0; background: linear-gradient(160deg, #fbfaf5, #e9e5d8); padding: calc(var(--cw) * .045); color: #fff; }
+html[data-sport="nhl"] .tc.r-rare { --frame: #2f6fe0; background: linear-gradient(160deg, #fbfaf5, #dfe6f2); }
+html[data-sport="nhl"] .tc.r-epic { --frame: #8a3ad6; background: linear-gradient(160deg, #fbfaf5, #e8def3); }
+html[data-sport="nhl"] .tc.r-legendary { --frame: #b98316; background: linear-gradient(120deg, #fff3c4, #c9861a 25%, #ffe08a 45%, #a86b0c 60%, #fff1b8 80%, #c9861a); background-size: 250% 250%; }
+html[data-sport="nhl"] .tc-in {
+  gap: 0; padding: 0; overflow: hidden; border-radius: calc(var(--cw) * .025);
+  background: linear-gradient(180deg, #13213d, #0a1428);
+  box-shadow: 0 0 0 .18em var(--frame), 0 0 0 .3em rgba(255, 255, 255, .9);
+}
+html[data-sport="nhl"] .tc-art {
+  order: -1; aspect-ratio: 16 / 12; border-radius: 0;
+  background:
+    linear-gradient(135deg, var(--tcol) 0 13%, transparent 13.2%),
+    linear-gradient(180deg, #f4f9fd, #d3e6f3);
+  box-shadow: inset 0 -1.4em 1.4em -1em rgba(10, 20, 40, .35);
+}
+html[data-sport="nhl"] .tc-court {
+  opacity: .85; inset: 8% 4% 10%; border-radius: 1.4em; box-shadow: inset 0 0 0 .14em #b8c6d4;
+  background:
+    radial-gradient(circle at 50% 50%, #2a5bd7 0 3%, transparent 3.5%),
+    radial-gradient(circle at 50% 50%, transparent 0 21%, rgba(42, 91, 215, .75) 21.5% 23.5%, transparent 24%),
+    linear-gradient(90deg, transparent 49%, rgba(214, 34, 58, .75) 49% 51%, transparent 51%),
+    linear-gradient(90deg, transparent 27%, rgba(42, 91, 215, .6) 27% 30%, transparent 30% 70%, rgba(42, 91, 215, .6) 70% 73%, transparent 73%),
+    linear-gradient(90deg, transparent 7%, rgba(214, 34, 58, .55) 7% 7.8%, transparent 7.8% 92.2%, rgba(214, 34, 58, .55) 92.2% 93%, transparent 93%);
+}
+html[data-sport="nhl"] .tc-icon { font-size: 3.3em; filter: drop-shadow(0 .14em .12em rgba(10, 20, 40, .45)); }
+html[data-sport="nhl"] .tc-no {
+  display: block; position: absolute; top: .45em; right: .45em; padding: .2em .4em; border-radius: .25em;
+  font: 700 .55em/1 var(--display); letter-spacing: .06em; color: #0b1731; background: rgba(255, 255, 255, .85);
+}
+html[data-sport="nhl"] .tc-head {
+  position: relative; z-index: 1; margin: -.85em -.1em 0 .6em; padding: .38em .55em .34em .7em;
+  background: linear-gradient(90deg, var(--tcol), color-mix(in srgb, var(--tcol) 55%, #0b1731));
+  clip-path: polygon(.5em 0, 100% 0, 100% 100%, 0 100%); box-shadow: 0 .2em .4em rgba(0, 0, 0, .4);
+}
+html[data-sport="nhl"] .tc-name { font-size: 1em; letter-spacing: .04em; text-shadow: 0 .06em 0 rgba(0, 0, 0, .35); }
+html[data-sport="nhl"] .tc-name.long { font-size: .84em; }
+html[data-sport="nhl"] .tc-stars { color: #fff; text-shadow: 0 0 .4em var(--rc); }
+html[data-sport="nhl"] .tc-type { margin: .3em .55em 0; padding: .35em 0; }
+html[data-sport="nhl"] .tc-text { padding: .4em .6em .5em; }
+html[data-sport="nhl"] .tc-back { background: linear-gradient(180deg, #0b2a5b 0 36%, #fff 36% 39%, #a6192e 39% 61%, #fff 61% 64%, #0b2a5b 64%); }
+html[data-sport="nhl"] .tc-back-in { background: radial-gradient(circle at 50% 50%, rgba(11, 42, 91, .92) 0 42%, rgba(11, 42, 91, .55) 70%); border-color: rgba(255, 255, 255, .5); }
+html[data-sport="nhl"] .pa {
+  background:
+    linear-gradient(180deg, transparent 0 74%, rgba(255, 255, 255, .85) 74% 75.6%, transparent 75.6% 77.6%, rgba(255, 255, 255, .85) 77.6% 79.2%, transparent 79.2%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .03) 0 3px, transparent 3px 7px),
+    linear-gradient(160deg, var(--p1), var(--p2) 55%, color-mix(in srgb, var(--p1) 70%, #000));
+}
+html[data-sport="nhl"] .pa-burst {
+  clip-path: none; border-radius: 50%; transform: rotate(-10deg);
+  background: radial-gradient(circle at 50% 35%, #3a404c, #0d0f14 70%); color: #fff;
+  box-shadow: 0 0 0 .14em #fff, 0 .25em .5em rgba(0, 0, 0, .5);
+}
+
 /* Sealed packs waiting in the Cards tab */
 .packs-row { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 16px; }
 .pack-mini { border: 0; padding: 0; background: none; display: grid; justify-items: center; gap: 8px; color: #fff; }

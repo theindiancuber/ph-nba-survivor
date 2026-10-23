@@ -182,6 +182,98 @@ test('Autopilot only picks goalies for The Wall and skaters elsewhere, and leave
   assert.equal('FIGHT' in chosen, false);
 });
 
+// ---- Hockey cards ----
+
+const { CARDS, NICKNAMES } = await import('../src/cards.js');
+// [games, pts, +/-, 0, best pts, best +/-, 0, worst pts, worst +/-, 0, team, 0, fights, goals, Gordie Howes]
+const sk = (gp, pts, pm, hi = [pts, pm], lo = [pts, pm]) => [gp, pts, pm, 0, ...hi, 0, ...lo, 0, 'TOR', 0, 0, 0, 0];
+// [games, 0, 0, saves, best saves, its shots, its sv%, worst saves, its shots, its sv%, team, shots, 0, 0, 0]
+const gl = (gp, sv, sa, best = [sv, sa], worst = [sv, sa]) => [gp, 0, 0, sv, ...best, savePct(...best), ...worst, savePct(...worst), 'TOR', sa, 0, 0, 0];
+const CARD_P = {
+  101: sk(3, 6, -2, [3, 1], [1, -2]), 102: sk(3, 4, 3, [2, 2], [1, 0]), 103: sk(2, 2, 1), 104: sk(3, 9, 4, [4, 3], [2, 0]),
+  201: gl(2, 55, 60, [30, 31], [25, 29]), 202: gl(2, 50, 56), 203: gl(3, 85, 90), 204: gl(2, 40, 50),
+};
+const CARD_PLAYERS = Object.fromEntries(Object.keys(CARD_P).map(id => [id, { id: +id, pos: id >= 200 ? 'G' : 'C', team: 'TOR' }]));
+const CARD_PICKS = [
+  pick('a', 1, 'PTS', 104), pick('a', 1, 'PM', 102), pick('a', 1, 'SV', 201),
+  pick('b', 1, 'PTS', 103), pick('b', 1, 'PM', 101), pick('b', 1, 'SV', 202),
+  pick('c', 1, 'PTS', 101), pick('c', 1, 'PM', 103), pick('c', 1, 'SV', 204),
+];
+let seq = 0;
+const cardPlay = (user_id, card, extra = {}, at = '2026-10-25T12:00:00Z') => ({
+  id: `h${++seq}`, user_id, week: 1, card, card_uid: 'w1:starter', target_id: null, slot: null, player_id: null, params: {},
+  created_at: new Date(Date.parse(at) + seq * 1000).toISOString(), ...extra,
+});
+const AFTER = '2026-11-10T12:00:00Z';
+function cardRun(plays, hands, p = CARD_P) {
+  return computeLeague({
+    weeks: [wk(1)], totals: { 1: { final: true, p, t: {} } }, picks: CARD_PICKS, plays, profiles: ['a', 'b', 'c'].map(prof),
+    now: NOW, players: CARD_PLAYERS, cardsFrom: 1, dealer: uid => [hands[uid] || 'scout', 'clown', 'charge'],
+  });
+}
+
+test('hockey cards: the same deck under hockey names, with hockey nicknames', () => {
+  assert.equal(CARDS.load.name, 'Healthy Scratch');
+  assert.equal(CARDS.sixth.name, 'Extra Attacker');
+  assert.equal(CARDS.duel.name, 'Faceoff');
+  assert.equal(Object.keys(CARDS).length, 17);
+  assert.ok(Object.values(CARDS).every(c => c.text.length <= 175), 'card text fits on the card');
+  assert.ok(NICKNAMES.includes('Zamboni Driver'));
+  assert.equal(LEAGUE.cards.startWeek, 1);
+});
+
+test('Jinx: halves points, doubles a minus, and takes .020 off a save percentage', () => {
+  const L1 = cardRun([cardPlay('a', 'jinx', { target_id: 'b', player_id: 101 }), cardPlay('c', 'jinx', { target_id: 'a', player_id: 201 })], { a: 'jinx', c: 'jinx' });
+  const r = L1.weeks[0].results;
+  assert.equal(r.b.slots.PM.value, -4, '−2 doubles to −4');
+  assert.equal(r.a.slots.SV.value, 897, '.917 − .020');
+  const L2 = cardRun([cardPlay('a', 'jinx', { target_id: 'c', player_id: 101 })], { a: 'jinx' });
+  assert.equal(L2.weeks[0].results.c.slots.PTS.value, 3, '6 points score half');
+});
+
+test('Healthy Scratch: plus-minus swaps his best game for his worst; save % leaves his best game out', () => {
+  const L1 = cardRun([cardPlay('b', 'load', { target_id: 'a', slot: 'PM' }), cardPlay('c', 'load', { target_id: 'a', slot: 'SV' })], { b: 'load', c: 'load' });
+  const r = L1.weeks[0].results.a.slots;
+  assert.equal(r.PM.value, 1, '+3, less his +2 night, plus his 0 night');
+  assert.equal(r.SV.value, savePct(25, 29), '55/60 without his 30/31 game');
+});
+
+test('Empty Netter: a goalie\'s worst game is replaced by his best, and the save % is worked out again', () => {
+  const L1 = cardRun([cardPlay('a', 'garbage', { slot: 'SV' }, AFTER), cardPlay('b', 'garbage', { slot: 'PM' }, AFTER)], { a: 'garbage', b: 'garbage' });
+  const r = L1.weeks[0].results;
+  assert.equal(r.a.slots.SV.value, savePct(60, 62), '55/60, less 25/29, plus 30/31');
+  assert.equal(r.b.slots.PM.value, 1, '−2, less his −2 night, plus his +1 night');
+});
+
+test('Extra Attacker: a goalie only goes into The Wall, and a skater who never played stays on the bench', () => {
+  const L1 = cardRun([cardPlay('b', 'sixth', { player_id: 203 })], { b: 'sixth' });
+  const r = L1.weeks[0].results.b.slots;
+  assert.equal(r.SV.scorer, 203, 'into The Wall, not Shutdown where his 0 would beat −2');
+  assert.equal(r.SV.value, savePct(85, 90));
+  assert.equal(r.PM.scorer, 101);
+  const L2 = cardRun([cardPlay('b', 'sixth', { player_id: 999 })], { b: 'sixth' });
+  assert.equal(L2.weeks[0].cards.plays[0].outcome, 'benched', 'no games, no value, even against a minus');
+});
+
+test('Line Change swaps Lamplighter and Shutdown, but never The Wall', () => {
+  const L1 = cardRun([cardPlay('a', 'switcheroo', { params: { map: { PTS: 'PM', PM: 'PTS' } } }, AFTER)], { a: 'switcheroo' });
+  const s = L1.weeks[0].results.a.slots;
+  assert.equal(s.PTS.scorer, 102); assert.equal(s.PTS.value, 4);
+  assert.equal(s.PM.scorer, 104); assert.equal(s.PM.value, 4);
+  const L2 = cardRun([cardPlay('a', 'switcheroo', { params: { map: { PTS: 'SV', SV: 'PTS' } } }, AFTER)], { a: 'switcheroo' });
+  assert.equal(L2.weeks[0].cards.plays[0].why, 'bad-swap');
+  assert.equal(L2.weeks[0].results.a.slots.SV.scorer, 201);
+});
+
+test('Faceoff: a plus-minus pick who never played loses, even to a minus', () => {
+  const picks = [pick('a', 1, 'PM', 101), pick('b', 1, 'PM', 999)];
+  const L1 = computeLeague({
+    weeks: [wk(1)], totals: { 1: { final: true, p: CARD_P, t: {} } }, picks, profiles: ['a', 'b'].map(prof), now: NOW, players: CARD_PLAYERS, cardsFrom: 1,
+    plays: [cardPlay('a', 'duel', { target_id: 'b', slot: 'PM' })], dealer: uid => uid === 'a' ? ['duel', 'clown', 'charge'] : ['scout', 'clown', 'charge'],
+  });
+  assert.equal(L1.weeks[0].cards.plays[0].outcome, 'won');
+});
+
 test('supabase/nhl/setup.sql is up to date with the NBA SQL files (run PHS_SPORT=nhl node scripts/nhl-sql.mjs)', async () => {
   const files = ['schema', 'admin', 'upgrade-dub-invite', 'upgrade-onboarding', 'upgrade-cards', 'upgrade-decree', 'upgrade-settings', 'upgrade-commissioner-ops', 'harden'];
   const sources = {};
