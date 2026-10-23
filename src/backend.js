@@ -94,7 +94,7 @@ export class SupabaseBackend {
       r = await q().upsert(rows, { onConflict: 'user_id,week,slot' });
       if (r.error) throw friendly(r.error);
     }
-    const empty = LEAGUE.slots.filter(s => !slots[s]?.player_id);
+    const empty = LEAGUE.pickSlots.filter(s => !slots[s]?.player_id);
     if (empty.length) {
       r = await q().delete().eq('user_id', uid).eq('week', week).in('slot', empty);
       if (r.error) throw friendly(r.error);
@@ -258,7 +258,8 @@ function friendly(error) {
 
 // ---- Demo league: everything lives in this browser ----
 
-const DEMO_KEY = 'phs-demo-v1';
+// Each league's demo keeps its own state (both run on the same site).
+const DEMO_KEY = LEAGUE.sport === 'nba' ? 'phs-demo-v1' : `phs-demo-${LEAGUE.sport}-v1`;
 
 export class DemoBackend {
   constructor(seed, now) {

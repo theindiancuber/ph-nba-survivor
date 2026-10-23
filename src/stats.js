@@ -7,8 +7,8 @@ import { slotLine } from './league.js';
 
 const SLOTS = LEAGUE.slots;
 const PSLOTS = LEAGUE.playerSlots;
-const IDX = { PTS: 0, REB: 1, AST: 2 };
-const avg = (p, s) => p?.avg?.[IDX[s]] || 0;
+const INFO = LEAGUE.slotInfo;
+const avg = (p, s) => p?.avg?.[INFO[s].avg] || 0;
 const winPct = r => (r?.w || 0) / Math.max(1, (r?.w || 0) + (r?.l || 0));
 
 export function funStats(L, players, teams = {}) {
@@ -34,7 +34,7 @@ export function funStats(L, players, teams = {}) {
         if (w.status !== 'final') continue;
         if (x.usedAlt) { p.saves++; totals.saves++; }
         if (x.fumble) { p.fumbles++; totals.fumbles++; }
-        if (x.scorer != null && s !== 'WIN') {
+        if (x.scorer != null && s !== 'WIN' && !INFO[s].signed && !INFO[s].pct) {
           const rec = { id, week: w.week, slot: s, pid: x.scorer, value: x.value, ratio: x.value / LEAGUE.bars[s] };
           if (!best || rec.ratio > best.ratio) best = rec;
           if (!worst || rec.ratio < worst.ratio) worst = rec;
@@ -98,15 +98,27 @@ export function perfectPlay(L, totals) {
     .sort((a, b) => b.value - a.value || a.pid - b.pid)
     .slice(0, n);
 
-  // Perfect week: three different players, best combined result against the bars.
+  // How good a total is against its bar. Save percentage and plus-minus are measured from a floor
+  // (.850 and −3), since a plain ratio means little for them.
+  const norm = (s, v) => INFO[s].pct ? (v - 850) / Math.max(1, LEAGUE.bars[s] - 850)
+    : INFO[s].signed ? (v + 3) / Math.max(1, LEAGUE.bars[s] + 3) : v / LEAGUE.bars[s];
+
+  // Perfect week: a different player in each player slot, best combined result against the bars.
   const weeks = finals.map(w => {
     const top = Object.fromEntries(SLOTS.map(s => [s, topFor(w.week, s, 4)]));
     let perfect = null;
-    for (const a of top.PTS) for (const b of top.REB) for (const c of top.AST) {
-      if (a.pid === b.pid || a.pid === c.pid || b.pid === c.pid) continue;
-      const score = a.value / LEAGUE.bars.PTS + b.value / LEAGUE.bars.REB + c.value / LEAGUE.bars.AST;
-      if (!perfect || score > perfect.score) perfect = { score, PTS: a, REB: b, AST: c };
-    }
+    const walk = (i, chosen, score) => {
+      if (i === PSLOTS.length) {
+        if (!perfect || score > perfect.score) perfect = { score, ...chosen };
+        return;
+      }
+      const s = PSLOTS[i];
+      for (const a of top[s]) {
+        if (Object.values(chosen).some(c => c.pid === a.pid)) continue;
+        walk(i + 1, { ...chosen, [s]: a }, score + norm(s, a.value));
+      }
+    };
+    walk(0, {}, 0);
     // Teams never clash with players, so the best team is simply the one with most wins.
     if (perfect && top.WIN) perfect.WIN = top.WIN[0] || { pid: null, value: 0 };
     const bestActual = Object.fromEntries(SLOTS.map(s => {

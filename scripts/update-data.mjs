@@ -260,7 +260,7 @@ function supabase() {
   return call;
 }
 
-async function syncSupabase({ weeks, players, teams, totals, now }) {
+export async function syncSupabase({ weeks, players, teams, totals, now }) {
   const sb = supabase();
   if (!sb) { console.log('Supabase secrets not set: skipping lock sync and Autopilot.'); return; }
 
@@ -306,7 +306,7 @@ async function syncSupabase({ weeks, players, teams, totals, now }) {
       const current = Object.fromEntries(picks.filter(p => p.user_id === pr.id && p.week === w.week).map(p => [p.slot, p]));
       // A Copycat slot is meant to stay empty: nothing to fill.
       for (const slot of LEAGUE.slots) if (!current[slot] && copycats.has(`${pr.id}|${slot}`)) current[slot] = { copycat: true };
-      if (Object.keys(current).length === LEAGUE.slots.length) continue;
+      if (LEAGUE.slots.every(s => current[s])) continue;
       const chosen = autopilotPicks(league, pr.id, w.week, current, players, w.gamesByTeam, teams);
       for (const [slot, pid] of Object.entries(chosen)) {
         rows.push({ user_id: pr.id, week: w.week, slot, player_id: pid, alt_id: null, double_down: false, auto: true });
