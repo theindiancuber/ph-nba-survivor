@@ -81,6 +81,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
     users[pr.id] = {
       id: pr.id, name: pr.display_name, rival: pr.rival_id || null, team: pr.fav_team || null, joined: pr.created_at || null,
       weekly: {}, total: 0, counted: 0, dropped: [], lives: LEAGUE.lives, eliminatedWeek: null,
+      raw: { weekly: {}, total: 0, counted: 0, dropped: [], rank: null },
       burns: newBurns(), reserved: newBurns(), doubleDownWeek: null, plannedDoubleDown: null,
       unburn: unburnByUser[pr.id] || null, monthly: {},
     };
@@ -109,6 +110,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
     const wp = byWeek[W] || {};
     const entrants = Object.keys(wp).filter(id => users[id]);
     const results = {};
+    const raw = {};
     const ownership = Object.fromEntries(SLOTS.map(s => [s, {}]));
 
     for (const id of entrants) {
@@ -127,20 +129,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
         if (!p) { slots[slot] = { value: 0, base: 0, missing: true, burn: [], fx: [] }; continue; }
         const embargoed = pid => cw.embargo[slot].has(pid);
         const ok = pid => pid != null && !u.burns[slot].has(pid) && !usedThisWeek.has(pid) && !embargoed(pid);
-        const mainOk = ok(p.player_id);
-        if (mainOk) usedThisWeek.add(p.player_id);
-        const altOk = p.alt_id != null && p.alt_id !== p.player_id && ok(p.alt_id);
-        if (altOk) usedThisWeek.add(p.alt_id);
-        const gp = pid => slotLine(totals, W, slot, pid)[0];
-
-        let scorer = null, pending = false;
-        if (mainOk && gp(p.player_id) > 0) scorer = p.player_id;
-        else if (status === 'final') scorer = altOk && gp(p.alt_id) > 0 ? p.alt_id : null;
-        else { scorer = mainOk ? p.player_id : altOk ? p.alt_id : null; pending = true; }
-
-        // line: the full stat line (players) or [games, wins] (teams); value: what the slot scores.
-        const line = scorer != null ? fullLine(totals, W, slot, scorer) : EMPTY;
-        const value = scorer != null ? slotLine(totals, W, slot, scorer)[1] : 0;
+        const { mainOk, scorer, pending, line, value } = scorePick(totals, W, slot, status, p, ok, usedThisWeek);
         let dd = false;
         if (p.double_down && u.doubleDownWeek == null) { u.doubleDownWeek = W; dd = true; }
         slots[slot] = {
@@ -151,6 +140,19 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
         };
       }
       results[id] = { slots, adj: [] };
+
+      // Raw picks: the same picks with no Joker cards at all. Embargoes and Burn Notices don't block
+      // a pick, and a Copycat slot scores your own pick. Kept apart from the real results.
+      const usedRaw = new Set();
+      const okRaw = slot => pid => pid != null && !usedRaw.has(pid) && (!u.burns[slot].has(pid) || u.notices.has(`${slot}:${pid}`));
+      const rs = {};
+      for (const slot of SLOTS) {
+        const p = wp[id][slot];
+        if (!p) { rs[slot] = { value: 0, gp: 0, missing: true }; continue; }
+        const x = scorePick(totals, W, slot, status, p, okRaw(slot), usedRaw);
+        rs[slot] = { scorer: x.scorer, value: x.value, gp: x.line[0], pending: x.pending, dd: !!slots[slot].dd };
+      }
+      raw[id] = { slots: rs, adj: [] };
     }
 
     const hits = table.resolveAttacks(cw, snaps[W - 1]);
@@ -182,24 +184,42 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
         s.rank = s.missing || !counts ? 0 : pts[i] * (s.dd ? 2 : 1) * (is('spotlight', slot) ? 2 : 1);
         s.owned = s.scorer != null && !s.copy ? ownership[slot][s.scorer] : 0;
       });
+      const rawPts = rankPoints(entrants.map(id => {
+        const s = raw[id].slots[slot];
+        if (s.missing) return -Infinity;
+        if (!flip) return s.value;
+        return s.scorer == null && !s.pending ? -Infinity : -s.value;
+      }));
+      entrants.forEach((id, i) => {
+        const s = raw[id].slots[slot];
+        s.rank = s.missing || !(status === 'final' || s.gp > 0) ? 0 : rawPts[i] * (s.dd ? 2 : 1) * (is('spotlight', slot) ? 2 : 1);
+      });
     }
     playPointCards({ cw, wk, results, hits, table });
 
     // Commissioner adjustments: public point corrections, with a reason.
     for (const a of adjByWeek[W] || []) {
       const pts = Number(a.points) || 0;
-      if (pts && results[a.user_id]) results[a.user_id].adj.push({ commish: true, label: 'Commissioner', pts, note: a.reason || '' });
+      if (!pts || !results[a.user_id]) continue;
+      const row = { commish: true, label: 'Commissioner', pts, note: a.reason || '' };
+      results[a.user_id].adj.push(row);
+      raw[a.user_id].adj.push(row);
     }
 
     if (is('bounty') && entrants.length) {
-      const pre = id => SLOTS.reduce((a, s) => a + results[id].slots[s].rank, 0) + results[id].adj.reduce((a, x) => a + x.pts, 0);
-      const top = Math.max(...entrants.map(pre));
-      for (const id of entrants) if (pre(id) === top) results[id].adj.push({ decree: 'bounty', label: 'Bounty', pts: LEAGUE.decree.bounty });
+      for (const R of [results, raw]) {
+        const pre = id => SLOTS.reduce((a, s) => a + R[id].slots[s].rank, 0) + R[id].adj.reduce((a, x) => a + x.pts, 0);
+        const top = Math.max(...entrants.map(pre));
+        for (const id of entrants) if (pre(id) === top) R[id].adj.push({ decree: 'bounty', label: 'Bounty', pts: LEAGUE.decree.bounty });
+      }
     }
 
     for (const id of entrants) {
       const r = results[id], u = users[id];
       r.score = SLOTS.reduce((a, s) => a + r.slots[s].rank, 0) + r.adj.reduce((a, x) => a + x.pts, 0);
+      const rr = raw[id];
+      rr.score = SLOTS.reduce((a, s) => a + rr.slots[s].rank, 0) + rr.adj.reduce((a, x) => a + x.pts, 0);
+      u.raw.weekly[W] = rr.score;
       // The Survivor Belt ignores cards: bars are checked against your own picks' real totals.
       r.cleared = SLOTS.filter(s => r.slots[s].base >= LEAGUE.bars[s]).length;
       r.survived = r.cleared >= (is('sudden_death') ? SLOTS.length : LEAGUE.barsToSurvive) || is('mercy');
@@ -250,7 +270,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
     order.forEach((id, i) => rank.set(id, i > 0 && cum[order[i - 1]] === cum[id] ? rank.get(order[i - 1]) : i + 1));
     snaps[W] = { order, rank };
 
-    const w = { ...wk, status, entrants, results, ownership, cards: cw, decree: dec };
+    const w = { ...wk, status, entrants, results, raw, ownership, cards: cw, decree: dec };
     if (status === 'final') w.awards = weekAwards(w);
     table.end(wk, status, { entrants, results, awards: w.awards || [], teamOf: pid => TEAM_BY_ID[pid] || statLine(totals, W, pid)[10] || players[pid]?.team || null });
     out.push(w);
@@ -273,23 +293,48 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
 
   const finals = out.filter(w => w.status === 'final');
   const dropCount = Math.min(LEAGUE.drops.max, Math.floor(finals.length / LEAGUE.drops.every));
-  for (const u of Object.values(users)) {
-    u.total = Object.values(u.weekly).reduce((a, b) => a + b, 0);
-    const finalScores = finals.map(w => ({ week: w.week, score: u.weekly[w.week] || 0 }))
+  const tally = (t, weekly) => {
+    t.total = Object.values(weekly).reduce((a, b) => a + b, 0);
+    const finalScores = finals.map(w => ({ week: w.week, score: weekly[w.week] || 0 }))
       .sort((a, b) => a.score - b.score || a.week - b.week);
-    u.dropped = finalScores.slice(0, dropCount).map(x => x.week);
-    u.counted = u.total - finalScores.slice(0, dropCount).reduce((a, x) => a + x.score, 0);
-  }
+    t.dropped = finalScores.slice(0, dropCount).map(x => x.week);
+    t.counted = t.total - finalScores.slice(0, dropCount).reduce((a, x) => a + x.score, 0);
+  };
+  for (const u of Object.values(users)) { tally(u, u.weekly); tally(u.raw, u.raw.weekly); }
 
   const standings = Object.values(users)
     .sort((a, b) => b.counted - a.counted || b.total - a.total || a.name.localeCompare(b.name));
   standings.forEach((u, i) => { u.rank = i > 0 && standings[i - 1].counted === u.counted ? standings[i - 1].rank : i + 1; });
+  // The standings from raw picks alone, with no Joker cards.
+  const rawStandings = Object.values(users)
+    .sort((a, b) => b.raw.counted - a.raw.counted || b.raw.total - a.raw.total || a.name.localeCompare(b.name));
+  rawStandings.forEach((u, i) => { const p = rawStandings[i - 1]; u.raw.rank = p && p.raw.counted === u.raw.counted ? p.raw.rank : i + 1; });
 
-  const league = { weeks: out, users, standings, openWeek, dropCount, players, cards: { from: cardsFrom, weeks: table.out, snaps } };
+  const league = { weeks: out, users, standings, rawStandings, openWeek, dropCount, players, cards: { from: cardsFrom, weeks: table.out, snaps } };
   league.survivor = survivorLadder(league);
   league.months = monthlyCrowns(league);
   league.champions = champions(league);
   return league;
+}
+
+// Who scores a pick: the main pick if he played, else the backup once the week is final.
+// ok says whether a player can score in this slot; used collects the week's players.
+function scorePick(totals, W, slot, status, p, ok, used) {
+  const mainOk = ok(p.player_id);
+  if (mainOk) used.add(p.player_id);
+  const altOk = p.alt_id != null && p.alt_id !== p.player_id && ok(p.alt_id);
+  if (altOk) used.add(p.alt_id);
+  const gp = pid => slotLine(totals, W, slot, pid)[0];
+
+  let scorer = null, pending = false;
+  if (mainOk && gp(p.player_id) > 0) scorer = p.player_id;
+  else if (status === 'final') scorer = altOk && gp(p.alt_id) > 0 ? p.alt_id : null;
+  else { scorer = mainOk ? p.player_id : altOk ? p.alt_id : null; pending = true; }
+
+  // line: the full stat line (players) or [games, wins] (teams); value: what the slot scores.
+  const line = scorer != null ? fullLine(totals, W, slot, scorer) : EMPTY;
+  const value = scorer != null ? slotLine(totals, W, slot, scorer)[1] : 0;
+  return { mainOk, scorer, pending, line, value };
 }
 
 // Best and worst single game in a slot. For a team, a game is worth 1 (win) or 0 (loss).

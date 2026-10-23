@@ -1610,20 +1610,35 @@ function viewStandings() {
   const L = S.league;
   const lw = [...lockedWeeks()].pop();
   const rival = meU()?.rival;
-  const rows = L.standings.filter(u => Object.keys(u.weekly).length || u.id === myId()).map(u => `
+  // The raw-picks view: the same table scored from picks alone, with no Joker cards.
+  const raw = S.standingsMode === 'raw';
+  const T = u => raw ? u.raw : u;
+  const moved = u => {
+    const d = u.rank - u.raw.rank, pts = u.raw.counted - u.counted;
+    const place = d > 0 ? `<span class="trend-up">▲${d}</span> ` : d < 0 ? `<span class="trend-down">▼${-d}</span> ` : '';
+    return place || pts ? `${place}<span class="dim">${pts ? signed(pts) : ''}</span>` : '<span class="dim">Same</span>';
+  };
+  const rows = (raw ? L.rawStandings : L.standings).filter(u => Object.keys(u.weekly).length || u.id === myId()).map(u => `
     <tr class="${u.id === myId() ? 'me' : ''}">
-      <td class="rank ${u.rank <= 3 ? 'top' : ''}">${u.rank}</td>
+      <td class="rank ${T(u).rank <= 3 ? 'top' : ''}">${T(u).rank}</td>
       <td><div class="who">${avatar(u.id)}<div><b>${esc(u.name)}</b>${lw ? decor(u.id, lw.week, true) : ''}${u.id === myId() ? '<span class="tag blue">You</span>' : ''}${u.id === rival ? '<span class="tag">Rival</span>' : ''}${u.lives === 0 ? '<span class="tag gold">Out of lives</span>' : ''}
         <div class="dim" style="font-size:12px">${u.team ? esc(u.team) + ' fan' : ''}</div></div></div></td>
       <td class="hide-sm">${hearts(u.lives)}</td>
-      ${lw ? `<td class="r num">${u.weekly[lw.week] != null ? fmt(u.weekly[lw.week]) : '—'}${lw.status === 'live' ? ' <span class="dim">·live</span>' : ''}</td>` : ''}
-      ${L.dropCount ? `<td class="r num hide-sm">${fmt(u.total)}</td>` : ''}
-      <td class="r"><span class="pts">${fmt(u.counted)}</span></td>
+      ${lw ? `<td class="r num ${raw ? 'hide-sm' : ''}">${T(u).weekly[lw.week] != null ? fmt(T(u).weekly[lw.week]) : '—'}${lw.status === 'live' ? ' <span class="dim">·live</span>' : ''}</td>` : ''}
+      ${L.dropCount ? `<td class="r num hide-sm">${fmt(T(u).total)}</td>` : ''}
+      <td class="r"><span class="pts">${fmt(T(u).counted)}</span></td>
+      ${raw ? `<td class="r num" title="Places and points against the real standings (#${u.rank})">${moved(u)}</td>` : ''}
     </tr>`).join('');
+  const toggle = `<div class="pills" role="group" aria-label="Standings view">
+    <button class="pill" data-act="standings-mode" data-mode="real" aria-pressed="${!raw}">Actual</button>
+    <button class="pill" data-act="standings-mode" data-mode="raw" aria-pressed="${raw}">🕊️ Raw picks</button></div>`;
   return `<div class="grid">
     <section class="panel">
-      <div class="panel-title"><h2>Season standings</h2><span class="muted">${L.dropCount ? `Worst ${L.dropCount} week${L.dropCount > 1 ? 's' : ''} dropped` : 'Drops unlock after weeks 6, 12 and 18'}</span></div>
-      ${rows ? `<div class="table-wrap"><table class="board"><thead><tr><th>#</th><th>Player</th><th class="hide-sm">Lives</th>${lw ? `<th class="r">Wk ${lw.week}</th>` : ''}${L.dropCount ? '<th class="r hide-sm">Total</th>' : ''}<th class="r">${L.dropCount ? 'Counted' : 'Points'}</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      <div class="panel-title"><h2>${raw ? 'Standings from raw picks' : 'Season standings'}</h2>${rows ? toggle : ''}</div>
+      <p class="muted" style="margin:-4px 0 10px;font-size:13px">${raw
+        ? 'Just for fun: the table as it would be right now from everyone\'s picks alone, as if no Joker card had ever been played. No jinxes, heists, duels, Copycats or Sixth Men, and nothing blocked by an Embargo or a Burn Notice. Double Down, decrees and the commissioner\'s adjustments still count. The leader at the end of the season wins the Pure Hoops Champion title.'
+        : L.dropCount ? `Worst ${L.dropCount} week${L.dropCount > 1 ? 's' : ''} dropped` : 'Drops unlock after weeks 6, 12 and 18'}</p>
+      ${rows ? `<div class="table-wrap"><table class="board"><thead><tr><th>#</th><th>Player</th><th class="hide-sm">Lives</th>${lw ? `<th class="r ${raw ? 'hide-sm' : ''}">Wk ${lw.week}</th>` : ''}${L.dropCount ? '<th class="r hide-sm">Total</th>' : ''}<th class="r">${L.dropCount ? 'Counted' : 'Points'}</th>${raw ? '<th class="r" title="Places and points against the real standings">vs real</th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div>`
         : '<div class="empty-state"><div class="ic">📋</div>Standings appear once the first week locks.</div>'}
       <p class="note" style="margin:12px 0 0">Each week, every category: 1 point for each colleague whose pick you beat, ½ for a tie. Double Down doubles one slot.</p>
     </section>
@@ -1695,18 +1710,43 @@ function resultsMineStrip(w) {
   </div>`;
 }
 
-function viewResults() {
-  const weeks = lockedWeeks();
-  if (!weeks.length) return `<section class="panel empty-state"><div class="ic">🔒</div><b>Nothing to show yet.</b><p>Everyone's picks are revealed when Week 1 locks.</p></section>`;
-  const w = weekObj(S.resultsWeek) && weekObj(S.resultsWeek).status !== 'open' ? weekObj(S.resultsWeek) : weeks[weeks.length - 1];
-  const recent = weeks.slice(-8);
-  const rows = [...w.entrants].sort((a, b) => w.results[b].score - w.results[a].score);
-  let prevScore = null, rank = 0;
-  const body = rows.map((id, i) => {
+// Results filters: a search over colleagues and their picks, one category at a time, sorting and the bars.
+function rf() { return (S.rf ||= { q: '', show: 'all', sort: 'score', dir: -1, bars: 'any' }); }
+const RF_BARS = {
+  any: () => true,
+  all: r => r.cleared === SLOTS.length,
+  safe: r => r.survived,
+  short: r => !r.survived,
+};
+function resultsSortValue(r, key) {
+  if (key === 'score') return r.score;
+  if (key === 'bars') return r.cleared;
+  const x = r.slots[key];
+  return x.missing ? -Infinity : x.value;
+}
+
+function resultsRows(w) {
+  const F = rf();
+  const q = norm(F.q.trim());
+  const cols = F.show === 'all' ? SLOTS : [F.show];
+  const byScore = [...w.entrants].sort((a, b) => w.results[b].score - w.results[a].score);
+  // The place is always the real one for the week, whatever the table is sorted or filtered by.
+  const place = {};
+  byScore.forEach((id, i) => { place[id] = i > 0 && w.results[byScore[i - 1]].score === w.results[id].score ? place[byScore[i - 1]] : i + 1; });
+  const names = id => {
     const r = w.results[id];
-    if (r.score !== prevScore) rank = i + 1;
-    prevScore = r.score;
-    const cells = SLOTS.map(s => {
+    const pids = SLOTS.flatMap(s => { const x = r.slots[s]; return [x.pid, x.alt, x.scorer, x.copyPid]; }).filter(x => x != null);
+    return [userName(id), ...pids.map(pname)].map(norm);
+  };
+  const ids = byScore
+    .filter(id => RF_BARS[F.bars](w.results[id]))
+    .filter(id => !q || names(id).some(n => n.includes(q)))
+    .sort((a, b) => F.dir * (resultsSortValue(w.results[a], F.sort) - resultsSortValue(w.results[b], F.sort)) || place[a] - place[b]);
+  if (!ids.length) return { count: 0, html: `<tr><td colspan="${cols.length + 4}" class="dim" style="text-align:center;padding:22px">Nobody matches these filters.</td></tr>` };
+  const html = ids.map(id => {
+    const r = w.results[id];
+    const rank = place[id];
+    const cells = cols.map(s => {
       const x = r.slots[s];
       if (x.missing) return '<td><span class="dim">—</span></td>';
       const pid = x.copy ? x.copyPid : x.scorer ?? x.pid;
@@ -1716,6 +1756,43 @@ function viewResults() {
     const surv = w.status === 'final' ? (r.survived ? '<span class="trend-up">✓</span>' : '<span class="trend-down">✗ ❤️</span>') : `<span class="dim">${r.cleared}/${SLOTS.length}</span>`;
     return `<tr class="${id === myId() ? 'me' : ''}"><td class="rank ${rank <= 3 ? 'top' : ''}">${rank}</td><td><div class="who">${avatar(id)}<div><b>${esc(userName(id))}</b>${decor(id, w.week)}</div></div></td>${cells}<td class="r"><span class="pts">${fmt(r.score)}</span>${adjChip(r)}</td><td class="c">${surv}</td></tr>`;
   }).join('');
+  return { count: ids.length, html };
+}
+
+function resultsCount(w, n) {
+  const all = w.entrants.length;
+  return n === all ? `${all} entr${all === 1 ? 'y' : 'ies'}` : `Showing ${n} of ${all}`;
+}
+
+function resultsFilters(w) {
+  const F = rf();
+  const active = F.q || F.show !== 'all' || F.sort !== 'score' || F.bars !== 'any';
+  const shows = [['all', 'All'], ...SLOTS.map(s => [s, `${INFO[s].emoji} ${INFO[s].name}`])];
+  const bars = [['any', 'Any'], ['all', `All ${SLOTS.length}`], ['safe', w.status === 'final' ? 'Survived' : `${LEAGUE.barsToSurvive}+ cleared`], ['short', w.status === 'final' ? 'Lost a life' : `Under ${LEAGUE.barsToSurvive}`]];
+  return `<div class="results-filters">
+    <input class="input" type="search" placeholder="Search a colleague or a player" aria-label="Search the results" data-input="results-q" value="${esc(F.q)}" autocomplete="off">
+    <div class="rf-group"><span class="kicker">Show</span><div class="pills">${shows.map(([k, label]) => `<button class="pill" data-act="results-show" data-key="${k}" aria-pressed="${F.show === k}">${label}</button>`).join('')}</div></div>
+    <div class="rf-group"><span class="kicker">Bars</span><div class="pills">${bars.map(([k, label]) => `<button class="pill" data-act="results-bars" data-key="${k}" aria-pressed="${F.bars === k}">${label}</button>`).join('')}</div></div>
+    ${active ? '<button class="link" data-act="results-clear">Clear filters</button>' : ''}
+  </div>`;
+}
+
+function resultsHead() {
+  const F = rf();
+  const cols = F.show === 'all' ? SLOTS : [F.show];
+  const th = (key, label, cls = '') => {
+    const on = F.sort === key;
+    return `<th class="${cls}"><button class="th-sort ${on ? 'on' : ''}" data-act="results-sort" data-key="${key}" aria-label="Sort by ${esc(label)}">${label}${on ? (F.dir < 0 ? ' ▼' : ' ▲') : ''}</button></th>`;
+  };
+  return `<tr><th>#</th><th>Player</th>${cols.map(s => th(s, `${INFO[s].emoji} ${INFO[s].name}`)).join('')}${th('score', 'Pts', 'r')}${th('bars', 'Bars', 'c')}</tr>`;
+}
+
+function viewResults() {
+  const weeks = lockedWeeks();
+  if (!weeks.length) return `<section class="panel empty-state"><div class="ic">🔒</div><b>Nothing to show yet.</b><p>Everyone's picks are revealed when Week 1 locks.</p></section>`;
+  const w = resultsWeekObj();
+  const recent = weeks.slice(-8);
+  const body = resultsRows(w);
   return `<div class="grid">
     <section class="panel">
       <div class="panel-title"><h2>Week ${w.week} ${w.status === 'live' ? '<span class="badge live">Live</span>' : '<span class="badge final">Final</span>'}</h2>
@@ -1730,13 +1807,20 @@ function viewResults() {
       ${weekAdjustments(w.week)}
       ${w.decree ? `<div class="decree slim"><span>📜 Decree: <b>${w.decree.icon} ${esc(w.decree.title)}</b></span> <span class="dim">${esc(w.decree.text)}</span></div>` : ''}
       <p class="muted" style="margin:-6px 0 12px;font-size:13px">${weekRange(w)} · bars ${SLOTS.map(s => `${LEAGUE.bars[s]} ${INFO[s].short}`).join(' / ')} · (B) backup scored · 🔥 Double Down · card icons show what hit a pick (hover for who)</p>
-      <div class="table-wrap"><table class="board"><thead><tr><th>#</th><th>Player</th>${SLOTS.map(s => `<th>${INFO[s].emoji} ${INFO[s].name}</th>`).join('')}<th class="r">Pts</th><th class="c">Bars</th></tr></thead><tbody>${body}</tbody></table></div>
+      ${resultsFilters(w)}
+      <p class="muted" id="results-count" style="margin:0 0 8px;font-size:12.5px">${resultsCount(w, body.count)} · tap a column to sort</p>
+      <div class="table-wrap"><table class="board"><thead>${resultsHead()}</thead><tbody id="results-body">${body.html}</tbody></table></div>
     </section>
     ${cardTablePanel(w)}
     ${ownershipPanel(w)}
     ${w.awards?.length ? `<section class="panel"><div class="panel-title"><h2>Week ${w.week} awards</h2></div><div class="awards">${w.awards.map(a => `
       <div class="award"><div class="ic">${a.icon}</div><h4>${esc(a.title)}</h4><div class="who-line">${esc(userName(a.user))}${a.pid ? ` · ${esc(pname(a.pid))}` : ''}</div><p>${esc(a.text)}</p></div>`).join('')}</div></section>` : ''}
   </div>`;
+}
+
+function resultsWeekObj() {
+  const weeks = lockedWeeks();
+  return weekObj(S.resultsWeek) && weekObj(S.resultsWeek).status !== 'open' ? weekObj(S.resultsWeek) : weeks[weeks.length - 1];
 }
 
 function ownershipPanel(w) {
@@ -2694,7 +2778,7 @@ function viewRules() {
       <div class="panel rule"><h3>🎴 Joker cards</h3><p>Earn packs, keep one card from each (your choice is final), and play one card a week: jinxes, traps, duels, heists, Blue Shells and pranks. Attacks are revealed at the lock. Cards move points but never cost a life.</p><p><button class="link" data-act="primer">How cards work →</button></p></div>
       <div class="panel rule"><h3>🤖 Autopilot</h3><p>Forgot to pick? At the lock, Autopilot fills empty slots with your best unburned projected week (season average × games). It never leaves you at zero, but it spends your best players first.</p></div>
       <div class="panel rule"><h3>🥊 Rivals</h3><p>Name one coworker as your rival and track your weekly head-to-head record. You can change your rival any time.</p></div>
-      <div class="panel rule"><h3>🏆 Titles and awards</h3><ul><li><b>Season Champion</b></li><li><b>Title belts:</b> Survivor Belt, plus Scoring, Rebounding, Assists and Dub Champions (most of each from your picks over the season)</li><li><b>Monthly Crowns:</b> Nov, Dec, Jan, Feb, Mar/Apr</li><li><b>Hall of Fame</b> and <b>Hall of Shame:</b> fun season awards</li><li><b>Playoff Burn</b> (April–June)</li></ul><p>Every award comes with a downloadable certificate. The Trophies tab shows who's leading each race and where you stand.</p></div>
+      <div class="panel rule"><h3>🏆 Titles and awards</h3><ul><li><b>Season Champion</b></li><li><b>Title belts:</b> Survivor Belt, plus Scoring, Rebounding, Assists and Dub Champions (most of each from your picks over the season)</li><li><b>Pure Hoops Champion:</b> top of the standings from your picks alone, with no Joker cards at all. Flip Standings to <i>Raw picks</i> to see the race.</li><li><b>Monthly Crowns:</b> Nov, Dec, Jan, Feb, Mar/Apr</li><li><b>Hall of Fame</b> and <b>Hall of Shame:</b> fun season awards</li><li><b>Playoff Burn</b> (April–June)</li></ul><p>Every award comes with a downloadable certificate. The Trophies tab shows who's leading each race and where you stand.</p></div>
     </div>
   </div>`;
 }
@@ -2989,6 +3073,12 @@ const ACTIONS = {
   'unburn-choose': el => unburn(el.dataset.slot, +el.dataset.pid),
   'unburn-undo': async () => { try { await S.backend.setUnburn(null); toast('Un-burn returned to your hand.'); } catch (e) { toast(e.message, true); } await refresh(); },
   'results-week': el => { S.resultsWeek = +el.dataset.week; render(); },
+  'standings-mode': el => { S.standingsMode = el.dataset.mode; render(); },
+  // Showing one category sorts by it too; All goes back to the week's order.
+  'results-show': el => { const F = rf(), k = el.dataset.key; F.show = k; F.sort = k === 'all' ? 'score' : k; F.dir = -1; render(); },
+  'results-bars': el => { rf().bars = el.dataset.key; render(); },
+  'results-sort': el => { const F = rf(), k = el.dataset.key; F.dir = F.sort === k ? -F.dir : -1; F.sort = k; render(); },
+  'results-clear': () => { S.rf = null; render(); },
   'cal-week': el => { if (el.dataset.week) { S.calWeek = +el.dataset.week; S.calDay = null; render(); } },
   'cal-mode': el => { S.calMode = el.dataset.mode; render(); },
   'cal-day': el => { S.calDay = el.dataset.day; render(); },
@@ -3271,6 +3361,14 @@ document.addEventListener('input', e => {
   if (e.target.dataset?.input === 'play-q' && S.play) {
     S.play.q = e.target.value;
     $('#play-list').innerHTML = playPlayerRows();
+  }
+  if (e.target.dataset?.input === 'results-q') {
+    const w = resultsWeekObj();
+    if (!w) return;
+    rf().q = e.target.value;
+    const body = resultsRows(w);
+    $('#results-body').innerHTML = body.html;
+    $('#results-count').innerHTML = `${resultsCount(w, body.count)} · tap a column to sort`;
   }
   if (e.target.dataset?.input === 'ledger') {
     S.ledgerQ = e.target.value;
