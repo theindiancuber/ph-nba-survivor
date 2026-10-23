@@ -29,12 +29,21 @@ create or replace function public.check_invite(code text) returns boolean
       true)
   $$;
 
--- Sign-ups must carry the code (the app sends it as user metadata).
+-- Sign-ups must carry the code (the app sends it as user metadata). One account works in every
+-- league on the site, so the NHL league's code (supabase/nhl/setup.sql) opens an account too, but
+-- only an actual match: the NHL league switching its code off doesn't open sign-ups.
 create or replace function public.require_invite() returns trigger
   language plpgsql security definer set search_path = public
   as $$
+  declare
+    code text := new.raw_user_meta_data->>'invite_code';
+    ok boolean := public.check_invite(code);
   begin
-    if not public.check_invite(new.raw_user_meta_data->>'invite_code') then
+    if not ok and to_regclass('nhl.league_settings') is not null then
+      execute 'select exists (select 1 from nhl.league_settings s where s.id and s.invite_code is not null
+        and lower(s.invite_code) = lower(trim(coalesce($1, ''''))))' into ok using code;
+    end if;
+    if not ok then
       raise exception 'Invalid invite code.';
     end if;
     return new;

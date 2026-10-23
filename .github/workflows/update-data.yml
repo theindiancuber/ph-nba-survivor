@@ -31,8 +31,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_URL_NHL: ${{ secrets.SUPABASE_URL_NHL }}
-          SUPABASE_SERVICE_ROLE_KEY_NHL: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY_NHL }}
           LIVE_FLAG: ${{ runner.temp }}/live
           LIVE_FLAG_NHL: ${{ runner.temp }}/live-nhl
         run: |
@@ -44,7 +42,8 @@ jobs:
           ok=0; ok_nhl=0
           while :; do
             if node scripts/update-data.mjs; then ok=1; else echo "::warning::NBA update failed; trying again next round."; fi
-            if SUPABASE_URL="$SUPABASE_URL_NHL" SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY_NHL" LIVE_FLAG="$LIVE_FLAG_NHL" PHS_SPORT=nhl node scripts/update-nhl.mjs; then
+            # Same Supabase project as the NBA league (its tables are in the nhl schema).
+            if LIVE_FLAG="$LIVE_FLAG_NHL" PHS_SPORT=nhl node scripts/update-nhl.mjs; then
               ok_nhl=1
             else
               echo "::warning::NHL update failed; trying again next round."

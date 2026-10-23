@@ -3,7 +3,7 @@
 //
 //   PHS_SPORT=nhl node scripts/update-nhl.mjs
 //
-// Env (optional): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (the NHL project's), LIVE_FLAG
+// Env (optional): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (the shared project's; tables in the nhl schema), LIVE_FLAG
 // Writes: nhl/data/weeks.json, players.json, teams.json, totals.json, schedule.json, rosters.json,
 // meta.json and nhl/data/games/<id>.json
 

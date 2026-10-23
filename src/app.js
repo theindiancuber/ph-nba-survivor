@@ -21,6 +21,8 @@ const INFO = LEAGUE.slotInfo;
 // Each player slot's column in a player's season averages.
 const STAT_IDX = Object.fromEntries(PICK_SLOTS.filter(s => !INFO[s].team).map(s => [s, INFO[s].avg]));
 const W_ = LEAGUE.words;
+// The other league on the site, for "one account works in both" hints.
+const OTHER_LEAGUE = SPORT === 'nhl' ? 'Peakhill NBA Survivor' : 'Peakhill NHL Survivor';
 // A slot's total as shown: +2 for plus-minus, .915 for a save percentage.
 const V = (s, v) => slotValue(s, v);
 // A pick's total as shown: a goalie who hasn't faced a shot yet shows a dash rather than .000.
@@ -175,6 +177,12 @@ async function refresh() {
   S.calMemo = {};
   S.league = computeLeague(S.leagueArgs);
   S.me = S.db.profiles.find(p => p.id === myId()) || null;
+  // Signed in with the shared Peakhill account but not in this league yet: suggest the name from the other one.
+  if (myId() && !S.me && S.suggestFor !== myId()) {
+    S.suggestFor = myId();
+    S.suggestedName = null;
+    S.backend.otherLeagueName?.().then(n => { if (n && !S.me) { S.suggestedName = n; render(); } }).catch(() => {});
+  }
   if (S.adminFor !== myId()) {
     S.adminFor = myId();
     S.greeted = false;
@@ -2824,7 +2832,7 @@ function viewRulesNhl() {
     <section class="hero"><span class="badge">How it works</span><h1>Pick 4. Burn 'em. Outlast the office.</h1><div class="sub">Five minutes a week. No draft, no roster, no money.</div>
       <div style="margin-top:14px"><button class="btn" data-act="tour-replay">Replay the quick tour</button></div></section>
     <div class="rules">
-      <div class="panel rule"><h3>🗓️ The week</h3><p>Weeks run Monday to Sunday. Picks lock at the first puck drop of the week, shown in your local time. Week 1 (Oct 26 – Nov 8) is a double week so everyone has time to join. The season runs to the end of the NHL regular season (Apr 11).</p></div>
+      <div class="panel rule"><h3>🗓️ The week</h3><p>Weeks run Monday to Sunday. Picks lock at the first puck drop of the week, shown in your local time. The season runs 24 weeks, from Oct 26 to the end of the NHL regular season (Apr 11).</p></div>
       <div class="panel rule"><h3>🏒 The picks</h3><ul>
         <li><b>${INFO.PTS.emoji} Lamplighter</b>: a skater's points (goals plus assists)</li>
         <li><b>${INFO.PM.emoji} Shutdown</b>: a skater's plus-minus. It can go negative.</li>
@@ -2832,7 +2840,7 @@ function viewRulesNhl() {
         <li><b>${INFO.WIN.emoji} Dub</b>: a team's wins. Overtime and shootout wins count.</li>
         <li><b>${INFO.FIGHT.emoji} Gloves Off</b> (optional bonus): +${F.points} points for every fight your skater is in, up to ${F.max} a week. It isn't ranked and doesn't count for the bars.</li></ul>
         <p>Points and plus-minus count the <b>whole week</b>, so a four-game week beats a two-game week. Save percentage doesn't add up, so a goalie's week is only as good as his saves.</p></div>
-      <div class="panel rule"><h3>🔥 The burn</h3><p>Once you use a skater in a category, he's gone from that category for the season, but still available in the other one. Goalies can be used <b>twice</b> in The Wall (there aren't enough starters for 23 weeks). Each team can be your Dub once. One player can only fill one of your slots in a given week, Gloves Off included.</p><p>Gloves Off only burns your fighter <b>if he fights</b>. A quiet week costs nothing, so you can ride the same tough guy until he drops the gloves.</p></div>
+      <div class="panel rule"><h3>🔥 The burn</h3><p>Once you use a skater in a category, he's gone from that category for the season, but still available in the other one. Goalies can be used <b>twice</b> in The Wall (there aren't enough starters for 24 weeks). Each team can be your Dub once. One player can only fill one of your slots in a given week, Gloves Off included.</p><p>Gloves Off only burns your fighter <b>if he fights</b>. A quiet week costs nothing, so you can ride the same tough guy until he drops the gloves.</p></div>
       <div class="panel rule"><h3>🛟 Backups</h3><p>Add an optional backup to each player slot. It only comes in if your pick plays <b>zero</b> games that week (for The Wall: faces fewer than ${LEAGUE.minShots} shots); then the backup scores and burns instead, and your pick stays available. If neither plays, the slot scores nothing and nothing burns. Dub and Gloves Off have no backup.</p></div>
       <div class="panel rule"><h3>📊 Scoring</h3><p>Every ranked category is ranked across the league each week. You get 1 point for every colleague whose pick you beat, ½ for a tie. In Shutdown, a pick who plays no games ranks <b>last</b>, below every negative plus-minus, so benching a scratched player for a safe zero doesn't work. Your weekly score is the sum of your four categories plus any fight bonus.</p><p><b>Gordie Howe hat trick:</b> if any skater you picked gets a goal, an assist and a fight in the same game, that's +${LEAGUE.gordieHowe} more.</p><p>Drop your worst weeks: one drop unlocks after weeks 6, 12 and 18.</p></div>
       <div class="panel rule"><h3>❤️ Survivor</h3><p>Everyone starts with ${LEAGUE.lives} lives. Clear at least ${LEAGUE.barsToSurvive} of the ${SLOTS.length} weekly bars (${b.PTS} points / ${V('PM', b.PM)} plus-minus / ${V('SV', b.SV)} save percentage / ${b.WIN} ${b.WIN === 1 ? 'win' : 'wins'}, the same every week unless the commissioner changes them) or lose a life. Last one standing wins the Survivor Belt. You keep playing for points either way.</p></div>
@@ -2857,7 +2865,7 @@ function viewAuth() {
   const signup = S.authMode === 'signup';
   const card = DEMO ? `
     <div class="panel auth-card"><div class="kicker">Demo league</div><h2 class="display" style="margin:6px 0 10px;font-size:28px">Take it for a spin</h2>
-      <p class="muted">${SPORT === 'nhl' ? `You're "You" in a league of 10 made-up colleagues, frozen on a Wednesday in early December. Week 5 is live and Week 6 picks are open.` : `You're "You" in a league of 14 made-up colleagues, frozen on a Wednesday in early December. Week 6 is live and Week 7 picks are open.`}</p>
+      <p class="muted">${SPORT === 'nhl' ? `You're "You" in a league of 10 made-up colleagues, frozen on a Wednesday in early December. Week 6 is live and Week 7 picks are open.` : `You're "You" in a league of 14 made-up colleagues, frozen on a Wednesday in early December. Week 6 is live and Week 7 picks are open.`}</p>
       <button class="btn primary" data-act="demo-enter" style="width:100%;margin-top:8px">Enter the demo</button>
       <p class="note" style="margin-top:12px">The real league runs once the commissioner connects Supabase. See the README.</p></div>`
     : `
@@ -2873,6 +2881,7 @@ function viewAuth() {
         <button class="btn primary" type="submit">${signup ? 'Join the league' : 'Sign in'}</button>
         ${signup ? '' : '<button class="link" type="button" data-act="forgot">Forgot password?</button>'}
       </form>
+      <p class="note" style="margin-top:12px">One Peakhill account works in both leagues. ${signup ? `Already in ${OTHER_LEAGUE}? <button class="link" data-act="auth-mode" data-mode="signin">Sign in</button> with the same email and password.` : `Joined ${OTHER_LEAGUE}? Use the same email and password here.`}</p>
     </div>`;
   return `<div class="auth-wrap">
     <div class="auth-pitch"><span class="badge">${LEAGUE.season} season · free to play</span>
@@ -2889,9 +2898,11 @@ function viewAuth() {
 }
 
 function viewProfileSetup() {
+  const sug = S.suggestedName;
   return `<div class="auth-wrap" style="grid-template-columns:1fr;max-width:460px"><div class="panel auth-card">
-    <div class="kicker">Almost there</div><h2 class="display" style="margin:6px 0 14px;font-size:28px">Set up your profile</h2>
-    <form data-form="setup"><label class="field">Display name<input class="input" name="name" required minlength="2" maxlength="24"></label>
+    <div class="kicker">${sug ? `Welcome to ${esc(LEAGUE.name)}` : 'Almost there'}</div><h2 class="display" style="margin:6px 0 14px;font-size:28px">${sug ? 'Join with your Peakhill account' : 'Set up your profile'}</h2>
+    ${sug ? `<p class="muted" style="margin:-4px 0 14px">You're signed in from ${OTHER_LEAGUE}. Pick the name you'll go by here (your name from there is filled in) and you're in.</p>` : ''}
+    <form data-form="setup"><label class="field">Display name<input class="input" name="name" required minlength="2" maxlength="24" value="${esc(sug || '')}"></label>
       <label class="field">Team<select class="input" name="team">${teamOptions('')}</select></label>
       <div class="err" id="auth-err"></div><button class="btn primary" type="submit">Join the league</button>
       <button class="link" type="button" data-act="signout">Sign out</button></form></div></div>`;

@@ -239,10 +239,12 @@ async function pool(items, size, fn) {
 function supabase() {
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
+  // The NHL league's tables are in the nhl schema of the same project: say so on every request.
+  const schema = LEAGUE.dbSchema ? { 'Accept-Profile': LEAGUE.dbSchema, 'Content-Profile': LEAGUE.dbSchema } : {};
   const call = async (method, route, body, prefer) => {
     const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/${route}`, {
       method,
-      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', ...(prefer ? { Prefer: prefer } : {}) },
+      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', ...schema, ...(prefer ? { Prefer: prefer } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) throw new Error(`Supabase ${method} ${route}: ${res.status} ${await res.text()}`);

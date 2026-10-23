@@ -11,7 +11,8 @@ export class SupabaseBackend {
 
   async init() {
     const { createClient } = await import(SUPABASE_ESM);
-    this.sb = createClient(LEAGUE.supabaseUrl, LEAGUE.supabaseAnonKey);
+    // Both leagues share one Supabase project (one sign-in); each league's tables live in its own schema.
+    this.sb = createClient(LEAGUE.supabaseUrl, LEAGUE.supabaseAnonKey, { db: { schema: LEAGUE.dbSchema || 'public' } });
     const { data } = await this.sb.auth.getSession();
     this.user = data.session?.user || null;
   }
@@ -48,6 +49,15 @@ export class SupabaseBackend {
   async updateProfile(patch) {
     const { error } = await this.sb.from('profiles').update(patch).eq('id', this.userId);
     if (error) throw friendly(error);
+  }
+
+  // Your display name in the other league, to suggest when you join this one (null if there's none).
+  async otherLeagueName() {
+    const schema = (LEAGUE.dbSchema || 'public') === 'public' ? 'nhl' : 'public';
+    try {
+      const { data } = await this.sb.schema(schema).from('profiles').select('display_name').eq('id', this.userId).maybeSingle();
+      return data?.display_name || null;
+    } catch { return null; }
   }
 
   async all(table, order) {
@@ -248,6 +258,7 @@ function friendly(error) {
   if (/profiles_display_name_chars/.test(msg)) return new Error('Use letters, numbers and everyday punctuation in your name.');
   if (/row-level security/.test(msg) && !/card_plays/.test(msg)) return new Error('Picks for this week are locked.');
   if (/picks_one_double_down/.test(msg)) return new Error('You have already used your Double Down this season.');
+  if (/already registered/i.test(msg)) return new Error('You already have a Peakhill account with that email (from the other league). Switch to Sign in and use the same password.');
   if (/Invalid invite code/.test(msg)) return new Error("That invite code isn't right. Ask the commissioner for the invite link.");
   if (/Database error saving new user|removed from the league/.test(msg)) return new Error("Sign-up was refused. Check the invite code (it's in the commissioner's invite link), or ask the commissioner.");
   if (/card_plays_once/.test(msg)) return new Error('That card has already been used.');
@@ -282,6 +293,7 @@ export class DemoBackend {
   get user() { return this.state.userId ? { id: this.state.userId } : null; }
 
   async signIn() { this.state.userId = this.seed.meId; this.persist(); }
+  async otherLeagueName() { return null; }
   async signUp() { return this.signIn(); }
   async signOut() { this.state.userId = null; this.persist(); }
   async resetPassword() {}

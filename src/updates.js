@@ -6,6 +6,15 @@ import { SPORT } from './config.js';
 
 const NBA_UPDATES = [
   {
+    id: 21,
+    date: '2026-10-24',
+    title: 'One account for both leagues',
+    items: [
+      'Your NBA Survivor account now works in the NHL league too. Tap 🏒 NHL at the top, pick your hockey name, and you\'re in. No second sign-up.',
+      'Hockey starts Monday, Oct 26.',
+    ],
+  },
+  {
     id: 20,
     date: '2026-10-24',
     title: 'Peakhill Survivor Leagues: hockey is here',
@@ -202,7 +211,8 @@ const NHL_UPDATES = [
     title: 'Welcome to Peakhill NHL Survivor',
     items: [
       'Four ranked picks a week: Lamplighter (points), Shutdown (plus-minus), The Wall (save percentage) and Dub (team wins), plus Gloves Off, a fight bonus.',
-      'Week 1 runs two weeks (Oct 26 – Nov 8) so everyone has time to join.',
+      'Week 1 is Oct 26 – Nov 1, and the season runs 24 weeks to the end of the regular season.',
+      'Already in NBA Survivor? You\'re already signed in: just pick your hockey name.',
       'The card game arrives later in the season. It will show up here when it starts.',
     ],
   },
