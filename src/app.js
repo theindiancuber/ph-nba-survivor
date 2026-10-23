@@ -28,6 +28,18 @@ const V = (s, v) => slotValue(s, v);
 const HOCKEY = SPORT === 'nhl';
 // A card's name, as this league calls it (the NHL league plays the deck under hockey names).
 const CN = c => CARDS[c].name;
+// Columns for a grid of n cards, at most max a row, so the last row isn't left with one or two
+// stragglers: the column count (down to half of max) whose last row comes out fullest.
+function balancedCols(n, max) {
+  let best = max, fill = -1;
+  for (let c = max; c >= Math.max(1, Math.ceil(max / 2)); c--) {
+    const f = (n % c || c) / c;
+    if (f > fill) { best = c; fill = f; }
+  }
+  return best;
+}
+// The inline style a .balanced grid reads: its columns on wide, medium and narrow screens.
+const balance = n => `style="--c-lg:${balancedCols(n, 5)};--c-md:${balancedCols(n, 3)};--c-sm:${balancedCols(n, 2)}"`;
 // A pick's total as shown: a goalie who hasn't faced a shot yet shows a dash rather than .000.
 const PV = (s, x) => INFO[s].pct && !(x.line?.[LEAGUE.line.shots] > 0) && !x.copy ? '—' : V(s, x.value);
 // A season average as shown in the picker and on pick cards.
@@ -470,15 +482,16 @@ function viewLive(w) {
 // Gloves Off in a live week: your fighter, his fights so far and the points they're worth.
 function liveBonus(s, r, w) {
   const b = r.bonus;
-  if (!b) return `<div class="live-slot" data-slot="${s}"><div class="live-top"><div class="thumb"><span class="mini">${INFO[s].emoji}</span></div><div><div class="kicker">${INFO[s].emoji} ${INFO[s].name}</div><b class="dim">No pick this week</b></div></div></div>`;
+  if (!b) return `<div class="live-slot bonus" data-slot="${s}"><div class="live-top"><div class="thumb"><span class="mini">${INFO[s].emoji}</span></div><div><div class="kicker">${INFO[s].emoji} ${INFO[s].name} · bonus</div><b class="dim">No pick this week</b></div></div>
+    <div class="bonus-caps"><div class="meter-cap"><span>+${LEAGUE.fight.points} a fight, up to ${LEAGUE.fight.max} a week</span></div></div></div>`;
   const team = player(b.pid)?.team;
   const left = w.leftByTeam?.[team] ?? 0;
-  return `<div class="live-slot" data-slot="${s}">
+  return `<div class="live-slot bonus" data-slot="${s}">
     <div class="live-top">${thumb(b.pid)}<div><div class="kicker">${INFO[s].emoji} ${INFO[s].name} · bonus</div><b>${esc(pname(b.pid))}</b>
       <div class="dim" style="font-size:12px">${esc(team || '')}${left ? ` · ${left} left` : ''}</div></div></div>
     <div class="big-num">${b.fights}<small>${b.fights === 1 ? 'fight' : 'fights'}</small></div>
-    <div class="meter-cap"><span>${b.invalid ? 'Not valid: burned here, or picked in another slot' : `+${LEAGUE.fight.points} a fight, up to ${LEAGUE.fight.max} a week`}</span><span>${b.pts ? `+${b.pts} pts` : '—'}</span></div>
-    <div class="meter-cap"><span>Burns only if he fights</span><span>Not ranked</span></div>
+    <div class="bonus-caps"><div class="meter-cap"><span>${b.invalid ? 'Not valid: burned here, or picked in another slot' : `+${LEAGUE.fight.points} a fight, up to ${LEAGUE.fight.max} a week`}</span><span>${b.pts ? `+${b.pts} pts` : '—'}</span></div>
+    <div class="meter-cap"><span>Burns only if he fights</span><span>Not ranked</span></div></div>
   </div>`;
 }
 
@@ -513,13 +526,13 @@ function slotCard(s, open, u, d) {
   const head = `<div class="slot-head"><b>${INFO[s].emoji} ${INFO[s].name}</b><span>${INFO[s].stat}${bonus ? ' · bonus' : ''}</span></div>`;
   const copy = (openCw()?.plays || []).find(p => p.ok && p.user_id === myId() && p.card === 'copycat' && p.slot === s);
   if (copy) {
-    return `<div class="slot-card" data-slot="${s}">${head}
+    return `<div class="slot-card${bonus ? ' bonus' : ''}${sel?.player_id ? ' filled' : ''}" data-slot="${s}">${head}
       <div class="slot-empty"><div><div style="font-size:46px">🐱</div><b class="display" style="font-size:20px">Copying ${esc(userName(copy.target_id))}</b>
         <p class="muted" style="font-size:13px;margin:6px 0 0">This slot scores whatever they picked here. Nothing burns, and it counts 0 toward the survival bars.${sel?.player_id ? ' Your own pick here is ignored.' : ''}</p></div></div>
     </div>`;
   }
   if (!sel?.player_id) {
-    return `<div class="slot-card" data-slot="${s}">${head}
+    return `<div class="slot-card${bonus ? ' bonus' : ''}${sel?.player_id ? ' filled' : ''}" data-slot="${s}">${head}
       <div class="slot-empty"><button class="add-big" data-act="pick" data-slot="${s}" data-which="main"><span class="plus">+</span><b>Choose your ${INFO[s].name.toLowerCase().replace(/^the /, '')} pick</b><span>${bonus ? `Optional: +${LEAGUE.fight.points} for every fight he's in` : INFO[s].pct ? 'Best save percentage this week' : `Best ${INFO[s].stat.toLowerCase()} total this week`}</span></button></div>
     </div>`;
   }
@@ -531,7 +544,7 @@ function slotCard(s, open, u, d) {
   if (INFO[s].team) {
     const t = team(sel.player_id);
     const games = open.gamesByTeam?.[t?.tri] ?? 0;
-    return `<div class="slot-card" data-slot="${s}">${head}
+    return `<div class="slot-card${bonus ? ' bonus' : ''}${sel?.player_id ? ' filled' : ''}" data-slot="${s}">${head}
       <div class="player-stage" style="--tc1:${t?.c1 || '#1d3361'}">
         <span class="mono">${esc(t?.tri || '')}</span>
         ${t ? `<img class="team-logo-big" src="${teamLogo(t.tri)}" alt="">` : ''}
@@ -558,7 +571,7 @@ function slotCard(s, open, u, d) {
     : INFO[s].pct
       ? [[V(s, avg), 'Season SV%'], [games, 'Team games'], [p?.gp ?? 0, 'Played']]
       : [[avgText(s, avg), `${INFO[s].short}/game`], [games, 'Games'], [avgText(s, Math.round(avg * games)), 'Projected']];
-  return `<div class="slot-card" data-slot="${s}">${head}
+  return `<div class="slot-card${bonus ? ' bonus' : ''}${sel?.player_id ? ' filled' : ''}" data-slot="${s}">${head}
     <div class="player-stage" style="--tc1:${t?.c1 || '#1d3361'}">
       <span class="jersey">${esc(p?.num || '')}</span>
       ${t ? `<img class="logo" src="${teamLogo(p.team)}" alt="${esc(t.name)}">` : ''}
@@ -981,13 +994,13 @@ function viewCards() {
   const ownPicked = ow != null && S.db.picks.some(p => p.user_id === myId() && p.week === ow && !p.auto);
   const slotsHtml = Array.from({ length: LEAGUE.cards.handLimit }, (_, i) => `<i class="${i < hand.length ? 'on' : ''}"></i>`).join('');
   parts.push(`<section class="hero cards-hero hud">
-    <div class="hud-head"><span class="badge gold">Joker cards</span><h1>The card table</h1></div>
+    <div class="hud-head"><span class="badge gold">${HOCKEY ? 'Hockey cards' : 'Joker cards'}</span><h1>The card table</h1></div>
     <div class="hud-row">
       <div class="hud-tile"><small>Hand</small><div class="hand-slots">${slotsHtml}</div><b>${hand.length}/${LEAGUE.cards.handLimit}</b></div>
       <div class="hud-tile ${main ? 'used' : 'ready'}"><small>This week's play${dk === 'free_for_all' ? 's · Free-for-all' : ''}</small><b>${dk === 'ceasefire' ? '🏳️ Ceasefire' : main ? `✓ ${esc(cardName(main.card))}${dk === 'free_for_all' ? ` (${mainCount}/2)` : ''}` : ow != null ? '⚡ Ready' : '—'}</b></div>
       <div class="hud-tile"><small>Traps armed</small><b>${u.cards.armed.length ? '🛡️'.repeat(u.cards.armed.length) : '0'}</b></div>
       <div class="hud-tile"><small>Card Dex</small><b>${dex.size}/${Object.keys(CARDS).length}</b><span class="hud-bar"><i style="width:${dex.size / Object.keys(CARDS).length * 100}%"></i></span></div>
-      <div class="hud-tile"><small>Album</small><b>${albumN}/30</b><span class="hud-bar"><i style="width:${albumN / 30 * 100}%"></i></span></div>
+      <div class="hud-tile"><small>Album</small><b>${albumN}/${Object.keys(TEAMS).length}</b><span class="hud-bar"><i style="width:${albumN / Object.keys(TEAMS).length * 100}%"></i></span></div>
     </div>
     ${L.cards.from === Infinity ? `<p class="sub" style="margin:12px 0 0">Cards switch on once the commissioner finishes setting them up. Everyone gets a Starter Pack then.</p>`
       : ow != null && ow < L.cards.from ? `<p class="sub" style="margin:12px 0 0">Cards switch on in Week ${L.cards.from}. Everyone gets a Starter Pack then.</p>`
@@ -1056,9 +1069,9 @@ function thisWeekCards(ow) {
 function albumPanel(u) {
   const album = u.cards.album;
   return `<section class="panel"><div class="panel-title"><h2>Sticker album</h2><span class="muted">Every player who scores for you adds his team. Finish a division for an Album Pack.</span></div>
-    <div class="album">${Object.entries(DIVISIONS).map(([div, teams]) => {
+    <div class="album balanced" ${balance(Object.keys(DIVISIONS).length)}>${Object.entries(DIVISIONS).map(([div, teams]) => {
       const done = u.cards.divisions.includes(div);
-      return `<div class="album-div ${done ? 'done' : ''}"><h4><span>${div}</span><span class="${done ? '' : 'dim'}">${done ? '✓ Pack earned' : `${teams.filter(t => album.has(t)).length}/5`}</span></h4>
+      return `<div class="album-div ${done ? 'done' : ''}"><h4><span>${div}</span><span class="${done ? '' : 'dim'}">${done ? '✓ Pack earned' : `${teams.filter(t => album.has(t)).length}/${teams.length}`}</span></h4>
         <div class="stickers">${teams.map(t => `<span class="sticker ${album.has(t) ? '' : 'off'}" title="${esc(`${TEAMS[t].city} ${TEAMS[t].name}`)}"><img src="${teamLogo(t)}" alt="${t}" loading="lazy" data-fallback="${t}"></span>`).join('')}</div></div>`;
     }).join('')}</div></section>`;
 }
@@ -1112,7 +1125,7 @@ function achievementsPanel(u, dex) {
     { icon: '🃏', name: 'Card Shark', how: 'Play 5 cards', n: played, of: 5 },
     { icon: '🎯', name: 'First Blood', how: 'Land an attack', n: mine.filter(p => ['attack'].includes(CARDS[p.card]?.type) && p.outcome === 'landed').length, of: 1 },
     { icon: '🪤', name: "It's a Trap", how: 'Spring a trap', n: mine.filter(p => isTrap(p.card) && p.sprung).length, of: 1 },
-    HOCKEY ? { icon: '⚫', name: 'Faceoff King', how: 'Win a faceoff', n: duelsWon, of: 1 } : { icon: '⚔️', name: 'Duelist', how: 'Win a duel', n: duelsWon, of: 1 },
+    HOCKEY ? { icon: '🆚', name: 'Faceoff King', how: 'Win a faceoff', n: duelsWon, of: 1 } : { icon: '⚔️', name: 'Duelist', how: 'Win a duel', n: duelsWon, of: 1 },
     { icon: '🎁', name: 'Secret Santa', how: 'Gift a card', n: mine.filter(p => p.card === 'gift').length, of: 1 },
     { icon: '📒', name: 'Collector', how: 'Finish an album division', n: u.cards.divisions.length, of: 1 },
     { icon: '💎', name: 'Shiny', how: 'Hold a legendary', n: [...dex].filter(c => CARDS[c].rarity === 'legendary').length, of: 1 },
@@ -1121,7 +1134,7 @@ function achievementsPanel(u, dex) {
   ];
   const done = list.filter(a => a.n >= a.of).length;
   return `<section class="panel"><div class="panel-title"><h2>Achievements</h2><span class="muted">${done} of ${list.length} unlocked</span></div>
-    <div class="badges">${list.map(a => {
+    <div class="badges balanced" ${balance(list.length)}>${list.map(a => {
       const ok = a.n >= a.of;
       return `<div class="badge-tile ${ok ? 'on' : ''}" title="${esc(a.how)}"><span class="ic">${a.icon}</span><b>${esc(a.name)}</b><small>${esc(a.how)}</small>
         ${ok ? '<span class="got">Unlocked</span>' : a.of > 1 ? `<span class="hud-bar"><i style="width:${Math.min(100, a.n / a.of * 100)}%"></i></span><span class="prog">${Math.min(a.n, a.of)}/${a.of}</span>` : '<span class="prog">Locked</span>'}</div>`;
@@ -1761,7 +1774,7 @@ function viewSurvivor() {
       <div class="sub">Everyone starts with ${LEAGUE.lives} lives. Each week, clear at least ${LEAGUE.barsToSurvive} of the ${SLOTS.length} bars with your weekly totals or lose one. Last one standing takes the belt.</div>
     </section>
     <section class="panel"><div class="panel-title"><h2>The bars</h2><span class="muted">The same every week, all season</span></div>
-      <div class="ladder-bars">${SLOTS.map(s => `<div class="ladder-bar" data-slot="${s}"><div class="kicker">${INFO[s].emoji} ${INFO[s].name}</div><b>${LEAGUE.bars[s]}</b><div class="muted" style="font-size:12px">${INFO[s].stat.toLowerCase()} in the week</div></div>`).join('')}</div>
+      <div class="ladder-bars">${SLOTS.map(s => `<div class="ladder-bar" data-slot="${s}"><div class="kicker">${INFO[s].emoji} ${INFO[s].name}</div><b>${V(s, LEAGUE.bars[s])}</b><div class="muted" style="font-size:12px">${INFO[s].stat.toLowerCase()} in the week</div></div>`).join('')}</div>
     </section>
     <section class="panel"><div class="panel-title"><h2>Still alive</h2><span class="muted">${alive.length} of ${order.length}</span></div>
       ${alive.length ? `<div class="surv-grid">${alive.map(card).join('')}</div>` : '<p class="muted">Nobody yet. The ladder starts when Week 1 locks.</p>'}
@@ -1915,20 +1928,30 @@ function viewBurns() {
   if (!people.length) return `<section class="panel empty-state"><div class="ic">📓</div>Burn books fill up once Week 1 is final.</section>`;
   const id = S.burnUser && L.users[S.burnUser] ? S.burnUser : (meU() ? myId() : people[0].id);
   const u = L.users[id];
-  const total = L.weeks.length;
-  const cols = SLOTS.map(s => {
+  // Weeks still to come: what each category has left to fill.
+  const left = L.weeks.length - L.weeks.filter(w => w.status === 'final').length;
+  const cols = LEAGUE.pickSlots.map(s => {
+    const limit = INFO[s].burns || 1;
     const burned = [...u.burns[s].entries()].sort((a, b) => a[1] - b[1]);
+    // Goalies get two uses in The Wall: one use leaves him half spent, not burned.
+    const partial = [...u.uses[s].entries()].filter(([pid]) => !u.burns[s].has(pid) && !u.reserved[s].has(pid));
     const reserved = [...u.reserved[s].entries()].filter(([pid]) => !u.burns[s].has(pid));
     const freed = u.unburn && u.unburn.slot === s && u.unburnApplied ? u.unburn : null;
     const items = burned.map(([pid, wk]) => `<div class="burn-item">${thumb(pid, 'sm')}<span class="nm">${esc(pname(pid))}</span><span class="wk">WK ${wk}</span></div>`)
-      .concat(reserved.map(([pid, wk]) => `<div class="burn-item reserved">${thumb(pid, 'sm')}<span class="nm">${esc(pname(pid))}</span><span class="wk" style="color:#ffb0bf">WK ${wk} · LIVE</span></div>`))
+      .concat(partial.map(([pid, n]) => `<div class="burn-item partial">${thumb(pid, 'sm')}<span class="nm">${esc(pname(pid))}</span><span class="wk">${n} OF ${limit} USED</span></div>`))
+      .concat(reserved.map(([pid, wk]) => `<div class="burn-item reserved">${thumb(pid, 'sm')}<span class="nm">${esc(pname(pid))}</span><span class="wk" style="color:#ffb0bf">WK ${wk} · LIVE${limit > 1 ? ` · ${(u.uses[s].get(pid) || 0) + 1} OF ${limit}` : ''}</span></div>`))
       .concat(freed ? [`<div class="burn-item freed">${thumb(freed.player_id, 'sm')}<span class="nm">${esc(pname(freed.player_id))}</span><span class="wk" style="color:var(--green)">UN-BURNED</span></div>`] : []);
-    return `<div class="burn-col" data-slot="${s}"><h3>${INFO[s].emoji} ${INFO[s].name}<small>${burned.length} used · ${Math.max(0, total - burned.length)} weeks left</small></h3>${items.join('') || '<p class="dim">Clean sheet.</p>'}</div>`;
+    const sub = INFO[s].bonus ? `${burned.length} burned` : `${burned.length + partial.length} used · ${left} weeks left`;
+    const empty = INFO[s].bonus ? 'Nobody has dropped the gloves for you yet.' : 'Clean sheet.';
+    return `<div class="burn-col ${INFO[s].bonus ? 'bonus' : ''}" data-slot="${s}"><h3>${INFO[s].emoji} ${INFO[s].name}<small>${sub}</small></h3><div class="burn-list">${items.join('') || `<p class="dim">${empty}</p>`}</div></div>`;
   }).join('');
+  const note = HOCKEY
+    ? `A player you use is gone from that category for the season. Skaters are still free in the other skater category, goalies get ${INFO.SV.burns} uses in The Wall, and Gloves Off only burns a fighter who actually fights.`
+    : 'A player you use is gone from that category for the season, but still available in the other two.';
   return `<section class="panel">
     <div class="panel-title"><h2>Burn book</h2>
       <select class="input" style="width:auto;min-width:200px" data-change="burn-user" aria-label="Whose burn book">${people.map(p => `<option value="${p.id}" ${p.id === id ? 'selected' : ''}>${esc(p.name)}${p.id === myId() ? ' (you)' : ''}</option>`).join('')}</select></div>
-    <p class="muted" style="margin:-4px 0 14px;font-size:13px">A player you use is gone from that category for the season, but still available in the other two.</p>
+    <p class="muted" style="margin:-4px 0 14px;font-size:13px">${note}</p>
     <div class="burn-cols">${cols}</div>
   </section>`;
 }
@@ -1974,7 +1997,7 @@ function viewTrophies() {
   const won = c.decided && c.leader;
   const podium = c.ranked.slice(0, 3).map((x, i) => `<div class="podium-spot p${i + 1}">${avatar(x.id)}<b>${esc(userName(x.id))}</b><span>${fmt(x.v)}</span></div>`).join('');
   const meIdx = c.ranked.findIndex(x => x.id === myId());
-  const section = (title, sub, cards, cls = '') => cards.length ? `<section class="trophy-group ${cls}"><div class="panel-title"><h2>${title}</h2><span class="muted">${sub}</span></div><div class="trophies">${cards.join('')}</div></section>` : '';
+  const section = (title, sub, cards, cls = '') => cards.length ? `<section class="trophy-group ${cls}"><div class="panel-title"><h2>${title}</h2><span class="muted">${sub}</span></div><div class="trophies balanced" ${balance(cards.length)}>${cards.join('')}</div></section>` : '';
   return `<div class="grid">
     <section class="spotlight ${won ? 'won' : ''}">
       <div class="spot-icon">🏆</div>
@@ -2480,7 +2503,7 @@ function adminInvite() {
       <button class="btn" data-act="copy-invite">Copy invite link</button></div>
       <p class="note" style="margin:-4px 0 14px;word-break:break-all">${esc(inviteLink(d.invite))}</p>` : ''}
     <form data-form="invite" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-      <label class="field" style="flex:1;min-width:180px">${on ? 'Change code' : 'Set a code'}<input class="input" name="code" maxlength="32" autocomplete="off" placeholder="e.g. HOOPS26"></label>
+      <label class="field" style="flex:1;min-width:180px">${on ? 'Change code' : 'Set a code'}<input class="input" name="code" maxlength="32" autocomplete="off" placeholder="e.g. ${HOCKEY ? 'HOCKEY26' : 'HOOPS26'}"></label>
       <button class="btn" type="submit">Save code</button>
       ${on ? '<button class="btn ghost" type="button" data-act="invite-off">Turn off</button>' : ''}
     </form>

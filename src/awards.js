@@ -112,7 +112,7 @@ export function seasonAwards(L, pname = id => `#${id}`) {
   // The standings from raw picks alone, as if the card game never happened.
   const pureRanked = L.rawStandings.filter(u => Object.keys(u.weekly).length).map(u => ({ id: u.id, v: u.raw.counted }));
   const pure = award(
-    { key: 'pure', icon: '🕊️', title: `${LEAGUE.words.pure} Champion`, kind: 'champion', how: 'Top of the standings from your picks alone, with no Joker cards at all.' },
+    { key: 'pure', icon: '🕊️', title: `${LEAGUE.words.pure} Champion`, kind: 'champion', how: `Top of the standings from your picks alone, with no ${LEAGUE.sport === 'nhl' ? 'cards' : 'Joker cards'} at all.` },
     pureRanked, x => `${fmt(x.v)} points from raw picks`,
   );
   const titles = [pure, belt, ...SLOTS.map(s => award(

@@ -469,7 +469,8 @@ export class DemoBackend {
     const by = {};
     for (const p of this.state.picks.filter(x => x.week === week)) {
       const r = by[p.user_id] ||= { user_id: p.user_id, slots: 0, backups: 0, last_saved: new Date(this.now() - 3600e3).toISOString() };
-      r.slots++;
+      // Like the database's check-in, only the ranked slots count (NHL: Gloves Off is optional).
+      if (LEAGUE.slots.includes(p.slot)) r.slots++;
       if (p.alt_id != null) r.backups++;
     }
     return Object.values(by);
