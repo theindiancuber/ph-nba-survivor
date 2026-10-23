@@ -2,7 +2,19 @@
 // play or what they see. Commissioner-only changes don't go here.
 // Ids only ever increase; everyone sees entries newer than the last one they read.
 
-export const UPDATES = [
+import { SPORT } from './config.js';
+
+const NBA_UPDATES = [
+  {
+    id: 20,
+    date: '2026-10-24',
+    title: 'Peakhill Survivor Leagues: hockey is here',
+    items: [
+      'The site is now Peakhill Survivor Leagues. Your NBA league works exactly as before.',
+      "There's a new NHL league: tap 🏒 NHL at the top. It starts Monday, Oct 26, with points, plus-minus, save percentage, team wins and a fight bonus.",
+      "It's a separate league with its own sign-up (your email and password can be the same). Ask the commissioner for the invite code.",
+    ],
+  },
   {
     id: 19,
     date: '2026-10-23',
@@ -181,5 +193,21 @@ export const UPDATES = [
     ],
   },
 ];
+
+// The NHL league keeps its own list; its players never saw the NBA one.
+const NHL_UPDATES = [
+  {
+    id: 1,
+    date: '2026-10-24',
+    title: 'Welcome to Peakhill NHL Survivor',
+    items: [
+      'Four ranked picks a week: Lamplighter (points), Shutdown (plus-minus), The Wall (save percentage) and Dub (team wins), plus Gloves Off, a fight bonus.',
+      'Week 1 runs two weeks (Oct 26 – Nov 8) so everyone has time to join.',
+      'The card game arrives later in the season. It will show up here when it starts.',
+    ],
+  },
+];
+
+export const UPDATES = SPORT === 'nhl' ? NHL_UPDATES : NBA_UPDATES;
 
 export const LATEST_UPDATE = UPDATES.reduce((m, u) => Math.max(m, u.id), 0);

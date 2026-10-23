@@ -3,9 +3,10 @@
 //   node scripts/smoke.mjs                  serves this checkout and tests it (CI)
 //   BASE_URL=https://… node scripts/smoke.mjs  tests the live site (the uptime monitor)
 //
-// Checks: every file in src/ parses; the data files are valid JSON; the signed-out
-// page reaches the sign-in form; the demo league signs in and every tab renders with
-// no script errors, no "This page hit a snag" and no Content-Security-Policy blocks.
+// Checks, for each league on the site (NBA at the root, NHL at nhl/): every file in src/ parses;
+// the data files are valid JSON; the signed-out page reaches the sign-in form; the demo league
+// signs in and every tab renders with no script errors, no "This page hit a snag" and no
+// Content-Security-Policy blocks.
 // Exits non-zero with a list of what failed.
 
 import { createServer } from 'node:http';
@@ -42,17 +43,28 @@ if (!base) {
 if (!base.endsWith('/')) base += '/';
 console.log(`Smoke test: ${base}`);
 
+// The leagues on the site. The NHL league has no Calendar, card game or nightly recap yet.
+const ALL_VIEWS = ['week', 'calendar', 'cards', 'standings', 'survivor', 'results', 'burns', 'rivals', 'trophies', 'rules', 'admin'];
+const ALL_ADMIN = ['members', 'recap', 'rules', 'decrees', 'insights'];
+const LEAGUES = [
+  { name: 'NBA', path: '', views: ALL_VIEWS, admin: ALL_ADMIN, calendar: true },
+  { name: 'NHL', path: 'nhl/', views: ALL_VIEWS.filter(v => !['calendar', 'cards'].includes(v)), admin: ALL_ADMIN.filter(t => t !== 'recap'), calendar: false },
+];
+
 // ---- Data files ----
 console.log('Data');
-for (const f of ['weeks', 'players', 'teams', 'totals']) {
-  try {
-    const r = await fetch(`${base}data/${f}.json`, { cache: 'no-store', signal: AbortSignal.timeout(20000) });
-    if (r.status === 404) { pass(`data/${f}.json not there yet (the app falls back)`); continue; }
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    JSON.parse(await r.text());
-    pass(`data/${f}.json is valid JSON`);
-  } catch (e) {
-    fail(`data/${f}.json: ${e.message}`);
+for (const lg of LEAGUES) {
+  for (const f of ['weeks', 'players', 'teams', 'totals']) {
+    const file = `${lg.path}data/${f}.json`;
+    try {
+      const r = await fetch(`${base}${file}`, { cache: 'no-store', signal: AbortSignal.timeout(20000) });
+      if (r.status === 404) { pass(`${file} not there yet (the app falls back)`); continue; }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      JSON.parse(await r.text());
+      pass(`${file} is valid JSON`);
+    } catch (e) {
+      fail(`${file}: ${e.message}`);
+    }
   }
 }
 
@@ -79,7 +91,7 @@ async function openPage(label) {
     if (ours(r.url()) && r.status() >= 400) errors.push(`failed to load ${r.url().slice(base.length)}: HTTP ${r.status()}`);
   });
   // Keep the test about our code: no fonts, headshots, logos or database traffic.
-  await page.route(/fonts\.(googleapis|gstatic)\.com|cdn\.nba\.com|supabase\.co/, r => r.abort());
+  await page.route(/fonts\.(googleapis|gstatic)\.com|cdn\.nba\.com|assets\.nhle\.com|supabase\.co/, r => r.abort());
   page.label = label;
   page.errors = errors;
   return page;
@@ -93,11 +105,13 @@ function report(page, what) {
 async function appText(page) { return (await page.textContent('#app').catch(() => '')).replace(/\s+/g, ' ').trim(); }
 
 try {
+ for (const lg of LEAGUES) {
+  const url = `${base}${lg.path}`;
   // Signed out: the real app should reach the sign-in form (no database needed for that).
-  console.log('Signed-out page');
+  console.log(`${lg.name}: signed-out page`);
   {
-    const page = await openPage('signed-out page');
-    await page.goto(base, { waitUntil: 'load', timeout: 30000 });
+    const page = await openPage(`${lg.name} signed-out page`);
+    await page.goto(url, { waitUntil: 'load', timeout: 30000 });
     const ok = await page.waitForSelector('[data-form="auth"]', { timeout: 20000 }).then(() => true).catch(() => false);
     if (ok) pass('reaches the sign-in form'); else fail(`signed-out page never showed sign-in. It shows: "${(await appText(page)).slice(0, 160)}"`);
     if (report(page, 'load')) pass('no script errors or CSP blocks');
@@ -105,10 +119,10 @@ try {
   }
 
   // Demo league: sign in, then visit every tab.
-  console.log('Demo league');
+  console.log(`${lg.name}: demo league`);
   {
-    const page = await openPage('demo');
-    await page.goto(`${base}?demo`, { waitUntil: 'load', timeout: 30000 });
+    const page = await openPage(`${lg.name} demo`);
+    await page.goto(`${url}?demo`, { waitUntil: 'load', timeout: 30000 });
     await page.evaluate(() => { try { localStorage.clear(); } catch { /* fine */ } });
     await page.reload({ waitUntil: 'load' });
     const enter = await page.waitForSelector('[data-act="demo-enter"]', { timeout: 20000 }).catch(() => null);
@@ -118,7 +132,7 @@ try {
       await enter.click();
       const tour = await page.waitForSelector('[data-act="tour-skip"]', { timeout: 5000 }).catch(() => null);
       if (tour) { await tour.click(); pass('first-login tour opened and closed'); } else fail('first-login tour did not open');
-      for (const view of ['week', 'calendar', 'cards', 'standings', 'survivor', 'results', 'burns', 'rivals', 'trophies', 'rules', 'admin']) {
+      for (const view of lg.views) {
         await page.evaluate(v => { location.hash = `#${v}`; }, view);
         await page.waitForTimeout(350);
         const snag = await page.$('.view-error');
@@ -128,7 +142,7 @@ try {
         else if (report(page, `#${view}`)) pass(`#${view} renders`);
       }
       // The Calendar's day-by-day view scores the live week as it stood after each day.
-      {
+      if (lg.calendar) {
         await page.evaluate(() => { location.hash = '#calendar'; });
         await page.waitForTimeout(300);
         const btn = await page.$('[data-act="cal-mode"][data-mode="days"]');
@@ -146,7 +160,9 @@ try {
         await page.waitForTimeout(350);
       }
       // The Commissioner tab is split into sections; each one renders on its own.
-      for (const tab of ['members', 'recap', 'rules', 'decrees', 'insights']) {
+      await page.evaluate(() => { location.hash = '#admin'; });
+      await page.waitForTimeout(350);
+      for (const tab of lg.admin) {
         const btn = await page.$(`[data-act="admin-tab"][data-tab="${tab}"]`);
         if (!btn) { fail(`demo #admin has no ${tab} section`); continue; }
         await btn.click();
@@ -159,6 +175,7 @@ try {
     report(page, 'end');
     await page.close();
   }
+ }
 } finally {
   await browser.close();
   server?.close();

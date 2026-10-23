@@ -1,18 +1,24 @@
 // The league engine: burns, scoring, lives, drops, crowns, awards, autopilot.
 // Pure functions over plain data, shared by the browser app and the data script.
 
-import { LEAGUE, monthKey, MONTH_LABELS } from './config.js';
+import { LEAGUE, monthKey, MONTH_LABELS, slotValue } from './config.js';
 import { TEAMS, TEAM_BY_ID } from './teams.js';
 import { CardTable } from './cards.js';
 import { parseDecree } from './decrees.js';
 import { weekRules, seasonRules, applyWeekRules, applySeasonRules } from './settings.js';
 
-const STAT = { PTS: 1, REB: 2, AST: 3 };
+const INFO = LEAGUE.slotInfo;
+// Each player slot's column in a weekly line (NBA: PTS 1, REB 2, AST 3; NHL: PTS 1, PM 2, SV 3).
+const STAT = Object.fromEntries(LEAGUE.playerSlots.map(s => [s, INFO[s].idx]));
 const SLOTS = LEAGUE.slots;
 const PSLOTS = LEAGUE.playerSlots;
+// Bonus slots (NHL's Gloves Off): picked like the others, but not ranked and not counted for the bars.
+const BONUS = LEAGUE.pickSlots.filter(s => !SLOTS.includes(s));
 const EMPTY = [0, 0, 0, 0];
 
 // A player's week: [games, pts, reb, ast, best game pts/reb/ast, worst game pts/reb/ast, team].
+// NHL: [games, pts, plus-minus, saves, best game x3, worst game x3, team, shots against, fights, goals,
+// Gordie Howe hat tricks]; a goalie's best and worst game columns hold that game's save percentage.
 export function statLine(totals, week, pid) {
   return totals[week]?.p?.[pid] || EMPTY;
 }
@@ -34,10 +40,22 @@ export function slotLine(totals, week, slot, id) {
     return t ? [t[0], t[1]] : [0, 0];
   }
   const l = totals[week]?.p?.[id];
-  return l ? [l[0], l[STAT[slot]]] : [0, 0];
+  if (!l) return [0, 0];
+  // Save percentage: a goalie only counts once he's faced enough shots this week.
+  if (INFO[slot]?.pct) {
+    const shots = l[LEAGUE.line.shots] || 0;
+    return [shots >= LEAGUE.minShots ? l[0] : 0, savePct(l[STAT[slot]], shots)];
+  }
+  return [l[0], l[STAT[slot]]];
 }
 
-export const unit = (slot, v) => slot === 'WIN' ? `${v} win${v === 1 ? '' : 's'}` : `${v} ${LEAGUE.slotInfo[slot].short}`;
+// Saves over shots, in thousandths (.915 → 915).
+export const savePct = (saves, shots) => shots > 0 ? Math.round(1000 * saves / shots) : 0;
+
+export const unit = (slot, v) => slot === 'WIN' ? `${v} win${v === 1 ? '' : 's'}` : INFO[slot]?.pct ? `${slotValue(slot, v)} saves` : `${slotValue(slot, v)} ${INFO[slot].short}`;
+
+// Whether a pick clears its survival bar. A plus-minus or save-percentage pick who never played fails it.
+export const clearsBar = (slot, x) => x.base >= LEAGUE.bars[slot] && (!(INFO[slot]?.signed || INFO[slot]?.pct) || x.scorer != null);
 
 export function weekStatus(week, now) {
   if (now < Date.parse(week.lockAt)) return 'open';
@@ -53,7 +71,14 @@ function groupPicks(picks) {
 }
 
 function newBurns() {
-  return Object.fromEntries(SLOTS.map(s => [s, new Map()]));
+  return Object.fromEntries(LEAGUE.pickSlots.map(s => [s, new Map()]));
+}
+
+// A use in a final week. Most slots burn a player on his first use; some allow more (NHL goalies: 2).
+function useUp(u, slot, pid, W) {
+  const n = (u.uses[slot].get(pid) || 0) + 1;
+  u.uses[slot].set(pid, n);
+  if (n >= (INFO[slot]?.burns || 1)) u.burns[slot].set(pid, W);
 }
 
 // Points for beating everyone: 1 per lower value, ½ per tie.
@@ -82,7 +107,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       id: pr.id, name: pr.display_name, rival: pr.rival_id || null, team: pr.fav_team || null, joined: pr.created_at || null,
       weekly: {}, total: 0, counted: 0, dropped: [], lives: LEAGUE.lives, eliminatedWeek: null,
       raw: { weekly: {}, total: 0, counted: 0, dropped: [], rank: null },
-      burns: newBurns(), reserved: newBurns(), doubleDownWeek: null, plannedDoubleDown: null,
+      burns: newBurns(), uses: newBurns(), reserved: newBurns(), doubleDownWeek: null, plannedDoubleDown: null,
       unburn: unburnByUser[pr.id] || null, monthly: {},
     };
   }
@@ -175,9 +200,11 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       // counts as 0, an empty slot as beaten). If it hasn't played yet, it scores 0 for now rather
       // than collecting ½ a point for every other 0 it's tied with. Final weeks rank everyone.
       const played = s => s.copy ? results[s.copy]?.slots[slot]?.gp > 0 : s.gp > 0;
+      // Plus-minus: a pick who never played ranks last, below every negative total.
+      const sat = s => INFO[slot].signed && s.scorer == null && !s.copy && !s.pending;
       const pts = rankPoints(entrants.map(id => {
         const s = results[id].slots[slot];
-        if (s.missing) return -Infinity;
+        if (s.missing || sat(s)) return -Infinity;
         if (!flip) return s.value;
         return s.scorer == null && !s.copy && !s.pending ? -Infinity : -s.value;
       }));
@@ -189,7 +216,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       });
       const rawPts = rankPoints(entrants.map(id => {
         const s = raw[id].slots[slot];
-        if (s.missing) return -Infinity;
+        if (s.missing || sat(s)) return -Infinity;
         if (!flip) return s.value;
         return s.scorer == null && !s.pending ? -Infinity : -s.value;
       }));
@@ -199,6 +226,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       });
     }
     playPointCards({ cw, wk, results, hits, table });
+    if (LEAGUE.fight) for (const id of entrants) hockeyBonus({ W, totals, players, pick: wp[id], user: users[id], R: [results[id], raw[id]] });
 
     // Commissioner adjustments: public point corrections, with a reason.
     for (const a of adjByWeek[W] || []) {
@@ -222,10 +250,10 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       r.score = SLOTS.reduce((a, s) => a + r.slots[s].rank, 0) + r.adj.reduce((a, x) => a + x.pts, 0);
       const rr = raw[id];
       rr.score = SLOTS.reduce((a, s) => a + rr.slots[s].rank, 0) + rr.adj.reduce((a, x) => a + x.pts, 0);
-      rr.cleared = SLOTS.filter(s => rr.slots[s].value >= LEAGUE.bars[s]).length;
+      rr.cleared = SLOTS.filter(s => clearsBar(s, { ...rr.slots[s], base: rr.slots[s].value })).length;
       u.raw.weekly[W] = rr.score;
       // The Survivor Belt ignores cards: bars are checked against your own picks' real totals.
-      r.cleared = SLOTS.filter(s => r.slots[s].base >= LEAGUE.bars[s]).length;
+      r.cleared = SLOTS.filter(s => clearsBar(s, r.slots[s])).length;
       r.survived = r.cleared >= (is('sudden_death') ? SLOTS.length : LEAGUE.barsToSurvive) || is('mercy');
       u.weekly[W] = r.score;
       cum[id] = (cum[id] || 0) + r.score;
@@ -238,10 +266,12 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       u.monthly[mk] = (u.monthly[mk] || 0) + r.score;
 
       const six = cw.sixth.get(id);
+      // Gloves Off burns only when he fights.
+      if (status === 'final' && r.bonus?.fights && !is('amnesty')) u.burns[r.bonus.slot].set(r.bonus.pid, W);
       for (const slot of SLOTS) {
         const s = r.slots[slot];
         if (is('amnesty')) continue;
-        if (status === 'final') for (const pid of s.burn) u.burns[slot].set(pid, W);
+        if (status === 'final') for (const pid of s.burn) useUp(u, slot, pid, W);
         else {
           if (!s.copy) for (const pid of [s.pid, s.alt]) if (pid != null) u.reserved[slot].set(pid, W);
           if (six && six.outcome !== 'fizzled') u.reserved[slot].set(six.player_id, W);
@@ -319,6 +349,34 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
   league.months = monthlyCrowns(league);
   league.champions = champions(league);
   return league;
+}
+
+// NHL bonuses, added to the week's score like an adjustment (cards never touch them).
+// Gloves Off: points per fight by the bonus pick, if he isn't burned there or picked in another slot.
+// Gordie Howe hat trick: a goal, an assist and a fight in one game by any skater you picked.
+function hockeyBonus({ W, totals, players, pick = {}, user, R }) {
+  const slot = BONUS[0];
+  const p = pick[slot];
+  const others = SLOTS.flatMap(s => [pick[s]?.player_id, pick[s]?.alt_id]).filter(x => x != null);
+  const name = pid => players[pid]?.name || '';
+  let fightPid = null;
+  if (p) {
+    const invalid = user.burns[slot].has(p.player_id) || others.includes(p.player_id);
+    const fights = invalid ? 0 : statLine(totals, W, p.player_id)[LEAGUE.line.fights] || 0;
+    const pts = Math.min(fights, LEAGUE.fight.max) * LEAGUE.fight.points;
+    if (!invalid) fightPid = p.player_id;
+    for (const r of R) {
+      r.bonus = { slot, pid: p.player_id, fights, pts, invalid };
+      if (pts) r.adj.push({ bonus: 'fight', label: INFO[slot].name, pts, note: `${name(p.player_id)}, ${fights} fight${fights === 1 ? '' : 's'}` });
+    }
+  }
+  for (const r of R) {
+    const skaters = new Set([...PSLOTS.filter(s => INFO[s].pos === 'skater').map(s => r.slots[s].scorer), fightPid].filter(x => x != null));
+    for (const pid of skaters) {
+      const n = statLine(totals, W, pid)[LEAGUE.line.gordie] || 0;
+      if (n) r.adj.push({ bonus: 'gordie', label: 'Gordie Howe hat trick', pts: n * LEAGUE.gordieHowe, note: name(pid) });
+    }
+  }
 }
 
 // Who scores a pick: the main pick if he played, else the backup once the week is final.
@@ -589,11 +647,11 @@ function weekAwards(w) {
     const gb = [...scored].sort((a, b) => a.owned - b.owned || b.rank - a.rank)[0];
     if (gb.rank > 0) awards.push({ key: 'galaxy', icon: '🧠', title: 'Galaxy Brain', user: gb.id, slot: gb.slot, pid: gb.scorer, text: `${unit(gb.slot, gb.value)}, picked by ${gb.owned === 1 ? 'nobody else' : gb.owned + ' people'}` });
     // Heater is a player award: team wins against a 1-win bar would always top it.
-    const heat = scored.filter(p => p.slot !== 'WIN').sort((a, b) => b.value / LEAGUE.bars[b.slot] - a.value / LEAGUE.bars[a.slot])[0];
+    const heat = scored.filter(p => p.slot !== 'WIN' && !INFO[p.slot].signed && !INFO[p.slot].pct).sort((a, b) => b.value / LEAGUE.bars[b.slot] - a.value / LEAGUE.bars[a.slot])[0];
     if (heat) awards.push({ key: 'heater', icon: '🔥', title: 'Heater', user: heat.id, slot: heat.slot, pid: heat.scorer, text: `${unit(heat.slot, heat.value)} (${(heat.value / LEAGUE.bars[heat.slot]).toFixed(1)}× the bar)` });
   }
   for (const f of all.filter(p => p.fumble)) {
-    awards.push({ key: 'fumble', icon: '🪦', title: 'The Fumble', user: f.id, slot: f.slot, pid: f.pid, text: `${LEAGUE.slotInfo[f.slot].name} pick never took the floor` });
+    awards.push({ key: 'fumble', icon: '🪦', title: 'The Fumble', user: f.id, slot: f.slot, pid: f.pid, text: `${LEAGUE.slotInfo[f.slot].name} pick never took the ${LEAGUE.words.surface}` });
   }
   const cold = [...w.entrants].sort((a, b) => w.results[a].score - w.results[b].score)[0];
   awards.push({ key: 'cold', icon: '🧊', title: 'Ice Cold', user: cold, text: `${fmt(w.results[cold].score)} points this week` });
@@ -626,12 +684,23 @@ export function blockedReason(league, userId, slot, pid) {
   if (!u) return null;
   if (u.burns[slot].has(pid)) return u.notices?.has(`${slot}:${pid}`) ? 'Burn Notice 🔥' : `Burned wk ${u.burns[slot].get(pid)}`;
   if (u.reserved[slot].has(pid)) return `Locked in wk ${u.reserved[slot].get(pid)}`;
-  if (league.cards?.weeks[league.openWeek]?.embargo[slot].has(pid)) return 'Embargoed 🚫';
+  if (league.cards?.weeks[league.openWeek]?.embargo[slot]?.has(pid)) return 'Embargoed 🚫';
   return null;
 }
 
+// Who can be picked in a slot: NHL goalies only in The Wall, skaters everywhere else.
+export function eligible(player, slot) {
+  const pos = INFO[slot]?.pos;
+  if (!pos || !player) return true;
+  return pos === 'G' ? player.pos === 'G' : player.pos !== 'G';
+}
+
+// A pick's projected week. A save percentage doesn't add up over games: it's his season mark,
+// discounted for a goalie who rarely plays.
 export function projection(player, slot, games) {
-  return (player?.avg?.[STAT[slot] - 1] || 0) * (games || 0);
+  const avg = player?.avg?.[INFO[slot]?.avg] || 0;
+  if (INFO[slot]?.pct) return games ? avg * Math.min(1, (player?.gp || 0) / 5) : 0;
+  return avg * (games || 0);
 }
 
 // Expected wins this week from the season record (smoothed so 0-0 reads as .500).
@@ -648,7 +717,7 @@ export function autopilotPicks(league, userId, week, current, players, gamesByTe
     if (current[slot]) continue;
     const pool = slot === 'WIN'
       ? Object.entries(TEAMS).map(([tri, t]) => ({ id: t.id, proj: teamProjection(teams[tri], gamesByTeam[tri]), tie: 0 }))
-      : Object.values(players).map(pl => ({ id: pl.id, proj: projection(pl, slot, gamesByTeam[pl.team]), tie: pl.avg?.[STAT[slot] - 1] || 0 }));
+      : Object.values(players).filter(pl => eligible(pl, slot)).map(pl => ({ id: pl.id, proj: projection(pl, slot, gamesByTeam[pl.team]), tie: pl.avg?.[INFO[slot].avg] || 0 }));
     const best = pool
       .filter(c => !used.has(c.id) && !blockedReason(league, userId, slot, c.id))
       .sort((a, b) => b.proj - a.proj || b.tie - a.tie || a.id - b.id)[0];

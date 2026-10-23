@@ -96,6 +96,10 @@ h1, h2, h3, h4 { text-wrap: balance; }
 .brand-text small::after { margin-left: -.2em; }
 .brand-text small::before, .brand-text small::after { min-width: 10px; }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.league-switch { flex: none; display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(255, 255, 255, .05); border: 1px solid var(--line); }
+.league-switch a { padding: 6px 10px; border-radius: 999px; font: 600 12px/1 var(--body); color: var(--soft); text-decoration: none; white-space: nowrap; }
+.league-switch a:hover { color: #fff; background: rgba(255, 255, 255, .06); }
+.league-switch a[aria-current="page"] { color: #fff; background: rgba(255, 255, 255, .14); }
 .me-chip {
   display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; border-radius: 999px;
   border: 1px solid var(--line-2); background: var(--panel); font-weight: 500; font-size: 13.5px; transition: background .15s, border-color .15s;
@@ -908,6 +912,7 @@ body.pk-open { overflow: hidden; }
   .brand-text small::before, .brand-text small::after { min-width: 6px; }
   .brand-rule { height: 27px; }
   .brand { gap: 9px; }
+  .league-switch a { padding: 5px 7px; font-size: 11px; }
   .brand-mark { width: 22px; height: 34px; }
   .me-chip .nm { display: none; }
   .me-chip { padding: 3px; }

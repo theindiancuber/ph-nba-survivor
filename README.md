@@ -1,4 +1,9 @@
-# Peakhill NBA Survivor
+# Peakhill Survivor Leagues
+
+One site, two leagues: **NBA Survivor** at the root and **NHL Survivor** at `nhl/` (see [The NHL league](#the-nhl-league)). Each league has its own Supabase project, sign-up, standings and data. The switch at the top of the page moves between them.
+
+## Peakhill NBA Survivor
+
 
 A free, season-long NBA player-survivor league for the office. Every week you pick a scorer (**Bucket**), a rebounder (**Glass**), a passer (**Dime**) and a team to win (**Dub**). Each pick scores its weekly total. Once you use a player or team in a category, it's burned in that category for the season. You score 1 point for every colleague your pick beats, keep 3 lives on the survivor ladder, and play two Jokers plus a deck of collectible Joker cards (jinxes, traps, duels, heists, Blue Shells and pranks) that you pull from packs. Champions get a downloadable certificate. Rules and design notes are in [CONCEPT.md](CONCEPT.md).
 
@@ -10,7 +15,7 @@ A free, season-long NBA player-survivor league for the office. Every week you pi
 | `src/league.js` | The rules engine: burns, backups, rank scoring, card effects, lives, drops, Monthly Crowns, awards, head-to-head, Autopilot. Shared by the app and the data script. |
 | `src/cards.js` | The Joker card deck, pack odds, seeded pack dealing, and the hand/trap/attack bookkeeping the engine uses. |
 | `src/pack.js` | Card faces, foil packs and the pack-opening animation (swipe to tear, rarity tell, walkout, flip, keep one and burn the rest). |
-| `src/config.js` | League settings: name, commissioner, bars, calendar, Supabase keys. |
+| `src/config.js` | League settings for each sport: name, commissioner, slots, bars, calendar, Supabase keys. A page picks its league with `<html data-sport="nhl">`; the data job and tests with `PHS_SPORT=nhl`. |
 | `supabase/schema.sql` | Accounts, picks, jokers and card plays, with row-level security. You can only write your own picks, only before the lock, and nobody can see anyone else's picks or cards until the lock. |
 | `supabase/harden.sql` | Locks the API down: nothing is readable signed out, the invite code can't be guessed over the API, and the server sets join dates and save times. Run it last, after the other SQL files. |
 | `scripts/update-data.mjs` + `.github/workflows/update-data.yml` | Asks to run every 30 minutes (GitHub drops many scheduled runs), and each run that starts keeps refreshing every 8 minutes while games are on, for up to ~5.5 hours: pulls the NBA schedule and box scores into `data/`, moves each week's lock to the real first tip-off, and runs Autopilot for empty slots after the lock. |
@@ -25,11 +30,43 @@ A free, season-long NBA player-survivor league for the office. Every week you pi
 2. **Add two repository secrets** (GitHub → Settings → Secrets and variables → Actions):
    - `SUPABASE_URL`: the Project URL
    - `SUPABASE_SERVICE_ROLE_KEY`: the **service_role** key from the same page. Keep it out of `config.js`: it bypasses all security and is only used by the data job.
-3. **Merge to `main`**, then Actions → "Update NBA data" → **Run workflow** once. It should commit `data/weeks.json`, `players.json`, `totals.json`, `schedule.json` (the Calendar tab), day-by-day lines under `data/days/` and box scores under `data/games/`. After that it runs on its own.
+3. **Merge to `main`**, then Actions → "Update league data" → **Run workflow** once. It should commit `data/weeks.json`, `players.json`, `totals.json`, `schedule.json` (the Calendar tab), day-by-day lines under `data/days/` and box scores under `data/games/`. After that it runs on its own.
 4. **Host it.** The repo is private, and GitHub Pages on a private repo needs a paid plan. Pick one:
    - Make the repo public and turn on Pages (Settings → Pages → Deploy from branch → `main` / root). Nothing in the repo is secret: the anon key is meant to be public, and the service key lives in Actions secrets.
    - Or connect the repo to Netlify. Leave the build command empty and set the publish directory to `/`. It redeploys whenever the data job commits data.
 5. **Share the link.** Picks for week 1 lock at the first tip-off on Tuesday, Oct 20.
+
+## The NHL league
+
+Peakhill NHL Survivor runs on the same site at `nhl/`, from the same code (`nhl/index.html` sets `data-sport="nhl"`). The rules are on its Rules tab.
+
+| Piece | What it does |
+|---|---|
+| `src/config.js` (`NHL`), `src/teams.js` | The four ranked slots (points, plus-minus, save percentage, team wins), the Gloves Off fight bonus, the bars, the calendar (Oct 26 – Apr 11, week 1 a double week) and the NHL project's Supabase keys. |
+| `src/league.js` | The hockey rules: plus-minus can go negative and a pick who never played ranks last; a goalie counts once he's faced 20 shots; goalies can be used twice in The Wall; Gloves Off scores +5 a fight (2 max) and burns only when he fights; the Gordie Howe hat trick adds +5. |
+| `scripts/update-nhl.mjs` | The NHL data job: schedule, box scores, fights (fighting majors from the play-by-play) and rosters from the NHL's public feed (`api-web.nhle.com`) into `nhl/data/`, then lock sync and Autopilot in the NHL project. The same workflow runs it right after the NBA job, and both commit together. |
+| `supabase/nhl/setup.sql` | The NHL project's whole database in one file, built from the NBA SQL files by `PHS_SPORT=nhl node scripts/nhl-sql.mjs`. Rebuild it after changing any file in `supabase/` (a test fails if it's stale). |
+| `src/demo-nhl.js` | The NHL demo league (`nhl/?demo`). |
+
+Not in the NHL league yet: the card game (`cards.startWeek` is `Infinity` until its hockey rules are in), the Calendar tab and the nightly recap (they need day-by-day lines the NHL job doesn't write yet).
+
+**Setting it up** (the Supabase project already exists):
+
+1. Supabase → the NHL project → SQL Editor → paste all of `supabase/nhl/setup.sql` → Run.
+2. Set the invite code (or set it later from the Commissioner tab):
+   ```sql
+   update public.league_settings set invite_code = 'YOURCODE' where id;
+   ```
+3. Authentication → Sign In / Providers → Email: turn **off** "Confirm email".
+4. GitHub → Settings → Secrets and variables → Actions: add `SUPABASE_URL_NHL` (the NHL Project URL) and `SUPABASE_SERVICE_ROLE_KEY_NHL` (that project's service_role key).
+5. Merge, then Actions → "Update league data" → **Run workflow** once. It fills `nhl/data/` (the first run fetches the season so far, a few minutes).
+6. Sign up at `…/nhl/` with the invite code, then make yourself commissioner in the NHL project's SQL editor:
+   ```sql
+   insert into public.admins (user_id)
+   select id from public.profiles where display_name = 'Your display name'
+   on conflict do nothing;
+   ```
+7. Share `…/nhl/?invite=YOURCODE`.
 
 ## Commissioner tab
 

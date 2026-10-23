@@ -7,7 +7,7 @@ on:
   pull_request:
   push:
     branches: [main]
-    paths-ignore: ['data/**']
+    paths-ignore: ['data/**', 'nhl/data/**']
   workflow_dispatch:
 
 permissions:

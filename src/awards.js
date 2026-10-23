@@ -13,7 +13,7 @@ function personStats(L) {
   const stats = {};
   for (const u of Object.values(L.users)) {
     stats[u.id] = {
-      id: u.id, weeks: 0, scores: [], raw: Object.fromEntries(SLOTS.map(s => [s, 0])),
+      id: u.id, weeks: 0, scores: [], raw: Object.fromEntries(SLOTS.map(s => [s, 0])), counted: Object.fromEntries(SLOTS.map(s => [s, 0])),
       weeksWon: 0, topPicks: 0, bars: 0, fumbles: 0, saves: 0, autos: 0, iceCold: 0,
       ownSum: 0, ownN: 0, ddPoints: null, bestPick: null,
     };
@@ -36,13 +36,14 @@ function personStats(L) {
         const x = r.slots[s];
         if (x.missing) continue;
         p.raw[s] += x.value;
+        if (x.scorer != null) p.counted[s]++;
         if (x.value > 0 && x.value === topValue[s] && ids.length > 1) p.topPicks++;
         if (x.fumble) p.fumbles++;
         if (x.usedAlt) p.saves++;
         if (x.auto) p.autos++;
         if (x.dd && (p.ddPoints == null || x.rank > p.ddPoints.rank)) p.ddPoints = { rank: x.rank, slot: s, week: w.week, pid: x.scorer, value: x.value };
         if (ids.length > 1 && x.scorer != null) { p.ownSum += (x.owned - 1) / (ids.length - 1); p.ownN++; }
-        if (s !== 'WIN' && x.scorer != null) {
+        if (s !== 'WIN' && !INFO[s].signed && !INFO[s].pct && x.scorer != null) {
           const ratio = x.value / LEAGUE.bars[s];
           if (!p.bestPick || ratio > p.bestPick.ratio) p.bestPick = { ratio, slot: s, week: w.week, pid: x.scorer, value: x.value };
         }
@@ -100,16 +101,23 @@ export function seasonAwards(L, pname = id => `#${id}`) {
     REB: ['Rebounding Champion', 'Most rebounds from Glass picks across the season.'],
     AST: ['Assists Champion', 'Most assists from Dime picks across the season.'],
     WIN: ['Dub Champion', 'Most team wins from Dub picks across the season.'],
+    ...(LEAGUE.sport === 'nhl' ? {
+      PTS: ['Lamplighter Champion', 'Most points from Lamplighter picks across the season.'],
+      PM: ['Shutdown Champion', 'Best plus-minus from Shutdown picks across the season.'],
+      SV: ['Brick Wall Champion', 'Best average save percentage from Wall picks across the season (at least 5 weeks).'],
+    } : {}),
   };
+  // Save percentage doesn't add up over weeks: rank by the average instead.
+  const catValue = s => INFO[s].pct ? p => p.counted[s] >= 5 ? Math.round(p.raw[s] / p.counted[s]) : null : p => p.raw[s];
   // The standings from raw picks alone, as if the card game never happened.
   const pureRanked = L.rawStandings.filter(u => Object.keys(u.weekly).length).map(u => ({ id: u.id, v: u.raw.counted }));
   const pure = award(
-    { key: 'pure', icon: '🕊️', title: 'Pure Hoops Champion', kind: 'champion', how: 'Top of the standings from your picks alone, with no Joker cards at all.' },
+    { key: 'pure', icon: '🕊️', title: `${LEAGUE.words.pure} Champion`, kind: 'champion', how: 'Top of the standings from your picks alone, with no Joker cards at all.' },
     pureRanked, x => `${fmt(x.v)} points from raw picks`,
   );
   const titles = [pure, belt, ...SLOTS.map(s => award(
     { key: `cat-${s}`, icon: INFO[s].emoji, title: catTitles[s][0], kind: 'champion', how: catTitles[s][1] },
-    rank(L, stats, p => p.raw[s], { min: 0 }), x => `${unit(s, x.v)} from ${INFO[s].name} picks`,
+    rank(L, stats, catValue(s), { min: INFO[s].signed ? -Infinity : 0 }), x => `${INFO[s].pct ? `${unit(s, x.v)} on average` : unit(s, x.v)} from ${INFO[s].name} picks`,
   ))];
 
   // ---- Monthly crowns ----

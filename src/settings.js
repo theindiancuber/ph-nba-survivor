@@ -6,7 +6,7 @@
 //  - 'meta': season-wide values (lives, drops, decrees, the commissioner's name, an announcement).
 // The engine reads LEAGUE, so these are applied by updating LEAGUE in place before each week is scored.
 
-import { LEAGUE } from './config.js';
+import { LEAGUE, slotValue } from './config.js';
 
 const clone = x => JSON.parse(JSON.stringify(x));
 
@@ -22,7 +22,7 @@ export const DEFAULTS = clone(BASE);
 
 // Allowed ranges, used by the form and to ignore bad stored values.
 export const LIMITS = {
-  'bars.PTS': [0, 400], 'bars.REB': [0, 150], 'bars.AST': [0, 120], 'bars.WIN': [0, 8],
+  ...Object.fromEntries(LEAGUE.slots.map(s => [`bars.${s}`, LEAGUE.slotInfo[s].barRange])),
   barsToSurvive: [0, LEAGUE.slots.length],
   'cards.handLimit': [1, 10], 'cards.attackCap': [0, 10], 'cards.duelStake': [0, 50], 'cards.heist': [0, 50],
   lives: [1, 10], 'drops.max': [0, 10], 'drops.every': [1, 23],
@@ -49,7 +49,7 @@ function mergeNumbers(target, patch, paths) {
   return target;
 }
 
-export const WEEK_PATHS = ['bars.PTS', 'bars.REB', 'bars.AST', 'bars.WIN', 'barsToSurvive', 'cards.handLimit', 'cards.attackCap', 'cards.duelStake', 'cards.heist'];
+export const WEEK_PATHS = [...LEAGUE.slots.map(s => `bars.${s}`), 'barsToSurvive', 'cards.handLimit', 'cards.attackCap', 'cards.duelStake', 'cards.heist'];
 export const SEASON_PATHS = ['lives', 'drops.max', 'drops.every', 'decree.perSeason', 'decree.bounty'];
 
 // The per-week rules in force for a week: config.js, then every change from that week or earlier, in order.
@@ -81,7 +81,7 @@ export function applySeasonRules(r) {
 // What a rule change changes, in words, for the Rules tab and the Commissioner tab.
 export function describeChange(ch, slotInfo = LEAGUE.slotInfo) {
   const out = [];
-  for (const s of LEAGUE.slots) if (ch.bars?.[s] != null) out.push(`${slotInfo[s].name} bar ${ch.bars[s]} ${slotInfo[s].short}`);
+  for (const s of LEAGUE.slots) if (ch.bars?.[s] != null) out.push(`${slotInfo[s].name} bar ${slotValue(s, ch.bars[s])} ${slotInfo[s].short}`);
   if (ch.barsToSurvive != null) out.push(`clear ${ch.barsToSurvive} of ${LEAGUE.slots.length} bars`);
   const c = ch.cards || {};
   if (c.handLimit != null) out.push(`hand limit ${c.handLimit}`);

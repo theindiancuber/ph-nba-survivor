@@ -1,6 +1,15 @@
 // League settings. Shared by the browser app and the data script (Node).
+//
+// One site runs several leagues (Peakhill Survivor Leagues). Each page says which one it is:
+// <html data-sport="nhl"> on nhl/index.html; the root page is the NBA league. The data job and
+// the tests pick one with PHS_SPORT=nhl. Every league has its own Supabase project.
+export const SPORT = (typeof document !== 'undefined' && document.documentElement?.dataset?.sport)
+  || (typeof process !== 'undefined' && process.env?.PHS_SPORT) || 'nba';
 
-export const LEAGUE = {
+export const SITE = 'Peakhill Survivor Leagues';
+
+const NBA = {
+  sport: 'nba', short: 'NBA', emoji: '🏀',
   name: 'Peakhill NBA Survivor',
   season: '2026-27',
   commissioner: 'The Commissioner',
@@ -12,14 +21,20 @@ export const LEAGUE = {
   supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pb3RjYnZhZndkZHltcWtzbHl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5OTEwMjAsImV4cCI6MjEwNzU2NzAyMH0.dfRVbsAlto2GSnNr5V9VKstymrMc4DV9fAjc017jIys',
 
   // Three player categories plus one team category (WIN: the team's wins that week).
+  // pickSlots adds any bonus slot (outside the rankings and the bars) to the ranked slots.
   slots: ['PTS', 'REB', 'AST', 'WIN'],
   playerSlots: ['PTS', 'REB', 'AST'],
+  pickSlots: ['PTS', 'REB', 'AST', 'WIN'],
+  // idx: the stat's column in a weekly line (best game at idx + 3, worst at idx + 6); avg: its
+  // column in a player's season averages; barRange: what the Commissioner tab allows for its bar.
   slotInfo: {
-    PTS: { name: 'Bucket', stat: 'Points', short: 'PTS', emoji: '🏀' },
-    REB: { name: 'Glass', stat: 'Rebounds', short: 'REB', emoji: '🧱' },
-    AST: { name: 'Dime', stat: 'Assists', short: 'AST', emoji: '🎯' },
-    WIN: { name: 'Dub', stat: 'Team wins', short: 'W', emoji: '🏆', team: true },
+    PTS: { name: 'Bucket', stat: 'Points', short: 'PTS', emoji: '🏀', idx: 1, avg: 0, barRange: [0, 400] },
+    REB: { name: 'Glass', stat: 'Rebounds', short: 'REB', emoji: '🧱', idx: 2, avg: 1, barRange: [0, 150] },
+    AST: { name: 'Dime', stat: 'Assists', short: 'AST', emoji: '🎯', idx: 3, avg: 2, barRange: [0, 120] },
+    WIN: { name: 'Dub', stat: 'Team wins', short: 'W', emoji: '🏆', team: true, barRange: [0, 8] },
   },
+  // Words that differ between sports.
+  words: { start: 'tip-off', startShort: 'tip', surface: 'floor', source: 'box scores from NBA.com', sourceShort: 'NBA.com', pure: 'Pure Hoops' },
 
   // Survivor ladder: weekly totals, the same every week (double weeks included).
   // Clear 3 of the 4 bars to keep your lives.
@@ -42,6 +57,61 @@ export const LEAGUE = {
   decree: { perSeason: 3, noticeHours: 24, bounty: 5 },
 };
 
+const NHL = {
+  sport: 'nhl', short: 'NHL', emoji: '🏒',
+  name: 'Peakhill NHL Survivor',
+  season: '2026-27',
+  commissioner: 'The Commissioner',
+
+  // The NHL league's own Supabase project. Also in the Content-Security-Policy in nhl/index.html.
+  supabaseUrl: 'https://rvtgovnrpqvrtvjnjivd.supabase.co',
+  supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ2dGdvdm5ycHF2cnR2am5qaXZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI3NzQzODgsImV4cCI6MjEwODM1MDM4OH0.cI8e6qGJipN8KKUJb_c9uUMwOXrzJiDVjflguL-IlKE',
+
+  // Four ranked slots, plus Gloves Off: a fight bonus that isn't ranked and doesn't count for the bars.
+  // pos: who can be picked ('skater' or 'G'). signed: the total can go below zero, and a pick who
+  // plays no games ranks last. pct: a save percentage in thousandths (915 = .915). burns: how many
+  // times a player can be used in the slot in a season.
+  slots: ['PTS', 'PM', 'SV', 'WIN'],
+  playerSlots: ['PTS', 'PM', 'SV'],
+  pickSlots: ['PTS', 'PM', 'SV', 'WIN', 'FIGHT'],
+  slotInfo: {
+    PTS: { name: 'Lamplighter', stat: 'Points', short: 'PTS', emoji: '🚨', idx: 1, avg: 0, pos: 'skater', barRange: [0, 30] },
+    PM: { name: 'Shutdown', stat: 'Plus-minus', short: '+/-', emoji: '🛡️', idx: 2, avg: 1, pos: 'skater', signed: true, barRange: [-10, 20] },
+    SV: { name: 'The Wall', stat: 'Save percentage', short: 'SV%', emoji: '🥅', idx: 3, avg: 2, pos: 'G', pct: true, burns: 2, barRange: [0, 1000] },
+    WIN: { name: 'Dub', stat: 'Team wins', short: 'W', emoji: '🏆', team: true, barRange: [0, 8] },
+    FIGHT: { name: 'Gloves Off', stat: 'Fights', short: 'fights', emoji: '🥊', avg: 3, pos: 'skater', bonus: true },
+  },
+  words: { start: 'puck drop', startShort: 'puck drop', surface: 'ice', source: 'stats from NHL.com', sourceShort: 'NHL.com', pure: 'Pure Hockey' },
+
+  // A goalie's week counts only once he's faced this many shots (starts and relief added together).
+  // Weekly line columns past the team (10): shots against, fights, goals, Gordie Howe hat tricks.
+  minShots: 20,
+  line: { shots: 11, fights: 12, goals: 13, gordie: 14 },
+  // Gloves Off: points per fight, fights counted a week. Gordie Howe hat trick: a goal, an assist
+  // and a fight in one game by any of your skater picks.
+  fight: { points: 5, max: 2 },
+  gordieHowe: 5,
+
+  bars: { PTS: 3, PM: 1, SV: 900, WIN: 2 },
+  barsToSurvive: 3,
+  lives: 3,
+  drops: { max: 3, every: 6 },
+  // The card game is off until its hockey rules are in (planned for week 2): startWeek is the
+  // first week packs are dealt, and Infinity keeps the Cards tab and every card feature hidden.
+  cards: { startWeek: Infinity, handLimit: 4, attackCap: 2, duelStake: 5, heist: 3, embargoHours: 24, swapsThroughWeek: 0, oddsFrom: 3 },
+  decree: { perSeason: 3, noticeHours: 24, bounty: 5 },
+};
+
+export const LEAGUE = SPORT === 'nhl' ? NHL : NBA;
+
+// Formats a slot's total: +2 for plus-minus, .915 for a save percentage.
+export function slotValue(slot, v) {
+  const info = LEAGUE.slotInfo[slot];
+  if (info?.pct) return v >= 1000 ? '1.000' : `.${String(Math.max(0, Math.round(v))).padStart(3, '0')}`;
+  if (info?.signed) return v > 0 ? `+${v}` : v < 0 ? `−${-v}` : '0';
+  return String(v);
+}
+
 // Weeks run Monday–Sunday on US Eastern dates. Week 1 and the All-Star week
 // span two calendar weeks (mult 2); the survivor bars stay the same.
 export function addDays(iso, n) {
@@ -51,6 +121,7 @@ export function addDays(iso, n) {
 }
 
 export function buildWeeks() {
+  if (SPORT === 'nhl') return nhlWeeks();
   const weeks = [{ week: 1, start: '2026-10-20', end: '2026-11-01', mult: 2 }];
   let start = '2026-11-02';
   for (let w = 2; w <= 16; w++) {
@@ -60,6 +131,18 @@ export function buildWeeks() {
   weeks.push({ week: 17, start: '2027-02-15', end: '2027-02-28', mult: 2 });
   start = '2027-03-01';
   for (let w = 18; w <= 23; w++) {
+    weeks.push({ week: w, start, end: addDays(start, 6), mult: 1 });
+    start = addDays(start, 7);
+  }
+  return weeks;
+}
+
+// NHL: the league starts Mon Oct 26, 2026 with a double week (to Nov 8) while people sign up,
+// then runs Monday to Sunday until the regular season ends (Sat Apr 10, 2027).
+function nhlWeeks() {
+  const weeks = [{ week: 1, start: '2026-10-26', end: '2026-11-08', mult: 2 }];
+  let start = '2026-11-09';
+  for (let w = 2; w <= 23; w++) {
     weeks.push({ week: w, start, end: addDays(start, 6), mult: 1 });
     start = addDays(start, 7);
   }
