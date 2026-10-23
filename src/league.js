@@ -150,7 +150,10 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
         const p = wp[id][slot];
         if (!p) { rs[slot] = { value: 0, gp: 0, missing: true }; continue; }
         const x = scorePick(totals, W, slot, status, p, okRaw(slot), usedRaw);
-        rs[slot] = { scorer: x.scorer, value: x.value, gp: x.line[0], pending: x.pending, dd: !!slots[slot].dd };
+        rs[slot] = {
+          pid: p.player_id, scorer: x.scorer, value: x.value, gp: x.line[0], pending: x.pending, dd: !!slots[slot].dd, auto: !!p.auto,
+          usedAlt: x.scorer != null && x.scorer === p.alt_id && x.scorer !== p.player_id,
+        };
       }
       raw[id] = { slots: rs, adj: [] };
     }
@@ -219,6 +222,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       r.score = SLOTS.reduce((a, s) => a + r.slots[s].rank, 0) + r.adj.reduce((a, x) => a + x.pts, 0);
       const rr = raw[id];
       rr.score = SLOTS.reduce((a, s) => a + rr.slots[s].rank, 0) + rr.adj.reduce((a, x) => a + x.pts, 0);
+      rr.cleared = SLOTS.filter(s => rr.slots[s].value >= LEAGUE.bars[s]).length;
       u.raw.weekly[W] = rr.score;
       // The Survivor Belt ignores cards: bars are checked against your own picks' real totals.
       r.cleared = SLOTS.filter(s => r.slots[s].base >= LEAGUE.bars[s]).length;

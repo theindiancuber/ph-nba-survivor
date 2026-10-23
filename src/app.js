@@ -1696,95 +1696,74 @@ function resultsMineStrip(w) {
   const id = myId();
   if (!id || !w.results[id]) return '';
   const r = w.results[id];
-  const rank = [...w.entrants].sort((a, b) => w.results[b].score - w.results[a].score).findIndex(x => x === id) + 1;
+  const raw = resultsRaw(), R = raw ? w.raw : w.results;
+  const rank = [...w.entrants].sort((a, b) => R[b].score - R[a].score).findIndex(x => x === id) + 1;
   const hits = (w.cards?.plays || []).filter(p => p.ok && p.target_id === id && !['_keep', '_reply'].includes(p.card));
   const hitTxt = hits.length
     ? hits.slice(0, 4).map(p => `${CARDS[p.card]?.icon || '🎴'} ${CARDS[p.card]?.name || p.card}${p.user_id ? ` · ${userName(p.user_id)}` : ''}`).join(' · ')
     : 'Nothing landed on you';
   return `<div class="results-mine">
-    <div class="stat"><b>#${rank}</b><small>Your place</small></div>
-    <div class="stat"><b class="num">${fmt(r.score)}</b><small>Your points</small></div>
-    <div class="stat"><b>${r.cleared}/${SLOTS.length}</b><small>Bars cleared</small></div>
+    <div class="stat"><b>#${rank}</b><small>${raw ? 'Raw place' : 'Your place'}</small></div>
+    <div class="stat"><b class="num">${fmt(R[id].score)}</b><small>${raw ? 'Raw points' : 'Your points'}</small></div>
+    <div class="stat"><b>${R[id].cleared}/${SLOTS.length}</b><small>Bars cleared</small></div>
     <div class="stat"><b>${w.status === 'final' ? (r.survived ? '✓' : 'Lost a life') : '…'}</b><small>Survivor</small></div>
     <div class="results-mine-hits"><small class="kicker">Cards that hit you</small><div>${esc(hitTxt)}</div></div>
   </div>`;
 }
 
-// Results filters: a search over colleagues and their picks, one category at a time, sorting and the bars.
-function rf() { return (S.rf ||= { q: '', show: 'all', sort: 'score', dir: -1, bars: 'any' }); }
-const RF_BARS = {
-  any: () => true,
-  all: r => r.cleared === SLOTS.length,
-  safe: r => r.survived,
-  short: r => !r.survived,
-};
-function resultsSortValue(r, key) {
+// Results sorting: tap a column heading to sort by it, tap again to flip it.
+function rsort() { return (S.rsort ||= { key: 'score', dir: -1 }); }
+function resultsSortValue(id, r, key) {
+  if (key === 'name') return userName(id).toLowerCase();
   if (key === 'score') return r.score;
   if (key === 'bars') return r.cleared;
   const x = r.slots[key];
   return x.missing ? -Infinity : x.value;
 }
 
+// Raw picks: the week as it would have been with no Joker cards (week.raw from the engine).
+const resultsRaw = () => S.resultsMode === 'raw';
+
 function resultsRows(w) {
-  const F = rf();
-  const q = norm(F.q.trim());
-  const cols = F.show === 'all' ? SLOTS : [F.show];
-  const byScore = [...w.entrants].sort((a, b) => w.results[b].score - w.results[a].score);
-  // The place is always the real one for the week, whatever the table is sorted or filtered by.
+  const { key, dir } = rsort();
+  const raw = resultsRaw();
+  const R = raw ? w.raw : w.results;
+  const byScore = [...w.entrants].sort((a, b) => R[b].score - R[a].score);
+  // The place is the week's place (actual or raw), whatever the table is sorted by.
   const place = {};
-  byScore.forEach((id, i) => { place[id] = i > 0 && w.results[byScore[i - 1]].score === w.results[id].score ? place[byScore[i - 1]] : i + 1; });
-  const names = id => {
-    const r = w.results[id];
-    const pids = SLOTS.flatMap(s => { const x = r.slots[s]; return [x.pid, x.alt, x.scorer, x.copyPid]; }).filter(x => x != null);
-    return [userName(id), ...pids.map(pname)].map(norm);
+  byScore.forEach((id, i) => { place[id] = i > 0 && R[byScore[i - 1]].score === R[id].score ? place[byScore[i - 1]] : i + 1; });
+  const cmp = (a, b) => {
+    const x = resultsSortValue(a, R[a], key), y = resultsSortValue(b, R[b], key);
+    return dir * (x < y ? -1 : x > y ? 1 : 0) || place[a] - place[b];
   };
-  const ids = byScore
-    .filter(id => RF_BARS[F.bars](w.results[id]))
-    .filter(id => !q || names(id).some(n => n.includes(q)))
-    .sort((a, b) => F.dir * (resultsSortValue(w.results[a], F.sort) - resultsSortValue(w.results[b], F.sort)) || place[a] - place[b]);
-  if (!ids.length) return { count: 0, html: `<tr><td colspan="${cols.length + 4}" class="dim" style="text-align:center;padding:22px">Nobody matches these filters.</td></tr>` };
-  const html = ids.map(id => {
-    const r = w.results[id];
+  return [...byScore].sort(cmp).map(id => {
+    const r = R[id];
     const rank = place[id];
-    const cells = cols.map(s => {
+    const cells = SLOTS.map(s => {
       const x = r.slots[s];
       if (x.missing) return '<td><span class="dim">—</span></td>';
+      if (raw) {
+        const pid = x.scorer ?? x.pid;
+        return `<td><div class="cell-pick">${thumb(pid, 'sm')}<div><div class="v" style="color:${x.value >= LEAGUE.bars[s] ? 'var(--text)' : 'var(--muted)'}">${x.value}${x.dd ? ' 🔥' : ''}</div><div class="n">${esc(shortName(pid))}${x.usedAlt ? ' (B)' : ''}${x.auto ? ' · auto' : ''}</div><div class="rp">+${fmt(x.rank)}</div></div></div></td>`;
+      }
       const pid = x.copy ? x.copyPid : x.scorer ?? x.pid;
       const bar = LEAGUE.bars[s];
       return `<td><div class="cell-pick">${thumb(pid, 'sm')}<div><div class="v" style="color:${x.base >= bar ? 'var(--text)' : 'var(--muted)'}">${x.value}${x.dd ? ' 🔥' : ''}${fxIcons(x)}</div><div class="n">${x.copy ? `🐱 ${esc(userName(x.copy))}'s` : esc(shortName(pid))}${x.usedAlt ? ' (B)' : ''}${x.auto ? ' · auto' : ''}</div><div class="rp">+${fmt(x.rank)}</div></div></div></td>`;
     }).join('');
-    const surv = w.status === 'final' ? (r.survived ? '<span class="trend-up">✓</span>' : '<span class="trend-down">✗ ❤️</span>') : `<span class="dim">${r.cleared}/${SLOTS.length}</span>`;
-    return `<tr class="${id === myId() ? 'me' : ''}"><td class="rank ${rank <= 3 ? 'top' : ''}">${rank}</td><td><div class="who">${avatar(id)}<div><b>${esc(userName(id))}</b>${decor(id, w.week)}</div></div></td>${cells}<td class="r"><span class="pts">${fmt(r.score)}</span>${adjChip(r)}</td><td class="c">${surv}</td></tr>`;
+    const surv = w.status === 'final' && !raw ? (r.survived ? '<span class="trend-up">✓</span>' : '<span class="trend-down">✗ ❤️</span>') : `<span class="dim">${r.cleared}/${SLOTS.length}</span>`;
+    const diff = raw ? r.score - w.results[id].score : 0;
+    const vsReal = diff ? `<div class="vs-real ${diff > 0 ? 'trend-up' : 'trend-down'}" title="Against the actual ${fmt(w.results[id].score)}">${signed(diff)} vs actual</div>` : '';
+    return `<tr class="${id === myId() ? 'me' : ''}"><td class="rank ${rank <= 3 ? 'top' : ''}">${rank}</td><td><div class="who">${avatar(id)}<div><b>${esc(userName(id))}</b>${raw ? '' : decor(id, w.week)}</div></div></td>${cells}<td class="r"><span class="pts">${fmt(r.score)}</span>${adjChip(r)}${vsReal}</td><td class="c">${surv}</td></tr>`;
   }).join('');
-  return { count: ids.length, html };
-}
-
-function resultsCount(w, n) {
-  const all = w.entrants.length;
-  return n === all ? `${all} entr${all === 1 ? 'y' : 'ies'}` : `Showing ${n} of ${all}`;
-}
-
-function resultsFilters(w) {
-  const F = rf();
-  const active = F.q || F.show !== 'all' || F.sort !== 'score' || F.bars !== 'any';
-  const shows = [['all', 'All'], ...SLOTS.map(s => [s, `${INFO[s].emoji} ${INFO[s].name}`])];
-  const bars = [['any', 'Any'], ['all', `All ${SLOTS.length}`], ['safe', w.status === 'final' ? 'Survived' : `${LEAGUE.barsToSurvive}+ cleared`], ['short', w.status === 'final' ? 'Lost a life' : `Under ${LEAGUE.barsToSurvive}`]];
-  return `<div class="results-filters">
-    <input class="input" type="search" placeholder="Search a colleague or a player" aria-label="Search the results" data-input="results-q" value="${esc(F.q)}" autocomplete="off">
-    <div class="rf-group"><span class="kicker">Show</span><div class="pills">${shows.map(([k, label]) => `<button class="pill" data-act="results-show" data-key="${k}" aria-pressed="${F.show === k}">${label}</button>`).join('')}</div></div>
-    <div class="rf-group"><span class="kicker">Bars</span><div class="pills">${bars.map(([k, label]) => `<button class="pill" data-act="results-bars" data-key="${k}" aria-pressed="${F.bars === k}">${label}</button>`).join('')}</div></div>
-    ${active ? '<button class="link" data-act="results-clear">Clear filters</button>' : ''}
-  </div>`;
 }
 
 function resultsHead() {
-  const F = rf();
-  const cols = F.show === 'all' ? SLOTS : [F.show];
+  const { key: on, dir } = rsort();
   const th = (key, label, cls = '') => {
-    const on = F.sort === key;
-    return `<th class="${cls}"><button class="th-sort ${on ? 'on' : ''}" data-act="results-sort" data-key="${key}" aria-label="Sort by ${esc(label)}">${label}${on ? (F.dir < 0 ? ' ▼' : ' ▲') : ''}</button></th>`;
+    const sort = on === key ? (dir < 0 ? 'descending' : 'ascending') : 'none';
+    return `<th class="${cls}" aria-sort="${sort}"><button class="th-sort" data-act="results-sort" data-key="${key}" title="Sort by ${esc(label)}">${label}<span class="sort-ico" aria-hidden="true"><i class="${sort === 'ascending' ? 'on' : ''}">▲</i><i class="${sort === 'descending' ? 'on' : ''}">▼</i></span></button></th>`;
   };
-  return `<tr><th>#</th><th>Player</th>${cols.map(s => th(s, `${INFO[s].emoji} ${INFO[s].name}`)).join('')}${th('score', 'Pts', 'r')}${th('bars', 'Bars', 'c')}</tr>`;
+  return `<tr><th>#</th>${th('name', 'Player')}${SLOTS.map(s => th(s, `${INFO[s].emoji} ${INFO[s].name}`)).join('')}${th('score', 'Pts', 'r')}${th('bars', 'Bars', 'c')}</tr>`;
 }
 
 function viewResults() {
@@ -1792,7 +1771,6 @@ function viewResults() {
   if (!weeks.length) return `<section class="panel empty-state"><div class="ic">🔒</div><b>Nothing to show yet.</b><p>Everyone's picks are revealed when Week 1 locks.</p></section>`;
   const w = resultsWeekObj();
   const recent = weeks.slice(-8);
-  const body = resultsRows(w);
   return `<div class="grid">
     <section class="panel">
       <div class="panel-title"><h2>Week ${w.week} ${w.status === 'live' ? '<span class="badge live">Live</span>' : '<span class="badge final">Final</span>'}</h2>
@@ -1803,13 +1781,15 @@ function viewResults() {
             </select></label>
           <div class="pills">${recent.map(x => `<button class="pill ${x.status === 'live' ? 'live' : ''}" data-act="results-week" data-week="${x.week}" aria-pressed="${x.week === w.week}">Wk ${x.week}</button>`).join('')}</div>
         </div></div>
+      <div class="results-mode"><div class="pills" role="group" aria-label="Results view">
+        <button class="pill" data-act="results-mode" data-mode="real" aria-pressed="${!resultsRaw()}">Actual</button>
+        <button class="pill" data-act="results-mode" data-mode="raw" aria-pressed="${resultsRaw()}">🕊️ Raw picks</button></div>
+        ${resultsRaw() ? '<span class="muted">The week from everyone\'s picks alone, as if no Joker card had been played. Places, totals and points are all worked out again.</span>' : ''}</div>
       ${resultsMineStrip(w)}
       ${weekAdjustments(w.week)}
       ${w.decree ? `<div class="decree slim"><span>📜 Decree: <b>${w.decree.icon} ${esc(w.decree.title)}</b></span> <span class="dim">${esc(w.decree.text)}</span></div>` : ''}
-      <p class="muted" style="margin:-6px 0 12px;font-size:13px">${weekRange(w)} · bars ${SLOTS.map(s => `${LEAGUE.bars[s]} ${INFO[s].short}`).join(' / ')} · (B) backup scored · 🔥 Double Down · card icons show what hit a pick (hover for who)</p>
-      ${resultsFilters(w)}
-      <p class="muted" id="results-count" style="margin:0 0 8px;font-size:12.5px">${resultsCount(w, body.count)} · tap a column to sort</p>
-      <div class="table-wrap"><table class="board"><thead>${resultsHead()}</thead><tbody id="results-body">${body.html}</tbody></table></div>
+      <p class="muted" style="margin:-6px 0 12px;font-size:13px">${weekRange(w)} · bars ${SLOTS.map(s => `${LEAGUE.bars[s]} ${INFO[s].short}`).join(' / ')} · (B) backup scored · 🔥 Double Down${resultsRaw() ? '' : ' · card icons show what hit a pick (hover for who)'}</p>
+      <div class="table-wrap"><table class="board"><thead>${resultsHead()}</thead><tbody>${resultsRows(w)}</tbody></table></div>
     </section>
     ${cardTablePanel(w)}
     ${ownershipPanel(w)}
@@ -3074,11 +3054,9 @@ const ACTIONS = {
   'unburn-undo': async () => { try { await S.backend.setUnburn(null); toast('Un-burn returned to your hand.'); } catch (e) { toast(e.message, true); } await refresh(); },
   'results-week': el => { S.resultsWeek = +el.dataset.week; render(); },
   'standings-mode': el => { S.standingsMode = el.dataset.mode; render(); },
-  // Showing one category sorts by it too; All goes back to the week's order.
-  'results-show': el => { const F = rf(), k = el.dataset.key; F.show = k; F.sort = k === 'all' ? 'score' : k; F.dir = -1; render(); },
-  'results-bars': el => { rf().bars = el.dataset.key; render(); },
-  'results-sort': el => { const F = rf(), k = el.dataset.key; F.dir = F.sort === k ? -F.dir : -1; F.sort = k; render(); },
-  'results-clear': () => { S.rf = null; render(); },
+  // A new column sorts high to low (names A to Z); tapping it again flips it.
+  'results-mode': el => { S.resultsMode = el.dataset.mode; render(); },
+  'results-sort': el => { const R = rsort(), k = el.dataset.key; R.dir = R.key === k ? -R.dir : k === 'name' ? 1 : -1; R.key = k; render(); },
   'cal-week': el => { if (el.dataset.week) { S.calWeek = +el.dataset.week; S.calDay = null; render(); } },
   'cal-mode': el => { S.calMode = el.dataset.mode; render(); },
   'cal-day': el => { S.calDay = el.dataset.day; render(); },
@@ -3361,14 +3339,6 @@ document.addEventListener('input', e => {
   if (e.target.dataset?.input === 'play-q' && S.play) {
     S.play.q = e.target.value;
     $('#play-list').innerHTML = playPlayerRows();
-  }
-  if (e.target.dataset?.input === 'results-q') {
-    const w = resultsWeekObj();
-    if (!w) return;
-    rf().q = e.target.value;
-    const body = resultsRows(w);
-    $('#results-body').innerHTML = body.html;
-    $('#results-count').innerHTML = `${resultsCount(w, body.count)} · tap a column to sort`;
   }
   if (e.target.dataset?.input === 'ledger') {
     S.ledgerQ = e.target.value;

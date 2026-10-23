@@ -452,7 +452,12 @@ test('raw picks: the standings as if no card was played, kept apart from the rea
   assert.equal(w2.results.b.slots.PTS.invalid, true); // Burn Notice
   assert.equal(w2.raw.b.slots.PTS.value, 50);
   assert.deepEqual(w1.raw.b.adj, []); // no leech
-  for (const w of [0, 1]) for (const id of ['a', 'b', 'c']) assert.equal(L.weeks[w].raw[id].score, L0.weeks[w].results[id].score, `${id} wk ${w + 1}`);
+  for (const w of [0, 1]) for (const id of ['a', 'b', 'c']) {
+    const rw = L.weeks[w].raw[id], real0 = L0.weeks[w].results[id];
+    assert.equal(rw.score, real0.score, `${id} wk ${w + 1}`);
+    assert.equal(rw.cleared, real0.cleared, `${id} wk ${w + 1} bars`);
+    for (const s of ['PTS', 'REB', 'AST']) if (!rw.slots[s].missing) assert.equal(rw.slots[s].pid, real0.slots[s].pid);
+  }
   for (const id of ['a', 'b', 'c']) {
     assert.equal(L.users[id].raw.counted, L0.users[id].counted, id);
     assert.equal(L.users[id].raw.rank, L0.users[id].rank, id);
