@@ -50,7 +50,7 @@ Peakhill NHL Survivor runs on the same site at `nhl/`, from the same code (`nhl/
 | `supabase/nhl/setup.sql` | The NHL league's whole database (the `nhl` schema) in one file, built from the NBA SQL files by `PHS_SPORT=nhl node scripts/nhl-sql.mjs`. Rebuild it after changing any file in `supabase/` (a test fails if it's stale). It ends with the shared sign-up check. |
 | `src/demo-nhl.js` | The NHL demo league (`nhl/?demo`). |
 
-Not in the NHL league yet: the card game (`cards.startWeek` is `Infinity` until its hockey rules are in) and the commissioner's nightly recap. The Calendar tab works as in the NBA league: the job writes `nhl/data/days/<week>.json` (each player's line for each day, in the weekly shape, so `totalsThrough` adds a week back up from its days).
+The card game runs from Week 1 as **hockey cards**: the same 17 cards under hockey names (`HOCKEY` in `src/cards.js`), with the rules following the slots (a Jinx doubles a minus and takes .020 off a save percentage, Healthy Scratch and Empty Netter work a goalie's save percentage out again without or with his best game, Extra Attacker only goes into a slot the player can play, Line Change only swaps Lamplighter and Shutdown). The card faces and packs get their own look under `html[data-sport="nhl"]` in `styles.css`. Not in the NHL league yet: the commissioner's nightly recap. The Calendar tab works as in the NBA league: the job writes `nhl/data/days/<week>.json` (each player's line for each day, in the weekly shape, so `totalsThrough` adds a week back up from its days).
 
 **Setting it up** (in the NBA league's Supabase project):
 

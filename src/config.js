@@ -99,9 +99,9 @@ const NHL = {
   barsToSurvive: 3,
   lives: 3,
   drops: { max: 3, every: 6 },
-  // The card game is off until its hockey rules are in: startWeek is the
-  // first week packs are dealt, and Infinity keeps the Cards tab and every card feature hidden.
-  cards: { startWeek: Infinity, handLimit: 4, attackCap: 2, duelStake: 5, heist: 3, embargoHours: 24, swapsThroughWeek: 0, oddsFrom: 3 },
+  // The same card game under hockey names (see HOCKEY in src/cards.js). Infinity as startWeek would
+  // hide the Cards tab and every card feature.
+  cards: { startWeek: 1, handLimit: 4, attackCap: 2, duelStake: 5, heist: 3, embargoHours: 24, swapsThroughWeek: 1, oddsFrom: 3 },
   decree: { perSeason: 3, noticeHours: 24, bounty: 5 },
 };
 

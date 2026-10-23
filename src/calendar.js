@@ -12,14 +12,21 @@ export function weekDays(w) {
   return out;
 }
 
-// NHL lines have the same shape for a day and for a week ([games, pts, +/-, saves, best game x3,
-// worst game x3, team, shots against, fights, goals, Gordie Howes]), so a week is its days added up:
-// the sums, the best of the best games and the worst of the worst. Returns x (a new line if x is null).
+// NHL lines have the same shape for a day and for a week, so a week is its days added up.
+//   skater: [games, pts, +/-, 0, best pts, best +/-, 0, worst pts, worst +/-, 0, team, 0, fights, goals, Gordie Howes]
+//   goalie: [games, 0, 0, saves, best game saves, its shots, its sv%, worst game saves, its shots, its sv%, team, shots]
+// The sums add up; a skater keeps his best and worst of each stat; a goalie keeps his best and worst
+// games whole (by save percentage), so cards can take one out. Returns x (a new line if x is null).
 export function addHockeyLine(x, l) {
   if (!x) return [...l];
   for (const i of [0, 1, 2, 3, 11, 12, 13, 14]) x[i] += l[i];
-  for (const i of [4, 5, 6]) x[i] = Math.max(x[i], l[i]);
-  for (const i of [7, 8, 9]) x[i] = Math.min(x[i], l[i]);
+  if (l[3] || l[11]) {
+    if (l[6] > x[6]) [x[4], x[5], x[6]] = [l[4], l[5], l[6]];
+    if (l[9] < x[9]) [x[7], x[8], x[9]] = [l[7], l[8], l[9]];
+  } else {
+    for (const i of [4, 5, 6]) x[i] = Math.max(x[i], l[i]);
+    for (const i of [7, 8, 9]) x[i] = Math.min(x[i], l[i]);
+  }
   x[10] = l[10];
   return x;
 }

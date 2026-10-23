@@ -4,8 +4,10 @@
 import { LEAGUE, buildWeeks, defaultLockAt, easternToUtc } from './config.js';
 import { weekDays, addHockeyLine, totalsThrough } from './calendar.js';
 import { TEAMS } from './teams.js';
+import { demoPlays } from './demo.js';
 
 export const DEMO_NOW = Date.parse('2026-12-02T17:00:00Z'); // Wed of week 6
+const CARDS_FROM = 5; // the demo league switched cards on in week 5
 
 // Skaters: [id, first, last, team, pos, num, points/game, plus-minus/game, fights/game]
 const SKATERS = [
@@ -165,7 +167,7 @@ export function makeDemo() {
             const sa = 22 + Math.floor(rand() * 14);
             const sv = Math.min(sa, Math.round(sa * (sm.sv / 1000 + (rand() - 0.5) * 0.08)));
             const gpct = Math.round(1000 * sv / sa);
-            d.p[pl.id] = addHockeyLine(d.p[pl.id], [1, 0, 0, sv, 0, 0, gpct, 0, 0, gpct, tri, sa, 0, 0, 0]);
+            d.p[pl.id] = addHockeyLine(d.p[pl.id], [1, 0, 0, sv, sv, sa, gpct, sv, sa, gpct, tri, sa, 0, 0, 0]);
             acc.gp++; acc.sv += sv; acc.sa += sa;
             continue;
           }
@@ -231,5 +233,7 @@ export function makeDemo() {
     }
   }
   schedule.sort((a, b) => a[2].localeCompare(b[2]));
-  return { version: 2, now, players, teams, weeks, totals, profiles, picks, unburns: [], plays: [], decrees: [], votes: [], meId, cardsFrom: Infinity, schedule, days };
+  // The colleagues play hockey cards from week 5, like the NBA demo.
+  const plays = demoPlays({ weeks, totals, picks, unburns: [], profiles, players, now, meId, rand, cardsFrom: CARDS_FROM });
+  return { version: 3, now, players, teams, weeks, totals, profiles, picks, unburns: [], plays, decrees: [], votes: [], meId, cardsFrom: CARDS_FROM, schedule, days };
 }

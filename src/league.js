@@ -14,11 +14,13 @@ const SLOTS = LEAGUE.slots;
 const PSLOTS = LEAGUE.playerSlots;
 // Bonus slots (NHL's Gloves Off): picked like the others, but not ranked and not counted for the bars.
 const BONUS = LEAGUE.pickSlots.filter(s => !SLOTS.includes(s));
+// The slots a Switcheroo (NHL: Line Change) can swap between: the player slots, but never a goalie's.
+export const SWAP_SLOTS = PSLOTS.filter(s => INFO[s].pos !== 'G');
 const EMPTY = [0, 0, 0, 0];
 
 // A player's week: [games, pts, reb, ast, best game pts/reb/ast, worst game pts/reb/ast, team].
 // NHL: [games, pts, plus-minus, saves, best game x3, worst game x3, team, shots against, fights, goals,
-// Gordie Howe hat tricks]; a goalie's best and worst game columns hold that game's save percentage.
+// Gordie Howe hat tricks]; a goalie's best and worst games are [saves, shots, save %] (src/calendar.js).
 export function statLine(totals, week, pid) {
   return totals[week]?.p?.[pid] || EMPTY;
 }
@@ -184,7 +186,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
     }
 
     const hits = table.resolveAttacks(cw, snaps[W - 1]);
-    playValueCards({ cw, W, status, totals, results, entrants, users, hits, table });
+    playValueCards({ cw, W, status, totals, results, entrants, users, hits, table, players });
 
     for (const id of entrants) {
       for (const slot of SLOTS) {
@@ -403,9 +405,17 @@ function scorePick(totals, W, slot, status, p, ok, used) {
 const gameHigh = (line, slot) => slot === 'WIN' ? (line[0] ? (line[1] > 0 ? 1 : 0) : null) : line[3 + STAT[slot]];
 const gameLow = (line, slot) => slot === 'WIN' ? (line[0] ? (line[2] > 0 ? 0 : 1) : null) : line[6 + STAT[slot]];
 
+// A goalie's week worked out again without one of his games ([saves, shots] columns of his best or
+// worst game, see src/calendar.js), and with another one in its place if given.
+function swapGame(line, out, add) {
+  const sv = line[3] - line[out[0]] + (add ? line[add[0]] : 0);
+  const sa = line[LEAGUE.line.shots] - line[out[1]] + (add ? line[add[1]] : 0);
+  return savePct(sv, sa);
+}
+
 // Cards that change a slot's weekly total, in order: your own hindsight cards,
 // Copycat, Sixth Man, then attacks from other people.
-function playValueCards({ cw, W, status, totals, results, entrants, users, hits, table }) {
+function playValueCards({ cw, W, status, totals, results, entrants, users, hits, table, players = {} }) {
   const line = pid => statLine(totals, W, pid);
   const mine = card => cw.plays.filter(p => p.ok && p.card === card);
 
@@ -419,10 +429,11 @@ function playValueCards({ cw, W, status, totals, results, entrants, users, hits,
     const hi = s && gameHigh(s.line, rec.slot), lo = s && gameLow(s.line, rec.slot);
     if (!s || s.copy || s.scorer == null || s.gp < 2 || hi == null || lo == null) { table.refund(rec, 'one-game'); continue; }
     rec.before = s.value;
-    s.value += hi - lo;
+    // A save percentage is worked out again with his best game in place of his worst.
+    s.value = INFO[rec.slot]?.pct ? swapGame(s.line, [7, 8], [4, 5]) : s.value + hi - lo;
     rec.after = s.value;
     rec.outcome = 'played';
-    s.fx.push({ card: 'garbage', note: `${lo} → ${hi}` });
+    s.fx.push({ card: 'garbage', note: `${slotValue(rec.slot, lo)} → ${slotValue(rec.slot, hi)}` });
   }
   for (const rec of mine('copycat')) {
     const s = results[rec.user_id]?.slots[rec.slot];
@@ -441,21 +452,33 @@ function playValueCards({ cw, W, status, totals, results, entrants, users, hits,
     if (!r) { rec.outcome = 'void'; continue; }
     if (SLOTS.some(s => [r.slots[s].pid, r.slots[s].alt, r.slots[s].scorer].includes(pid))) { table.refund(rec, 'already-picked'); continue; }
     const ln = line(pid);
+    // His value in a slot. NHL: only slots he can play (goalies in The Wall), only if he played,
+    // and a save percentage only once he's faced enough shots.
+    const valueIn = s => {
+      if (!eligible(players[pid], s)) return null;
+      if (!(INFO[s].signed || INFO[s].pct)) return ln[STAT[s]];
+      const [gp, v] = slotLine(totals, W, s, pid);
+      return gp > 0 ? v : null;
+    };
+    // Others' picks: an empty slot, or a plus-minus pick who never played, ranks below everything.
+    const theirs = (id, s) => { const y = results[id].slots[s]; return y.missing || (INFO[s].signed && y.scorer == null && !y.copy && !y.pending) ? -Infinity : y.value; };
     let best = null;
     for (const s of PSLOTS) {
       const x = r.slots[s];
       if (x.copy || u.burns[s].has(pid) || cw.embargo[s].has(pid)) continue;
-      const others = entrants.filter(id => id !== uid).map(id => results[id].slots[s].missing ? -1 : results[id].slots[s].value);
+      const v = valueIn(s);
+      if (v == null) continue;
+      const others = entrants.filter(id => id !== uid).map(id => theirs(id, s));
       const rp = v => others.reduce((a, o) => a + (o < v ? 1 : o === v ? 0.5 : 0), 0);
-      const gain = rp(ln[STAT[s]]) - (x.missing ? 0 : rp(x.value));
-      if (gain > 0 && (!best || gain > best.gain)) best = { slot: s, gain };
+      const gain = rp(v) - (x.missing ? 0 : rp(x.value));
+      if (gain > 0 && (!best || gain > best.gain)) best = { slot: s, gain, value: v };
     }
     if (!best) { rec.outcome = 'benched'; continue; }
     const x = r.slots[best.slot];
     rec.outcome = 'played';
     rec.slot = best.slot;
     rec.before = x.missing ? 0 : x.value;
-    rec.after = ln[STAT[best.slot]];
+    rec.after = best.value;
     rec.replaced = x.scorer ?? x.pid ?? null;
     r.slots[best.slot] = {
       ...x, missing: false, scorer: pid, replaced: rec.replaced, value: rec.after, line: ln, gp: ln[0],
@@ -473,7 +496,8 @@ function playValueCards({ cw, W, status, totals, results, entrants, users, hits,
         const x = v?.slots[s];
         if (!x || x.copy || x.scorer !== rec.player_id) continue;
         const before = x.value;
-        x.value = Math.floor(x.value / 2);
+        // Plus-minus: a plus is halved and a minus doubled. Save percentage: .020 off.
+        x.value = INFO[s].pct ? Math.max(0, x.value - 20) : INFO[s].signed && x.value < 0 ? x.value * 2 : Math.floor(x.value / 2);
         x.fx.push(fx);
         rec.hits.push({ slot: s, before, after: x.value });
       }
@@ -483,7 +507,10 @@ function playValueCards({ cw, W, status, totals, results, entrants, users, hits,
       if (!x || x.copy || x.missing || !x.gp) continue;
       const high = gameHigh(x.line, rec.slot) ?? Math.round(x.value / x.gp);
       const before = x.value;
-      x.value = Math.max(0, x.value - high);
+      // Plus-minus: his best game is replaced by his worst. Save percentage: his best game is left out.
+      x.value = INFO[rec.slot]?.pct ? swapGame(x.line, [4, 5], null)
+        : INFO[rec.slot]?.signed ? x.value - high + (gameLow(x.line, rec.slot) ?? high)
+        : Math.max(0, x.value - high);
       x.fx.push(fx);
       rec.hits.push({ slot: rec.slot, before, after: x.value });
     } else if (rec.card === 'clown' || rec.card === 'nickname') {
@@ -505,7 +532,7 @@ function switcheroo(rec, r, u, cw, line) {
   const map = rec.params?.map || {};
   const from = Object.keys(map);
   const to = from.map(f => map[f]);
-  if (!from.length || from.some(f => !PSLOTS.includes(f) || !PSLOTS.includes(map[f])) || new Set(to).size !== to.length
+  if (!from.length || from.some(f => !SWAP_SLOTS.includes(f) || !SWAP_SLOTS.includes(map[f])) || new Set(to).size !== to.length
     || !to.every(t => from.includes(t)) || from.every(f => map[f] === f)) return 'bad-swap';
   const moves = from.map(f => ({ from: f, to: map[f], pid: r.slots[f].scorer }));
   if (moves.some(m => m.pid == null || r.slots[m.from].copy)) return 'bad-swap';
@@ -558,7 +585,9 @@ function playPointCards({ cw, wk, results, hits, table }) {
     rec.accepted = !!replied;
     const a = results[rec.user_id], b = results[rec.target_id];
     if (!a && !b) { rec.outcome = 'void'; continue; }
-    const val = r => !r || r.slots[rec.slot].missing ? -1 : r.slots[rec.slot].value;
+    // A plus-minus pick who never played loses to any total, negatives included.
+    const val = r => !r || r.slots[rec.slot].missing ? -1
+      : INFO[rec.slot].signed && r.slots[rec.slot].scorer == null && !r.slots[rec.slot].copy ? -Infinity : r.slots[rec.slot].value;
     rec.values = [val(a), val(b)];
     if (rec.values[0] === rec.values[1]) { rec.outcome = 'push'; continue; }
     const [win, lose] = rec.values[0] > rec.values[1] ? [rec.user_id, rec.target_id] : [rec.target_id, rec.user_id];

@@ -153,13 +153,13 @@ export function buildData({ schedule, boxes, rosters = {}, now = Date.now() }) {
       for (const [pid, team, played, g, a, pm] of box.skaters) {
         if (!played) continue;
         const fights = box.fights[pid] || 0;
-        // [games, pts, +/-, saves, best pts/+/-/sv%, worst pts/+/-/sv%, team, shots against, fights, goals, Gordie Howes]
+        // The line shapes are in src/calendar.js (addHockeyLine).
         d.p[pid] = addHockeyLine(d.p[pid], [1, g + a, pm, 0, g + a, pm, 0, g + a, pm, 0, team, 0, fights, g, g && a && fights ? 1 : 0]);
       }
       for (const [pid, team, played, sv, sa] of box.goalies) {
         if (!played) continue;
         const gp = pct(sv, sa);
-        d.p[pid] = addHockeyLine(d.p[pid], [1, 0, 0, sv, 0, 0, gp, 0, 0, gp, team, sa, 0, 0, 0]);
+        d.p[pid] = addHockeyLine(d.p[pid], [1, 0, 0, sv, sv, sa, gp, sv, sa, gp, team, sa, 0, 0, 0]);
       }
       if (box.status === 3 && box.hs !== box.as) {
         const [win, lose] = box.hs > box.as ? [box.home, box.away] : [box.away, box.home];
