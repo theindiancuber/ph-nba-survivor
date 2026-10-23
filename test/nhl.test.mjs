@@ -189,5 +189,25 @@ test('supabase/nhl/setup.sql is up to date with the NBA SQL files (run PHS_SPORT
   const committed = await readFile(new URL('../supabase/nhl/setup.sql', import.meta.url), 'utf8');
   assert.equal(nhlSql(sources), committed);
   assert.match(committed, /picks_slot_check check \(slot in \('PTS', 'PM', 'SV', 'WIN', 'FIGHT'\)\)/);
-  assert.match(committed, /\(23, '2027-04-05T23:00:00.000Z'\)/);
+  assert.match(committed, /\(1, '2026-10-26T23:00:00.000Z'\)/);
+  assert.match(committed, /\(24, '2027-04-05T23:00:00.000Z'\)/);
+  // Shared accounts: everything is in the nhl schema, and the only trigger on auth.users is the NBA league's.
+  const own = committed.slice(0, committed.indexOf('-- ======== sign-ups'));
+  assert.doesNotMatch(own, /\bpublic\./, 'every NHL object is in the nhl schema');
+  assert.doesNotMatch(own, /create trigger [^;]* on auth\.users|delete from auth\.users/, 'the NHL league never touches accounts');
+  assert.match(committed, /to_regclass\('nhl\.league_settings'\)/);
+});
+
+test('one account, two leagues: the NHL league uses the NBA project, in its own schema', () => {
+  assert.equal(LEAGUE.dbSchema, 'nhl');
+  assert.match(LEAGUE.supabaseUrl, /miotcbvafwddymqkslyy/);
+});
+
+test('24 single weeks, Oct 26 to Apr 11', async () => {
+  const { buildWeeks } = await import('../src/config.js');
+  const w = buildWeeks();
+  assert.equal(w.length, 24);
+  assert.deepEqual([w[0].start, w[0].end, w[0].mult], ['2026-10-26', '2026-11-01', 1]);
+  assert.equal(w.at(-1).end, '2027-04-11');
+  assert.ok(w.every(x => x.mult === 1));
 });

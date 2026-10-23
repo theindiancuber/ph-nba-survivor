@@ -1,6 +1,6 @@
 # Peakhill Survivor Leagues
 
-One site, two leagues: **NBA Survivor** at the root and **NHL Survivor** at `nhl/` (see [The NHL league](#the-nhl-league)). Each league has its own Supabase project, sign-up, standings and data. The switch at the top of the page moves between them.
+One site, two leagues: **NBA Survivor** at the root and **NHL Survivor** at `nhl/` (see [The NHL league](#the-nhl-league)). One Peakhill account signs in to both; each league has its own standings, picks, cards and data. The switch at the top of the page moves between them.
 
 ## Peakhill NBA Survivor
 
@@ -40,34 +40,34 @@ A free, season-long NBA player-survivor league for the office. Every week you pi
 
 Peakhill NHL Survivor runs on the same site at `nhl/`, from the same code (`nhl/index.html` sets `data-sport="nhl"`). The rules are on its Rules tab.
 
+**One account for both leagues.** Both leagues use the same Supabase project, so a Peakhill account signs in to both. The NBA league's tables are in the `public` schema and the NHL league's in the `nhl` schema; the app picks the schema from `dbSchema` in `src/config.js`. Someone already in one league who opens the other only picks a display name. A new account needs either league's invite code (`public.require_invite`), and then it can join both. Removing someone from the NHL league takes them out of hockey only; removing someone from the NBA league deletes their account, so they leave both.
+
 | Piece | What it does |
 |---|---|
-| `src/config.js` (`NHL`), `src/teams.js` | The four ranked slots (points, plus-minus, save percentage, team wins), the Gloves Off fight bonus, the bars, the calendar (Oct 26 – Apr 11, week 1 a double week) and the NHL project's Supabase keys. |
+| `src/config.js` (`NHL`), `src/teams.js` | The four ranked slots (points, plus-minus, save percentage, team wins), the Gloves Off fight bonus, the bars and the calendar (24 weeks, Oct 26 – Apr 11). |
 | `src/league.js` | The hockey rules: plus-minus can go negative and a pick who never played ranks last; a goalie counts once he's faced 20 shots; goalies can be used twice in The Wall; Gloves Off scores +5 a fight (2 max) and burns only when he fights; the Gordie Howe hat trick adds +5. |
-| `scripts/update-nhl.mjs` | The NHL data job: schedule, box scores, fights (fighting majors from the play-by-play) and rosters from the NHL's public feed (`api-web.nhle.com`) into `nhl/data/`, then lock sync and Autopilot in the NHL project. The same workflow runs it right after the NBA job, and both commit together. |
-| `supabase/nhl/setup.sql` | The NHL project's whole database in one file, built from the NBA SQL files by `PHS_SPORT=nhl node scripts/nhl-sql.mjs`. Rebuild it after changing any file in `supabase/` (a test fails if it's stale). |
+| `scripts/update-nhl.mjs` | The NHL data job: schedule, box scores, fights (fighting majors from the play-by-play) and rosters from the NHL's public feed (`api-web.nhle.com`) into `nhl/data/`, then lock sync and Autopilot in the `nhl` schema. The same workflow runs it right after the NBA job, with the same secrets, and both commit together. |
+| `supabase/nhl/setup.sql` | The NHL league's whole database (the `nhl` schema) in one file, built from the NBA SQL files by `PHS_SPORT=nhl node scripts/nhl-sql.mjs`. Rebuild it after changing any file in `supabase/` (a test fails if it's stale). It ends with the shared sign-up check. |
 | `src/demo-nhl.js` | The NHL demo league (`nhl/?demo`). |
 
 Not in the NHL league yet: the card game (`cards.startWeek` is `Infinity` until its hockey rules are in), the Calendar tab and the nightly recap (they need day-by-day lines the NHL job doesn't write yet).
 
-**Setting it up** (the Supabase project already exists):
+**Setting it up** (in the NBA league's Supabase project):
 
-1. Supabase → the NHL project → SQL Editor → paste all of `supabase/nhl/setup.sql` → Run.
-2. Set the invite code (or set it later from the Commissioner tab):
+1. SQL Editor → paste all of `supabase/nhl/setup.sql` → Run.
+2. Project Settings → Data API → **Exposed schemas**: add `nhl` (keep `public`) and save.
+3. Set the hockey invite code (or later from the NHL Commissioner tab):
    ```sql
-   update public.league_settings set invite_code = 'YOURCODE' where id;
+   update nhl.league_settings set invite_code = 'YOURCODE' where id;
    ```
-3. Authentication → Sign In / Providers → Email: turn **off** "Confirm email".
-4. GitHub → Settings → Secrets and variables → Actions: add `SUPABASE_URL_NHL` (the NHL Project URL) and `SUPABASE_SERVICE_ROLE_KEY_NHL` (that project's service_role key).
-5. Merge, then Actions → "Update league data" → **Run workflow** once. It fills `nhl/data/` (the first run fetches the season so far, a few minutes).
-6. Sign up at `…/nhl/` with the invite code, then make yourself commissioner in the NHL project's SQL editor:
+4. Open `…/nhl/` signed in with your NBA account, pick your hockey name, then make yourself NHL commissioner:
    ```sql
-   insert into public.admins (user_id)
-   select id from public.profiles where display_name = 'Your display name'
+   insert into nhl.admins (user_id) values ((select id from auth.users where email = 'you@example.com'))
    on conflict do nothing;
    ```
-7. Share `…/nhl/?invite=YOURCODE`.
+5. Share `…/nhl/?invite=YOURCODE`. NBA members just open `…/nhl/`.
 
+## Commissioner tab
 ## Commissioner tab
 
 Run `supabase/admin.sql` and then `supabase/upgrade-dub-invite.sql` in the Supabase SQL editor (both are safe to re-run), then make yourself commissioner:

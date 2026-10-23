@@ -4,7 +4,7 @@
 import { LEAGUE, buildWeeks, defaultLockAt } from './config.js';
 import { TEAMS } from './teams.js';
 
-export const DEMO_NOW = Date.parse('2026-12-02T17:00:00Z'); // Wed of week 5
+export const DEMO_NOW = Date.parse('2026-12-02T17:00:00Z'); // Wed of week 6
 
 // Skaters: [id, first, last, team, pos, num, points/game, plus-minus/game, fights/game]
 const SKATERS = [

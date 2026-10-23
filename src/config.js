@@ -2,7 +2,8 @@
 //
 // One site runs several leagues (Peakhill Survivor Leagues). Each page says which one it is:
 // <html data-sport="nhl"> on nhl/index.html; the root page is the NBA league. The data job and
-// the tests pick one with PHS_SPORT=nhl. Every league has its own Supabase project.
+// the tests pick one with PHS_SPORT=nhl. The leagues share one Supabase project, so one account
+// signs in to both; each league keeps its tables in its own Postgres schema (dbSchema).
 export const SPORT = (typeof document !== 'undefined' && document.documentElement?.dataset?.sport)
   || (typeof process !== 'undefined' && process.env?.PHS_SPORT) || 'nba';
 
@@ -63,9 +64,11 @@ const NHL = {
   season: '2026-27',
   commissioner: 'The Commissioner',
 
-  // The NHL league's own Supabase project. Also in the Content-Security-Policy in nhl/index.html.
-  supabaseUrl: 'https://rvtgovnrpqvrtvjnjivd.supabase.co',
-  supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ2dGdvdm5ycHF2cnR2am5qaXZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI3NzQzODgsImV4cCI6MjEwODM1MDM4OH0.cI8e6qGJipN8KKUJb_c9uUMwOXrzJiDVjflguL-IlKE',
+  // The NBA league's Supabase project (one account for both leagues), with the NHL league's tables in
+  // the nhl schema (supabase/nhl/setup.sql). The URL is also in the Content-Security-Policy in nhl/index.html.
+  supabaseUrl: 'https://miotcbvafwddymqkslyy.supabase.co',
+  supabaseAnonKey: NBA.supabaseAnonKey,
+  dbSchema: 'nhl',
 
   // Four ranked slots, plus Gloves Off: a fight bonus that isn't ranked and doesn't count for the bars.
   // pos: who can be picked ('skater' or 'G'). signed: the total can go below zero, and a pick who
@@ -96,7 +99,7 @@ const NHL = {
   barsToSurvive: 3,
   lives: 3,
   drops: { max: 3, every: 6 },
-  // The card game is off until its hockey rules are in (planned for week 2): startWeek is the
+  // The card game is off until its hockey rules are in: startWeek is the
   // first week packs are dealt, and Infinity keeps the Cards tab and every card feature hidden.
   cards: { startWeek: Infinity, handLimit: 4, attackCap: 2, duelStake: 5, heist: 3, embargoHours: 24, swapsThroughWeek: 0, oddsFrom: 3 },
   decree: { perSeason: 3, noticeHours: 24, bounty: 5 },
@@ -137,12 +140,11 @@ export function buildWeeks() {
   return weeks;
 }
 
-// NHL: the league starts Mon Oct 26, 2026 with a double week (to Nov 8) while people sign up,
-// then runs Monday to Sunday until the regular season ends (Sat Apr 10, 2027).
+// NHL: Monday to Sunday from Mon Oct 26, 2026 until the regular season ends (Sat Apr 10, 2027).
 function nhlWeeks() {
-  const weeks = [{ week: 1, start: '2026-10-26', end: '2026-11-08', mult: 2 }];
-  let start = '2026-11-09';
-  for (let w = 2; w <= 23; w++) {
+  const weeks = [];
+  let start = '2026-10-26';
+  for (let w = 1; w <= 24; w++) {
     weeks.push({ week: w, start, end: addDays(start, 6), mult: 1 });
     start = addDays(start, 7);
   }
