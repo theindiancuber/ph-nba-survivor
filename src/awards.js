@@ -101,13 +101,13 @@ export function seasonAwards(L, pname = id => `#${id}`) {
     AST: ['Assists Champion', 'Most assists from Dime picks across the season.'],
     WIN: ['Dub Champion', 'Most team wins from Dub picks across the season.'],
   };
-  // The standings with Jinx, Load Management, Heist and Blue Shell taken out (Burn Notice still counts).
-  const cleanRanked = L.cleanStandings.filter(u => Object.keys(u.weekly).length).map(u => ({ id: u.id, v: u.clean.counted }));
-  const clean = award(
-    { key: 'clean', icon: '🕊️', title: 'Pure Hoops Champion', kind: 'champion', how: 'Top of the standings with every Jinx, Load Management, Heist and Blue Shell taken out. Burn Notice still counts.' },
-    cleanRanked, x => `${fmt(x.v)} points without attack cards`,
+  // The standings from raw picks alone, as if the card game never happened.
+  const pureRanked = L.rawStandings.filter(u => Object.keys(u.weekly).length).map(u => ({ id: u.id, v: u.raw.counted }));
+  const pure = award(
+    { key: 'pure', icon: '🕊️', title: 'Pure Hoops Champion', kind: 'champion', how: 'Top of the standings from your picks alone, with no Joker cards at all.' },
+    pureRanked, x => `${fmt(x.v)} points from raw picks`,
   );
-  const titles = [clean, belt, ...SLOTS.map(s => award(
+  const titles = [pure, belt, ...SLOTS.map(s => award(
     { key: `cat-${s}`, icon: INFO[s].emoji, title: catTitles[s][0], kind: 'champion', how: catTitles[s][1] },
     rank(L, stats, p => p.raw[s], { min: 0 }), x => `${unit(s, x.v)} from ${INFO[s].name} picks`,
   ))];

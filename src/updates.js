@@ -6,9 +6,9 @@ export const UPDATES = [
   {
     id: 18,
     date: '2026-10-23',
-    title: 'Standings without attack cards, and Results filters',
+    title: 'Raw-picks standings, and Results filters',
     items: [
-      "New toggle on Standings: see the table as it would be right now if no Jinx, Load Management, Heist or Blue Shell had ever landed. Burn Notice still counts. It's just for fun, and your real points don't change.",
+      "New toggle on Standings: see the table as it would be right now from everyone's picks alone, as if no Joker card had ever been played. It's just for fun, and your real points don't change.",
       'Whoever tops that table at the end of the season wins a new title: the Pure Hoops Champion 🕊️, with a certificate.',
       'Results can now be filtered: search for a colleague or a player, show one category at a time, filter by bars cleared, and tap a column (Bucket, Glass, Dime, Dub, Pts, Bars) to sort by it.',
     ],

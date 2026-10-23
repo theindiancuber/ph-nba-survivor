@@ -1610,35 +1610,35 @@ function viewStandings() {
   const L = S.league;
   const lw = [...lockedWeeks()].pop();
   const rival = meU()?.rival;
-  // The no-attack view: the same table with Jinx, Load Management, Heist and Blue Shell taken out.
-  const clean = S.standingsMode === 'clean';
-  const T = u => clean ? u.clean : u;
+  // The raw-picks view: the same table scored from picks alone, with no Joker cards.
+  const raw = S.standingsMode === 'raw';
+  const T = u => raw ? u.raw : u;
   const moved = u => {
-    const d = u.rank - u.clean.rank, pts = u.clean.counted - u.counted;
+    const d = u.rank - u.raw.rank, pts = u.raw.counted - u.counted;
     const place = d > 0 ? `<span class="trend-up">▲${d}</span> ` : d < 0 ? `<span class="trend-down">▼${-d}</span> ` : '';
     return place || pts ? `${place}<span class="dim">${pts ? signed(pts) : ''}</span>` : '<span class="dim">Same</span>';
   };
-  const rows = (clean ? L.cleanStandings : L.standings).filter(u => Object.keys(u.weekly).length || u.id === myId()).map(u => `
+  const rows = (raw ? L.rawStandings : L.standings).filter(u => Object.keys(u.weekly).length || u.id === myId()).map(u => `
     <tr class="${u.id === myId() ? 'me' : ''}">
       <td class="rank ${T(u).rank <= 3 ? 'top' : ''}">${T(u).rank}</td>
       <td><div class="who">${avatar(u.id)}<div><b>${esc(u.name)}</b>${lw ? decor(u.id, lw.week, true) : ''}${u.id === myId() ? '<span class="tag blue">You</span>' : ''}${u.id === rival ? '<span class="tag">Rival</span>' : ''}${u.lives === 0 ? '<span class="tag gold">Out of lives</span>' : ''}
         <div class="dim" style="font-size:12px">${u.team ? esc(u.team) + ' fan' : ''}</div></div></div></td>
       <td class="hide-sm">${hearts(u.lives)}</td>
-      ${lw ? `<td class="r num ${clean ? 'hide-sm' : ''}">${T(u).weekly[lw.week] != null ? fmt(T(u).weekly[lw.week]) : '—'}${lw.status === 'live' ? ' <span class="dim">·live</span>' : ''}</td>` : ''}
+      ${lw ? `<td class="r num ${raw ? 'hide-sm' : ''}">${T(u).weekly[lw.week] != null ? fmt(T(u).weekly[lw.week]) : '—'}${lw.status === 'live' ? ' <span class="dim">·live</span>' : ''}</td>` : ''}
       ${L.dropCount ? `<td class="r num hide-sm">${fmt(T(u).total)}</td>` : ''}
       <td class="r"><span class="pts">${fmt(T(u).counted)}</span></td>
-      ${clean ? `<td class="r num" title="Places and points against the real standings (#${u.rank})">${moved(u)}</td>` : ''}
+      ${raw ? `<td class="r num" title="Places and points against the real standings (#${u.rank})">${moved(u)}</td>` : ''}
     </tr>`).join('');
   const toggle = `<div class="pills" role="group" aria-label="Standings view">
-    <button class="pill" data-act="standings-mode" data-mode="real" aria-pressed="${!clean}">Actual</button>
-    <button class="pill" data-act="standings-mode" data-mode="clean" aria-pressed="${clean}">🕊️ Without attack cards</button></div>`;
+    <button class="pill" data-act="standings-mode" data-mode="real" aria-pressed="${!raw}">Actual</button>
+    <button class="pill" data-act="standings-mode" data-mode="raw" aria-pressed="${raw}">🕊️ Raw picks</button></div>`;
   return `<div class="grid">
     <section class="panel">
-      <div class="panel-title"><h2>${clean ? 'Standings without attack cards' : 'Season standings'}</h2>${rows ? toggle : ''}</div>
-      <p class="muted" style="margin:-4px 0 10px;font-size:13px">${clean
-        ? 'Just for fun: the table as it would be right now if no Jinx, Load Management, Heist or Blue Shell had ever landed. Burn Notice still counts, since everyone has picked around it. The leader at the end of the season wins the Pure Hoops Champion title.'
+      <div class="panel-title"><h2>${raw ? 'Standings from raw picks' : 'Season standings'}</h2>${rows ? toggle : ''}</div>
+      <p class="muted" style="margin:-4px 0 10px;font-size:13px">${raw
+        ? 'Just for fun: the table as it would be right now from everyone\'s picks alone, as if no Joker card had ever been played. No jinxes, heists, duels, Copycats or Sixth Men, and nothing blocked by an Embargo or a Burn Notice. Double Down, decrees and the commissioner\'s adjustments still count. The leader at the end of the season wins the Pure Hoops Champion title.'
         : L.dropCount ? `Worst ${L.dropCount} week${L.dropCount > 1 ? 's' : ''} dropped` : 'Drops unlock after weeks 6, 12 and 18'}</p>
-      ${rows ? `<div class="table-wrap"><table class="board"><thead><tr><th>#</th><th>Player</th><th class="hide-sm">Lives</th>${lw ? `<th class="r ${clean ? 'hide-sm' : ''}">Wk ${lw.week}</th>` : ''}${L.dropCount ? '<th class="r hide-sm">Total</th>' : ''}<th class="r">${L.dropCount ? 'Counted' : 'Points'}</th>${clean ? '<th class="r" title="Places and points against the real standings">vs real</th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div>`
+      ${rows ? `<div class="table-wrap"><table class="board"><thead><tr><th>#</th><th>Player</th><th class="hide-sm">Lives</th>${lw ? `<th class="r ${raw ? 'hide-sm' : ''}">Wk ${lw.week}</th>` : ''}${L.dropCount ? '<th class="r hide-sm">Total</th>' : ''}<th class="r">${L.dropCount ? 'Counted' : 'Points'}</th>${raw ? '<th class="r" title="Places and points against the real standings">vs real</th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div>`
         : '<div class="empty-state"><div class="ic">📋</div>Standings appear once the first week locks.</div>'}
       <p class="note" style="margin:12px 0 0">Each week, every category: 1 point for each colleague whose pick you beat, ½ for a tie. Double Down doubles one slot.</p>
     </section>
@@ -2778,7 +2778,7 @@ function viewRules() {
       <div class="panel rule"><h3>🎴 Joker cards</h3><p>Earn packs, keep one card from each (your choice is final), and play one card a week: jinxes, traps, duels, heists, Blue Shells and pranks. Attacks are revealed at the lock. Cards move points but never cost a life.</p><p><button class="link" data-act="primer">How cards work →</button></p></div>
       <div class="panel rule"><h3>🤖 Autopilot</h3><p>Forgot to pick? At the lock, Autopilot fills empty slots with your best unburned projected week (season average × games). It never leaves you at zero, but it spends your best players first.</p></div>
       <div class="panel rule"><h3>🥊 Rivals</h3><p>Name one coworker as your rival and track your weekly head-to-head record. You can change your rival any time.</p></div>
-      <div class="panel rule"><h3>🏆 Titles and awards</h3><ul><li><b>Season Champion</b></li><li><b>Title belts:</b> Survivor Belt, plus Scoring, Rebounding, Assists and Dub Champions (most of each from your picks over the season)</li><li><b>Pure Hoops Champion:</b> top of the standings with every Jinx, Load Management, Heist and Blue Shell taken out (Burn Notice still counts). Flip Standings to <i>Without attack cards</i> to see the race.</li><li><b>Monthly Crowns:</b> Nov, Dec, Jan, Feb, Mar/Apr</li><li><b>Hall of Fame</b> and <b>Hall of Shame:</b> fun season awards</li><li><b>Playoff Burn</b> (April–June)</li></ul><p>Every award comes with a downloadable certificate. The Trophies tab shows who's leading each race and where you stand.</p></div>
+      <div class="panel rule"><h3>🏆 Titles and awards</h3><ul><li><b>Season Champion</b></li><li><b>Title belts:</b> Survivor Belt, plus Scoring, Rebounding, Assists and Dub Champions (most of each from your picks over the season)</li><li><b>Pure Hoops Champion:</b> top of the standings from your picks alone, with no Joker cards at all. Flip Standings to <i>Raw picks</i> to see the race.</li><li><b>Monthly Crowns:</b> Nov, Dec, Jan, Feb, Mar/Apr</li><li><b>Hall of Fame</b> and <b>Hall of Shame:</b> fun season awards</li><li><b>Playoff Burn</b> (April–June)</li></ul><p>Every award comes with a downloadable certificate. The Trophies tab shows who's leading each race and where you stand.</p></div>
     </div>
   </div>`;
 }
