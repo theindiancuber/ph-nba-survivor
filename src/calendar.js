@@ -3,7 +3,7 @@
 import { LEAGUE, addDays } from './config.js';
 
 const ET = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' });
-// NBA dates are Eastern: a 10pm ET tip on the 3rd is a game on the 3rd.
+// Game dates are Eastern: a 10pm ET tip on the 3rd is a game on the 3rd.
 export const etDate = ms => ET.format(new Date(ms));
 
 export function weekDays(w) {
@@ -12,13 +12,34 @@ export function weekDays(w) {
   return out;
 }
 
+// NHL lines have the same shape for a day and for a week ([games, pts, +/-, saves, best game x3,
+// worst game x3, team, shots against, fights, goals, Gordie Howes]), so a week is its days added up:
+// the sums, the best of the best games and the worst of the worst. Returns x (a new line if x is null).
+export function addHockeyLine(x, l) {
+  if (!x) return [...l];
+  for (const i of [0, 1, 2, 3, 11, 12, 13, 14]) x[i] += l[i];
+  for (const i of [4, 5, 6]) x[i] = Math.max(x[i], l[i]);
+  for (const i of [7, 8, 9]) x[i] = Math.min(x[i], l[i]);
+  x[10] = l[10];
+  return x;
+}
+
 // days: { date: { p: { pid: [games, pts, reb, ast, team] }, t: { TRI: [finished games, wins] } } }
+// (NHL: each player's line for the day in the weekly shape, see addHockeyLine.)
 // Returns the week's totals through `date`, in the same shape as totals.json, never final.
 // A player plays once a day, so each day's line is one game for the best/worst game columns.
 export function totalsThrough(days, date) {
   const p = {}, t = {};
   for (const d of Object.keys(days || {}).sort()) {
     if (d > date) break;
+    if (LEAGUE.sport === 'nhl') {
+      for (const [pid, l] of Object.entries(days[d].p || {})) p[pid] = addHockeyLine(p[pid], l);
+      for (const [tri, [g, w]] of Object.entries(days[d].t || {})) {
+        const y = t[tri] ||= [0, 0];
+        y[0] += g; y[1] += w;
+      }
+      continue;
+    }
     for (const [pid, [gp, pts, reb, ast, team]] of Object.entries(days[d].p || {})) {
       const x = p[pid] ||= [0, 0, 0, 0, pts, reb, ast, pts, reb, ast, team];
       x[0] += gp; x[1] += pts; x[2] += reb; x[3] += ast;

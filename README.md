@@ -46,11 +46,11 @@ Peakhill NHL Survivor runs on the same site at `nhl/`, from the same code (`nhl/
 |---|---|
 | `src/config.js` (`NHL`), `src/teams.js` | The four ranked slots (points, plus-minus, save percentage, team wins), the Gloves Off fight bonus, the bars and the calendar (24 weeks, Oct 26 – Apr 11). |
 | `src/league.js` | The hockey rules: plus-minus can go negative and a pick who never played ranks last; a goalie counts once he's faced 20 shots; goalies can be used twice in The Wall; Gloves Off scores +5 a fight (2 max) and burns only when he fights; the Gordie Howe hat trick adds +5. |
-| `scripts/update-nhl.mjs` | The NHL data job: schedule, box scores, fights (fighting majors from the play-by-play) and rosters from the NHL's public feed (`api-web.nhle.com`) into `nhl/data/`, then lock sync and Autopilot in the `nhl` schema. The same workflow runs it right after the NBA job, with the same secrets, and both commit together. |
+| `scripts/update-nhl.mjs` | The NHL data job: schedule, box scores, fights (fighting majors from the play-by-play) and rosters from the NHL's public feed (`api-web.nhle.com`) into `nhl/data/` (with the day-by-day lines for the Calendar), then lock sync and Autopilot in the `nhl` schema. The same workflow runs it right after the NBA job, with the same secrets, and both commit together. |
 | `supabase/nhl/setup.sql` | The NHL league's whole database (the `nhl` schema) in one file, built from the NBA SQL files by `PHS_SPORT=nhl node scripts/nhl-sql.mjs`. Rebuild it after changing any file in `supabase/` (a test fails if it's stale). It ends with the shared sign-up check. |
 | `src/demo-nhl.js` | The NHL demo league (`nhl/?demo`). |
 
-Not in the NHL league yet: the card game (`cards.startWeek` is `Infinity` until its hockey rules are in), the Calendar tab and the nightly recap (they need day-by-day lines the NHL job doesn't write yet).
+Not in the NHL league yet: the card game (`cards.startWeek` is `Infinity` until its hockey rules are in) and the commissioner's nightly recap. The Calendar tab works as in the NBA league: the job writes `nhl/data/days/<week>.json` (each player's line for each day, in the weekly shape, so `totalsThrough` adds a week back up from its days).
 
 **Setting it up** (in the NBA league's Supabase project):
 
