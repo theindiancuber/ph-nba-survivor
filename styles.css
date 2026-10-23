@@ -1409,3 +1409,35 @@ thead .cal-team { font: 500 11px/1 var(--body); letter-spacing: .1em; text-trans
   .add-big { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; row-gap: 3px; justify-items: start; align-items: center; text-align: left; padding: 12px 14px; }
   .add-big .plus { grid-row: span 2; margin: 0; }
 }
+
+/* ---------- League themes ----------
+   NBA: hardwood floor, ball orange and court amber. NHL (html[data-sport="nhl"]): ice, rink blue and
+   a cold white frost. --sport-1/--sport-2 tint the glows, the header rule, the active tab, the
+   league switch and the court/rink art above the footer. */
+:root { --sport-1: #ff7a1a; --sport-2: #f5c451; --sport-glow: 255, 122, 26; --sport-glow-2: 200, 16, 46; }
+html[data-sport="nhl"] { --sport-1: #7dd3fc; --sport-2: #3b82f6; --sport-glow: 125, 211, 252; --sport-glow-2: 59, 130, 246; }
+body {
+  background:
+    radial-gradient(900px 420px at 8% -8%, rgba(var(--sport-glow), .13), transparent 60%),
+    radial-gradient(1000px 460px at 92% -10%, rgba(var(--sport-glow-2), .15), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+/* NBA: floorboards instead of the dot grid */
+html:not([data-sport="nhl"]) body::before {
+  background-image: repeating-linear-gradient(90deg, rgba(255, 170, 90, .05) 0 1px, transparent 1px 46px);
+  background-size: auto;
+}
+/* NHL: frost on the dot grid */
+html[data-sport="nhl"] body::before { background-image: radial-gradient(rgba(200, 235, 255, .11) 1px, transparent 1px); }
+.topbar::after { background: linear-gradient(90deg, transparent, var(--sport-1) 25%, var(--sport-2) 75%, transparent); }
+.tab[aria-selected="true"]::after { background: linear-gradient(90deg, var(--sport-1), var(--sport-2)); }
+.league-switch a[aria-current="page"] { background: rgba(var(--sport-glow), .2); box-shadow: inset 0 0 0 1px rgba(var(--sport-glow), .45); }
+.sport-art {
+  width: fit-content; max-width: 100%; margin: 0 auto; padding: 8px 16px 18px; overflow: hidden;
+  font: 600 11px/1.2 var(--mono); white-space: pre;
+  background: linear-gradient(90deg, var(--sport-1), var(--sport-2), var(--sport-1));
+  -webkit-background-clip: text; background-clip: text; color: transparent; opacity: .7;
+}
+.sport-art span { display: block; text-align: center; font-size: 9.5px; letter-spacing: .35em; }
+html[data-sport="nhl"] .auth-pitch h1 em { background-image: linear-gradient(95deg, #e0f2fe, #7dd3fc 45%, #3b82f6); }
