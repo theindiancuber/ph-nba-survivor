@@ -1441,3 +1441,38 @@ html[data-sport="nhl"] body::before { background-image: radial-gradient(rgba(200
 }
 .sport-art span { display: block; text-align: center; font-size: 9.5px; letter-spacing: .35em; }
 html[data-sport="nhl"] .auth-pitch h1 em { background-image: linear-gradient(95deg, #e0f2fe, #7dd3fc 45%, #3b82f6); }
+
+/* Surfaces take the league's hue so the two read apart from across a room: walnut hardwood for the
+   NBA, deep rink navy for the NHL. Only the surface and text tokens change; everything else follows. */
+:root {
+  --bg: #170d06; --bg-2: #1d1108; --panel: #23160b; --panel-2: #2d1d10; --panel-3: #3b2717; --inset: #1a0f07;
+  --soft: #eadbcb; --muted: #b59c86; --dim: #806a56;
+}
+html[data-sport="nhl"] {
+  --bg: #051427; --bg-2: #07192f; --panel: #0a1f38; --panel-2: #0f2946; --panel-3: #163557; --inset: #061a30;
+  --soft: #d5e6f7; --muted: #93afcc; --dim: #5f7e9e;
+}
+.topbar { background: color-mix(in srgb, var(--bg) 82%, transparent); }
+.ticker { background: color-mix(in srgb, var(--bg) 70%, transparent); }
+.topbar::after { height: 3px; bottom: -3px; opacity: 1; }
+/* NHL: blue line, red line, blue line under the header */
+html[data-sport="nhl"] .topbar::after { background: linear-gradient(90deg, #2563eb 0 31%, transparent 31% 34%, #c8102e 34% 66%, transparent 66% 69%, #2563eb 69%); }
+/* NBA: full-height floorboards */
+html:not([data-sport="nhl"]) body::before {
+  background-image:
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, .28) 0 1px, transparent 1px 46px),
+    repeating-linear-gradient(90deg, rgba(255, 160, 80, .035) 0 46px, transparent 46px 92px, rgba(255, 200, 140, .025) 92px 138px);
+  -webkit-mask-image: none; mask-image: none;
+}
+/* NHL: skate scratches in the frost */
+html[data-sport="nhl"] body::before {
+  background-image: repeating-linear-gradient(115deg, rgba(200, 235, 255, .035) 0 1px, transparent 1px 11px), radial-gradient(rgba(200, 235, 255, .1) 1px, transparent 1px);
+  background-size: auto, 22px 22px;
+  -webkit-mask-image: linear-gradient(180deg, #000, transparent 900px); mask-image: linear-gradient(180deg, #000, transparent 900px);
+}
+.hero {
+  background:
+    radial-gradient(620px 300px at 0% 0%, rgba(var(--sport-glow), .38), transparent 62%),
+    radial-gradient(640px 340px at 100% 110%, rgba(var(--sport-glow-2), .4), transparent 62%),
+    linear-gradient(180deg, var(--panel-2), var(--bg-2));
+}
