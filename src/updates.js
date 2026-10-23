@@ -4,13 +4,21 @@
 
 export const UPDATES = [
   {
+    id: 19,
+    date: '2026-10-23',
+    title: 'Simpler sorting on Results',
+    items: [
+      'The search box and filter buttons on Results are gone. Instead, every column heading has small ▲▼ arrows: tap one to sort by it, and tap again to flip the order.',
+    ],
+  },
+  {
     id: 18,
     date: '2026-10-23',
-    title: 'Raw-picks standings, and Results filters',
+    title: 'Raw-picks standings, and sorting on Results',
     items: [
       "New toggle on Standings: see the table as it would be right now from everyone's picks alone, as if no Joker card had ever been played. It's just for fun, and your real points don't change.",
       'Whoever tops that table at the end of the season wins a new title: the Pure Hoops Champion 🕊️, with a certificate.',
-      'Results can now be filtered: search for a colleague or a player, show one category at a time, filter by bars cleared, and tap a column (Bucket, Glass, Dime, Dub, Pts, Bars) to sort by it.',
+      'Results can now be sorted: tap any column heading (Player, Bucket, Glass, Dime, Dub, Pts, Bars) to sort by it, and tap again to flip the order.',
     ],
   },
   {

@@ -1710,15 +1710,10 @@ function resultsMineStrip(w) {
   </div>`;
 }
 
-// Results filters: a search over colleagues and their picks, one category at a time, sorting and the bars.
-function rf() { return (S.rf ||= { q: '', show: 'all', sort: 'score', dir: -1, bars: 'any' }); }
-const RF_BARS = {
-  any: () => true,
-  all: r => r.cleared === SLOTS.length,
-  safe: r => r.survived,
-  short: r => !r.survived,
-};
-function resultsSortValue(r, key) {
+// Results sorting: tap a column heading to sort by it, tap again to flip it.
+function rsort() { return (S.rsort ||= { key: 'score', dir: -1 }); }
+function resultsSortValue(id, r, key) {
+  if (key === 'name') return userName(id).toLowerCase();
   if (key === 'score') return r.score;
   if (key === 'bars') return r.cleared;
   const x = r.slots[key];
@@ -1726,27 +1721,19 @@ function resultsSortValue(r, key) {
 }
 
 function resultsRows(w) {
-  const F = rf();
-  const q = norm(F.q.trim());
-  const cols = F.show === 'all' ? SLOTS : [F.show];
+  const { key, dir } = rsort();
   const byScore = [...w.entrants].sort((a, b) => w.results[b].score - w.results[a].score);
-  // The place is always the real one for the week, whatever the table is sorted or filtered by.
+  // The place is always the real one for the week, whatever the table is sorted by.
   const place = {};
   byScore.forEach((id, i) => { place[id] = i > 0 && w.results[byScore[i - 1]].score === w.results[id].score ? place[byScore[i - 1]] : i + 1; });
-  const names = id => {
-    const r = w.results[id];
-    const pids = SLOTS.flatMap(s => { const x = r.slots[s]; return [x.pid, x.alt, x.scorer, x.copyPid]; }).filter(x => x != null);
-    return [userName(id), ...pids.map(pname)].map(norm);
+  const cmp = (a, b) => {
+    const x = resultsSortValue(a, w.results[a], key), y = resultsSortValue(b, w.results[b], key);
+    return dir * (x < y ? -1 : x > y ? 1 : 0) || place[a] - place[b];
   };
-  const ids = byScore
-    .filter(id => RF_BARS[F.bars](w.results[id]))
-    .filter(id => !q || names(id).some(n => n.includes(q)))
-    .sort((a, b) => F.dir * (resultsSortValue(w.results[a], F.sort) - resultsSortValue(w.results[b], F.sort)) || place[a] - place[b]);
-  if (!ids.length) return { count: 0, html: `<tr><td colspan="${cols.length + 4}" class="dim" style="text-align:center;padding:22px">Nobody matches these filters.</td></tr>` };
-  const html = ids.map(id => {
+  return [...byScore].sort(cmp).map(id => {
     const r = w.results[id];
     const rank = place[id];
-    const cells = cols.map(s => {
+    const cells = SLOTS.map(s => {
       const x = r.slots[s];
       if (x.missing) return '<td><span class="dim">—</span></td>';
       const pid = x.copy ? x.copyPid : x.scorer ?? x.pid;
@@ -1756,35 +1743,15 @@ function resultsRows(w) {
     const surv = w.status === 'final' ? (r.survived ? '<span class="trend-up">✓</span>' : '<span class="trend-down">✗ ❤️</span>') : `<span class="dim">${r.cleared}/${SLOTS.length}</span>`;
     return `<tr class="${id === myId() ? 'me' : ''}"><td class="rank ${rank <= 3 ? 'top' : ''}">${rank}</td><td><div class="who">${avatar(id)}<div><b>${esc(userName(id))}</b>${decor(id, w.week)}</div></div></td>${cells}<td class="r"><span class="pts">${fmt(r.score)}</span>${adjChip(r)}</td><td class="c">${surv}</td></tr>`;
   }).join('');
-  return { count: ids.length, html };
-}
-
-function resultsCount(w, n) {
-  const all = w.entrants.length;
-  return n === all ? `${all} entr${all === 1 ? 'y' : 'ies'}` : `Showing ${n} of ${all}`;
-}
-
-function resultsFilters(w) {
-  const F = rf();
-  const active = F.q || F.show !== 'all' || F.sort !== 'score' || F.bars !== 'any';
-  const shows = [['all', 'All'], ...SLOTS.map(s => [s, `${INFO[s].emoji} ${INFO[s].name}`])];
-  const bars = [['any', 'Any'], ['all', `All ${SLOTS.length}`], ['safe', w.status === 'final' ? 'Survived' : `${LEAGUE.barsToSurvive}+ cleared`], ['short', w.status === 'final' ? 'Lost a life' : `Under ${LEAGUE.barsToSurvive}`]];
-  return `<div class="results-filters">
-    <input class="input" type="search" placeholder="Search a colleague or a player" aria-label="Search the results" data-input="results-q" value="${esc(F.q)}" autocomplete="off">
-    <div class="rf-group"><span class="kicker">Show</span><div class="pills">${shows.map(([k, label]) => `<button class="pill" data-act="results-show" data-key="${k}" aria-pressed="${F.show === k}">${label}</button>`).join('')}</div></div>
-    <div class="rf-group"><span class="kicker">Bars</span><div class="pills">${bars.map(([k, label]) => `<button class="pill" data-act="results-bars" data-key="${k}" aria-pressed="${F.bars === k}">${label}</button>`).join('')}</div></div>
-    ${active ? '<button class="link" data-act="results-clear">Clear filters</button>' : ''}
-  </div>`;
 }
 
 function resultsHead() {
-  const F = rf();
-  const cols = F.show === 'all' ? SLOTS : [F.show];
+  const { key: on, dir } = rsort();
   const th = (key, label, cls = '') => {
-    const on = F.sort === key;
-    return `<th class="${cls}"><button class="th-sort ${on ? 'on' : ''}" data-act="results-sort" data-key="${key}" aria-label="Sort by ${esc(label)}">${label}${on ? (F.dir < 0 ? ' ▼' : ' ▲') : ''}</button></th>`;
+    const sort = on === key ? (dir < 0 ? 'descending' : 'ascending') : 'none';
+    return `<th class="${cls}" aria-sort="${sort}"><button class="th-sort" data-act="results-sort" data-key="${key}" title="Sort by ${esc(label)}">${label}<span class="sort-ico" aria-hidden="true"><i class="${sort === 'ascending' ? 'on' : ''}">▲</i><i class="${sort === 'descending' ? 'on' : ''}">▼</i></span></button></th>`;
   };
-  return `<tr><th>#</th><th>Player</th>${cols.map(s => th(s, `${INFO[s].emoji} ${INFO[s].name}`)).join('')}${th('score', 'Pts', 'r')}${th('bars', 'Bars', 'c')}</tr>`;
+  return `<tr><th>#</th>${th('name', 'Player')}${SLOTS.map(s => th(s, `${INFO[s].emoji} ${INFO[s].name}`)).join('')}${th('score', 'Pts', 'r')}${th('bars', 'Bars', 'c')}</tr>`;
 }
 
 function viewResults() {
@@ -1792,7 +1759,6 @@ function viewResults() {
   if (!weeks.length) return `<section class="panel empty-state"><div class="ic">🔒</div><b>Nothing to show yet.</b><p>Everyone's picks are revealed when Week 1 locks.</p></section>`;
   const w = resultsWeekObj();
   const recent = weeks.slice(-8);
-  const body = resultsRows(w);
   return `<div class="grid">
     <section class="panel">
       <div class="panel-title"><h2>Week ${w.week} ${w.status === 'live' ? '<span class="badge live">Live</span>' : '<span class="badge final">Final</span>'}</h2>
@@ -1807,9 +1773,7 @@ function viewResults() {
       ${weekAdjustments(w.week)}
       ${w.decree ? `<div class="decree slim"><span>📜 Decree: <b>${w.decree.icon} ${esc(w.decree.title)}</b></span> <span class="dim">${esc(w.decree.text)}</span></div>` : ''}
       <p class="muted" style="margin:-6px 0 12px;font-size:13px">${weekRange(w)} · bars ${SLOTS.map(s => `${LEAGUE.bars[s]} ${INFO[s].short}`).join(' / ')} · (B) backup scored · 🔥 Double Down · card icons show what hit a pick (hover for who)</p>
-      ${resultsFilters(w)}
-      <p class="muted" id="results-count" style="margin:0 0 8px;font-size:12.5px">${resultsCount(w, body.count)} · tap a column to sort</p>
-      <div class="table-wrap"><table class="board"><thead>${resultsHead()}</thead><tbody id="results-body">${body.html}</tbody></table></div>
+      <div class="table-wrap"><table class="board"><thead>${resultsHead()}</thead><tbody>${resultsRows(w)}</tbody></table></div>
     </section>
     ${cardTablePanel(w)}
     ${ownershipPanel(w)}
@@ -3074,11 +3038,8 @@ const ACTIONS = {
   'unburn-undo': async () => { try { await S.backend.setUnburn(null); toast('Un-burn returned to your hand.'); } catch (e) { toast(e.message, true); } await refresh(); },
   'results-week': el => { S.resultsWeek = +el.dataset.week; render(); },
   'standings-mode': el => { S.standingsMode = el.dataset.mode; render(); },
-  // Showing one category sorts by it too; All goes back to the week's order.
-  'results-show': el => { const F = rf(), k = el.dataset.key; F.show = k; F.sort = k === 'all' ? 'score' : k; F.dir = -1; render(); },
-  'results-bars': el => { rf().bars = el.dataset.key; render(); },
-  'results-sort': el => { const F = rf(), k = el.dataset.key; F.dir = F.sort === k ? -F.dir : -1; F.sort = k; render(); },
-  'results-clear': () => { S.rf = null; render(); },
+  // A new column sorts high to low (names A to Z); tapping it again flips it.
+  'results-sort': el => { const R = rsort(), k = el.dataset.key; R.dir = R.key === k ? -R.dir : k === 'name' ? 1 : -1; R.key = k; render(); },
   'cal-week': el => { if (el.dataset.week) { S.calWeek = +el.dataset.week; S.calDay = null; render(); } },
   'cal-mode': el => { S.calMode = el.dataset.mode; render(); },
   'cal-day': el => { S.calDay = el.dataset.day; render(); },
@@ -3361,14 +3322,6 @@ document.addEventListener('input', e => {
   if (e.target.dataset?.input === 'play-q' && S.play) {
     S.play.q = e.target.value;
     $('#play-list').innerHTML = playPlayerRows();
-  }
-  if (e.target.dataset?.input === 'results-q') {
-    const w = resultsWeekObj();
-    if (!w) return;
-    rf().q = e.target.value;
-    const body = resultsRows(w);
-    $('#results-body').innerHTML = body.html;
-    $('#results-count').innerHTML = `${resultsCount(w, body.count)} · tap a column to sort`;
   }
   if (e.target.dataset?.input === 'ledger') {
     S.ledgerQ = e.target.value;
