@@ -41,6 +41,11 @@ jobs:
           end=$(( $(date +%s) + 330 * 60 ))
           ok=0; ok_nhl=0
           while :; do
+            # Start every round from the latest main. A run can start long after it was queued (runs
+            # never overlap), and a stale checkout once hit a rebase conflict that left every later
+            # push failing for hours.
+            git rebase --abort 2>/dev/null || true
+            git fetch -q origin main && git checkout -q -B main origin/main && git reset -q --hard origin/main
             # timeout: a round that hangs past 6 minutes is killed so the next one can start.
             if timeout 360 node scripts/update-data.mjs; then ok=1; else echo "::warning::NBA update failed; trying again next round."; fi
             # Same Supabase project as the NBA league (its tables are in the nhl schema).
@@ -54,7 +59,7 @@ jobs:
               echo "No data changes."
             else
               git commit -q -m "Update NBA and NHL data"
-              for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+              for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && break; git rebase --abort 2>/dev/null; sleep 5; done
             fi
             [ -s "$LIVE_FLAG" ] || [ -s "$LIVE_FLAG_NHL" ] || break
             [ $(( $(date +%s) + 8 * 60 )) -lt "$end" ] || break
