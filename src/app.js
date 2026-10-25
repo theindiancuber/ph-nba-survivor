@@ -1939,7 +1939,7 @@ function viewBurns() {
     const freed = u.unburn && u.unburn.slot === s && u.unburnApplied ? u.unburn : null;
     const items = burned.map(([pid, wk]) => `<div class="burn-item">${thumb(pid, 'sm')}<span class="nm">${esc(pname(pid))}</span><span class="wk">WK ${wk}</span></div>`)
       .concat(partial.map(([pid, n]) => `<div class="burn-item partial">${thumb(pid, 'sm')}<span class="nm">${esc(pname(pid))}</span><span class="wk">${n} OF ${limit} USED</span></div>`))
-      .concat(reserved.map(([pid, wk]) => `<div class="burn-item reserved">${thumb(pid, 'sm')}<span class="nm">${esc(pname(pid))}</span><span class="wk" style="color:#ffb0bf">WK ${wk} · LIVE${limit > 1 ? ` · ${(u.uses[s].get(pid) || 0) + 1} OF ${limit}` : ''}</span></div>`))
+      .concat(reserved.map(([pid, wk]) => `<div class="burn-item reserved">${thumb(pid, 'sm')}<span class="nm">${esc(pname(pid))}</span><span class="wk" style="color:var(--tx-pink-2)">WK ${wk} · LIVE${limit > 1 ? ` · ${(u.uses[s].get(pid) || 0) + 1} OF ${limit}` : ''}</span></div>`))
       .concat(freed ? [`<div class="burn-item freed">${thumb(freed.player_id, 'sm')}<span class="nm">${esc(pname(freed.player_id))}</span><span class="wk" style="color:var(--green)">UN-BURNED</span></div>`] : []);
     const sub = INFO[s].bonus ? `${burned.length} burned` : `${burned.length + partial.length} used · ${left} weeks left`;
     const empty = INFO[s].bonus ? 'Nobody has dropped the gloves for you yet.' : 'Clean sheet.';
@@ -2001,7 +2001,7 @@ function viewTrophies() {
   return `<div class="grid">
     <section class="spotlight ${won ? 'won' : ''}">
       <div class="spot-icon">🏆</div>
-      <div class="kicker" style="color:#ffe39a">${LEAGUE.season} · ${won ? 'Champion' : 'The big one'}</div>
+      <div class="kicker" style="color:var(--tx-gold-2)">${LEAGUE.season} · ${won ? 'Champion' : 'The big one'}</div>
       <h1>Season Champion</h1>
       ${won ? `<div class="spot-winner">${avatar(c.leader.id, 'lg')}<b>${esc(userName(c.leader.id))}</b></div><p>${esc(c.leaderText)}</p>
         <button class="btn gold" data-act="cert" data-key="champion">Download certificate</button>`
