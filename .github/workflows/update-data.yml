@@ -41,9 +41,10 @@ jobs:
           end=$(( $(date +%s) + 330 * 60 ))
           ok=0; ok_nhl=0
           while :; do
-            if node scripts/update-data.mjs; then ok=1; else echo "::warning::NBA update failed; trying again next round."; fi
+            # timeout: a round that hangs past 6 minutes is killed so the next one can start.
+            if timeout 360 node scripts/update-data.mjs; then ok=1; else echo "::warning::NBA update failed; trying again next round."; fi
             # Same Supabase project as the NBA league (its tables are in the nhl schema).
-            if LIVE_FLAG="$LIVE_FLAG_NHL" PHS_SPORT=nhl node scripts/update-nhl.mjs; then
+            if LIVE_FLAG="$LIVE_FLAG_NHL" PHS_SPORT=nhl timeout 360 node scripts/update-nhl.mjs; then
               ok_nhl=1
             else
               echo "::warning::NHL update failed; trying again next round."

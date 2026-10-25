@@ -185,7 +185,8 @@ export function buildData({ schedule, boxes, rosters = {}, now = Date.now() }) {
 }
 
 async function getJson(url) {
-  const res = await fetch(url, { headers: HEADERS });
+  // A feed that stalls instead of failing once held the job for hours: give up after 30s, retry next round.
+  const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(30000) });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${url}`);
   return res.json();
 }
