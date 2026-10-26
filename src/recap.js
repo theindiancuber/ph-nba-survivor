@@ -2,14 +2,21 @@
 // copy-and-paste list of fun stats. Built from two league runs, after the night and before it,
 // so everything here is post-lock data the players can already see.
 
-import { LEAGUE, addDays, easternToUtc } from './config.js';
+import { LEAGUE, addDays, easternToUtc, slotValue } from './config.js';
 import { TEAMS, TEAM_BY_ID } from './teams.js';
 import { seasonThrough } from './calendar.js';
-import { fmt } from './league.js';
+import { fmt, clearsBar } from './league.js';
 
 const SLOTS = LEAGUE.slots;
 const INFO = LEAGUE.slotInfo;
-const IDX = { PTS: 0, REB: 1, AST: 2 };
+const HOCKEY = LEAGUE.sport === 'nhl';
+const LINE = LEAGUE.line || {};
+// A night's total in a slot from a day line (NBA: [games, pts, reb, ast, team]; NHL: see
+// addHockeyLine in calendar.js, where a goalie's save percentage is saves over shots).
+const pct = (sv, sa) => sa > 0 ? Math.round(1000 * sv / sa) : 0;
+const nightValue = (s, l) => INFO[s].pct ? pct(l[INFO[s].idx], l[LINE.shots]) : l[INFO[s].idx];
+// Played tonight: a game on the line (a goalie also has to have faced a shot).
+const playedIn = (s, l) => !!l?.[0] && (!INFO[s].pct || l[LINE.shots] > 0);
 
 // A night is over when all its games are final, or by 6am ET the next day (a postponed game
 // shouldn't hold the recap forever).
@@ -67,16 +74,16 @@ const names = list => list.length <= 3 ? list.join(', ') : `${list.slice(0, 3).j
 const ord = n => { const v = n % 100; return n + (['th', 'st', 'nd', 'rd'][(v - 20) % 10] || ['th', 'st', 'nd', 'rd'][v] || 'th'); };
 
 // The fun stats, as plain lines with emoji, ready to paste into a group chat.
-// day: that night's lines { p: { pid: [games, pts, reb, ast, team] }, t: { TRI: [games, wins] } }.
+// day: that night's lines { p: { pid: line }, t: { TRI: [games, wins] } } (lines as in calendar.js).
 export function recapStats({ after, before, W, date, day, schedule, players, label }) {
   const A = weekOf(after, W), B = weekOf(before, W);
   const user = id => after.users[id]?.name || 'Someone';
   const pname = pid => TEAM_BY_ID[pid] ? `${TEAMS[TEAM_BY_ID[pid]].city} ${TEAMS[TEAM_BY_ID[pid]].name}` : players[pid]?.name || `Player #${pid}`;
-  const out = [`🏀 ${LEAGUE.name} · Week ${W} · ${label}`, ''];
+  const out = [`${LEAGUE.emoji} ${LEAGUE.name} · Week ${W} · ${label}`, ''];
   const night = schedule.filter(g => g[1] === date);
   const lines = [];
 
-  // Who picked each player (or team) in each slot this week.
+  // Who picked each player (or team) in each slot this week, plus the Gloves Off bonus pick.
   const pickers = {};
   for (const id of A.entrants) {
     for (const s of SLOTS) {
@@ -85,6 +92,8 @@ export function recapStats({ after, before, W, date, day, schedule, players, lab
       const pid = pickOf(x);
       if (pid != null) ((pickers[s] ||= {})[pid] ||= []).push(id);
     }
+    const b = A.results[id].bonus;
+    if (b && !b.invalid) ((pickers[b.slot] ||= {})[b.pid] ||= []).push(id);
   }
 
   // Best pick of the night in each player slot.
@@ -92,11 +101,14 @@ export function recapStats({ after, before, W, date, day, schedule, players, lab
     let best = null;
     for (const [pid, who] of Object.entries(pickers[s] || {})) {
       const l = day?.p?.[pid];
-      if (!l?.[0]) continue;
-      const v = l[1 + IDX[s]];
-      if (!best || v > best.v) best = { pid, v, who };
+      if (!playedIn(s, l)) continue;
+      const v = nightValue(s, l);
+      if (!best || v > best.v || (v === best.v && INFO[s].pct && l[LINE.shots] > best.l[LINE.shots])) best = { pid, v, l, who };
     }
-    if (best) lines.push(`${INFO[s].emoji} ${INFO[s].name} of the night: ${pname(best.pid)}, ${best.v} ${INFO[s].short} (${names(best.who.map(user))})`);
+    // A minus isn't worth celebrating.
+    if (!best || (INFO[s].signed && best.v <= 0)) continue;
+    const extra = INFO[s].pct ? ` on ${best.l[LINE.shots]} shots` : '';
+    lines.push(`${INFO[s].emoji} ${INFO[s].name} of the night: ${pname(best.pid)}, ${slotValue(s, best.v)} ${INFO[s].short}${extra} (${names(best.who.map(user))})`);
   }
 
   // Dub picks whose team played tonight.
@@ -111,17 +123,20 @@ export function recapStats({ after, before, W, date, day, schedule, players, lab
   }
   if (dub.length) lines.push(`${INFO.WIN.emoji} Dub watch:`, ...dub.map(d => `   ${d}`));
 
-  // Brick of the night: the picked player furthest under his own average.
-  let brick = null;
-  for (const s of LEAGUE.playerSlots) {
-    for (const [pid, who] of Object.entries(pickers[s] || {})) {
-      const l = day?.p?.[pid], avg = players[pid]?.avg?.[IDX[s]];
-      if (!l?.[0] || !(avg >= 3)) continue;
-      const v = l[1 + IDX[s]], ratio = v / avg;
-      if (ratio < 0.6 && (!brick || ratio < brick.ratio)) brick = { pid, s, v, avg, ratio, who };
+  if (HOCKEY) lines.push(...hockeyLines({ pickers, day, user, pname }));
+  else {
+    // Brick of the night: the picked player furthest under his own average.
+    let brick = null;
+    for (const s of LEAGUE.playerSlots) {
+      for (const [pid, who] of Object.entries(pickers[s] || {})) {
+        const l = day?.p?.[pid], avg = players[pid]?.avg?.[INFO[s].avg];
+        if (!l?.[0] || !(avg >= 3)) continue;
+        const v = l[INFO[s].idx], ratio = v / avg;
+        if (ratio < 0.6 && (!brick || ratio < brick.ratio)) brick = { pid, s, v, avg, ratio, who };
+      }
     }
+    if (brick) lines.push(`🧊 Brick of the night: ${pname(brick.pid)}, ${brick.v} ${INFO[brick.s].short} (averages ${fmt(brick.avg)}). Sorry ${names(brick.who.map(user))}`);
   }
-  if (brick) lines.push(`🧊 Brick of the night: ${pname(brick.pid)}, ${brick.v} ${INFO[brick.s].short} (averages ${fmt(brick.avg)}). Sorry ${names(brick.who.map(user))}`);
 
   // Picks who sat while their team played.
   const sat = [];
@@ -129,7 +144,7 @@ export function recapStats({ after, before, W, date, day, schedule, players, lab
     for (const [pid, who] of Object.entries(pickers[s] || {})) {
       const tri = players[pid]?.team;
       const played = night.some(g => g[5] === 3 && (g[3] === tri || g[4] === tri));
-      if (played && !day?.p?.[pid]?.[0]) sat.push(`${pname(pid)} (${names(who.map(user))})`);
+      if (played && !playedIn(s, day?.p?.[pid])) sat.push(`${pname(pid)} (${names(who.map(user))})`);
     }
   }
   if (sat.length) lines.push(`😴 Did not play: ${[...new Set(sat)].join('; ')}`);
@@ -140,7 +155,7 @@ export function recapStats({ after, before, W, date, day, schedule, players, lab
     for (const s of SLOTS) {
       const a = A.results[id].slots[s], b = B.results[id]?.slots[s];
       if (a.missing) continue;
-      if (a.base >= LEAGUE.bars[s] && !(b?.base >= LEAGUE.bars[s])) cleared.push(`${user(id)} ${INFO[s].emoji}`);
+      if (clearsBar(s, a) && !(b && clearsBar(s, b))) cleared.push(`${user(id)} ${INFO[s].emoji}`);
     }
   }
   if (cleared.length) lines.push(`✅ Bars cleared tonight: ${cleared.join(', ')}`);
@@ -164,4 +179,43 @@ export function recapStats({ after, before, W, date, day, schedule, players, lab
 
   if (!lines.length) lines.push('No picks played tonight.');
   return out.concat(lines).join('\n');
+}
+
+// Hockey's own lines: the worst goalie night, the worst plus-minus, hat tricks, fights and
+// Gordie Howe hat tricks by picked players.
+function hockeyLines({ pickers, day, user, pname }) {
+  const out = [];
+  const who = list => names(list.map(user));
+  let sieve = null;
+  for (const [pid, ids] of Object.entries(pickers.SV || {})) {
+    const l = day?.p?.[pid];
+    if (!playedIn('SV', l) || l[LINE.shots] < 10) continue;
+    const v = nightValue('SV', l);
+    if (v < 880 && (!sieve || v < sieve.v)) sieve = { pid, v, l, ids };
+  }
+  if (sieve) {
+    const ga = sieve.l[LINE.shots] - sieve.l[INFO.SV.idx];
+    out.push(`🧀 Sieve of the night: ${pname(sieve.pid)}, ${slotValue('SV', sieve.v)} (${ga} goal${ga === 1 ? '' : 's'} on ${sieve.l[LINE.shots]} shots). Sorry ${who(sieve.ids)}`);
+  }
+  let minus = null;
+  for (const [pid, ids] of Object.entries(pickers.PM || {})) {
+    const l = day?.p?.[pid];
+    if (l?.[0] && l[INFO.PM.idx] <= -2 && (!minus || l[INFO.PM.idx] < minus.v)) minus = { pid, v: l[INFO.PM.idx], ids };
+  }
+  if (minus) out.push(`🧊 Rough night: ${pname(minus.pid)}, ${slotValue('PM', minus.v)}. Sorry ${who(minus.ids)}`);
+
+  // Any skater pick, in any slot.
+  const skaters = {};
+  for (const s of LEAGUE.pickSlots) {
+    if (INFO[s].pos !== 'skater') continue;
+    for (const [pid, ids] of Object.entries(pickers[s] || {})) ids.forEach(id => (skaters[pid] ||= new Set()).add(id));
+  }
+  const tagged = (i, min = 1) => Object.entries(skaters).filter(([pid]) => (day?.p?.[pid]?.[i] || 0) >= min);
+  const hats = tagged(LINE.goals, 3);
+  if (hats.length) out.push(`🎩 Hat trick: ${hats.map(([pid, ids]) => `${pname(pid)}, ${day.p[pid][LINE.goals]} goals (${who([...ids])})`).join('; ')}`);
+  const fights = tagged(LINE.fights);
+  if (fights.length) out.push(`${INFO.FIGHT.emoji} Gloves off: ${fights.map(([pid, ids]) => `${pname(pid)} (${who([...ids])})`).join('; ')}`);
+  const gordie = tagged(LINE.gordie);
+  if (gordie.length) out.push(`🎯 Gordie Howe hat trick: ${gordie.map(([pid, ids]) => `${pname(pid)} (${who([...ids])})`).join('; ')}`);
+  return out;
 }

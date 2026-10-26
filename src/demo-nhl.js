@@ -235,5 +235,7 @@ export function makeDemo() {
   schedule.sort((a, b) => a[2].localeCompare(b[2]));
   // The colleagues play hockey cards from week 5, like the NBA demo.
   const plays = demoPlays({ weeks, totals, picks, unburns: [], profiles, players, now, meId, rand, cardsFrom: CARDS_FROM });
+  // A made-up injury report, so the picker's injury tags show in the demo.
+  for (const [id, inj] of [[8481559, ['IR', 'Shoulder']], [8479318, ['Day-to-day', 'Upper Body']], [8479973, ['Out', 'Lower Body']]]) players[id].inj = inj;
   return { version: 3, now, players, teams, weeks, totals, profiles, picks, unburns: [], plays, decrees: [], votes: [], meId, cardsFrom: CARDS_FROM, schedule, days };
 }

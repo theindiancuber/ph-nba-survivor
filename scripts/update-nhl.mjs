@@ -15,6 +15,7 @@ import { SPORT, LEAGUE, buildWeeks, defaultLockAt } from '../src/config.js';
 import { TEAMS } from '../src/teams.js';
 import { addHockeyLine, totalsThrough } from '../src/calendar.js';
 import { syncSupabase, gamesActive } from './update-data.mjs';
+import { addInjuries } from './injuries.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA = path.join(ROOT, 'nhl', 'data');
@@ -290,6 +291,8 @@ async function main() {
   });
 
   const { weeks, players, teams, totals, calendar, days } = buildData({ schedule, boxes, rosters, now });
+  const prev = (await readJson(path.join(DATA, 'players.json'), null))?.players;
+  await addInjuries({ sport: 'nhl', players, prev, getJson });
   const season = LEAGUE.season;
   await mkdir(path.join(DATA, 'days'), { recursive: true });
   const dayFiles = await Promise.all(Object.entries(days).map(([w, d]) => writeJson(path.join(DATA, 'days', `${w}.json`), { season, week: +w, days: d })));

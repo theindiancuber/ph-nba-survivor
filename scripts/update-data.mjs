@@ -4,7 +4,7 @@
 //   node scripts/update-data.mjs
 //
 // Env (optional): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-// Writes: data/weeks.json, data/players.json, data/teams.json, data/totals.json, data/games/<id>.json
+// Writes: data/weeks.json, data/players.json (with the injury report, scripts/injuries.mjs), data/teams.json, data/totals.json, data/games/<id>.json
 
 import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -14,6 +14,7 @@ import { LEAGUE, buildWeeks, defaultLockAt } from '../src/config.js';
 import { computeLeague, autopilotPicks } from '../src/league.js';
 import { resolveDecrees, decreeCodes } from '../src/decrees.js';
 import { seededDealer } from '../src/cards.js';
+import { addInjuries } from './injuries.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA = path.join(ROOT, 'data');
@@ -358,6 +359,8 @@ async function main() {
   });
 
   const { weeks, players, teams, totals, calendar, days } = buildData({ schedule, boxes, now });
+  const prev = (await readJson(path.join(DATA, 'players.json'), null))?.players;
+  await addInjuries({ sport: 'nba', players, prev, getJson });
   await mkdir(path.join(DATA, 'days'), { recursive: true });
   const dayFiles = await Promise.all(Object.entries(days).map(([w, d]) => writeJson(path.join(DATA, 'days', `${w}.json`), { season: LEAGUE.season, week: +w, days: d })));
   const changed = [

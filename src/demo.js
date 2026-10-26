@@ -215,6 +215,8 @@ export function makeDemo() {
     profiles.filter(p => p.id !== meId).forEach(p => { if (rand() < 0.7) votes.push({ week: next.week, user_id: p.id, choice: Math.floor(rand() * 3) }); });
   }
   const { schedule, days } = demoCalendar({ weeks, totals, players, gameLines, gameWins, now });
+  // A made-up injury report, so the picker's injury tags show in the demo.
+  for (const [id, inj] of [[203954, ['Out', 'Left Knee']], [1630169, ['Day-to-day', 'Hamstring']], [201939, ['Questionable', 'Ankle']]]) players[id].inj = inj;
   return { version: 6, now, players, teams, weeks, totals, profiles, picks, unburns, plays, decrees, votes, meId, cardsFrom: CARDS_FROM, schedule, days };
 }
 
