@@ -43,12 +43,12 @@ if (!base) {
 if (!base.endsWith('/')) base += '/';
 console.log(`Smoke test: ${base}`);
 
-// The leagues on the site. The NHL league has no card game or nightly recap yet.
+// The leagues on the site.
 const ALL_VIEWS = ['week', 'calendar', 'cards', 'standings', 'survivor', 'results', 'burns', 'rivals', 'trophies', 'rules', 'admin'];
 const ALL_ADMIN = ['members', 'recap', 'rules', 'decrees', 'insights'];
 const LEAGUES = [
   { name: 'NBA', path: '', views: ALL_VIEWS, admin: ALL_ADMIN, calendar: true },
-  { name: 'NHL', path: 'nhl/', views: ALL_VIEWS, admin: ALL_ADMIN.filter(t => t !== 'recap'), calendar: true },
+  { name: 'NHL', path: 'nhl/', views: ALL_VIEWS, admin: ALL_ADMIN, calendar: true },
 ];
 
 // ---- Data files ----

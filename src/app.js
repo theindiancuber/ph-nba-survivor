@@ -209,7 +209,7 @@ async function refresh() {
     S.isAdmin = S.me ? await S.backend.isAdmin().catch(() => false) : false;
     S.adminData = null;
     // The commissioner's tab shows a dot when a night's recap is ready, which needs the schedule.
-    if (S.isAdmin && !S.cal && SPORT === 'nba') loadCalendar();
+    if (S.isAdmin && !S.cal) loadCalendar();
   }
   if (!S.draft || !S.draft.dirty || S.draft.week !== S.league.openWeek) resetDraft();
   render();
@@ -263,6 +263,14 @@ function thumb(pid, cls = '') {
   const c = TEAMS[p?.team]?.c1 || '#1d3361';
   const img = pid != null ? headshot(pid, p) : '';
   return `<div class="thumb ${cls}" style="--tc1:${c}"><span class="mini">${esc(initials(p?.name))}</span>${img ? `<img src="${img}" alt="" loading="lazy">` : ''}</div>`;
+}
+
+// A player's injury status from the data job's report, after his name: "(Out)", "(Day-to-day)", "(IR)".
+const INJ_SOFT = new Set(['Day-to-day', 'Questionable', 'Probable']);
+function injTag(pid) {
+  const inj = player(pid)?.inj;
+  if (!inj?.[0]) return '';
+  return ` <span class="inj${INJ_SOFT.has(inj[0]) ? ' soft' : ''}">(${esc(inj[0])}${inj[1] ? ` · ${esc(inj[1])}` : ''})</span>`;
 }
 
 function gchip(n) {
@@ -578,11 +586,11 @@ function slotCard(s, open, u, d) {
       <span class="mono">${esc(initials(p?.name))}</span>
       ${shot ? `<img class="shot" src="${shot}" alt="">` : ''}
     </div>
-    <div class="player-info"><div class="pname">${esc(pname(sel.player_id))}</div><div class="pmeta">${esc(t ? `${t.city} ${t.name}` : p?.team || '')}${p?.pos ? ` · ${esc(p.pos)}` : ''}</div>
+    <div class="player-info"><div class="pname">${esc(pname(sel.player_id))}${injTag(sel.player_id)}</div><div class="pmeta">${esc(t ? `${t.city} ${t.name}` : p?.team || '')}${p?.pos ? ` · ${esc(p.pos)}` : ''}</div>
       ${openCw()?.embargo[s]?.has(sel.player_id) ? `<div class="err" style="margin-top:6px">${CARDS.embargo.icon} ${HOCKEY ? 'In the sin bin' : 'Embargoed'} this week by ${esc(userName(openCw().embargo[s].get(sel.player_id).user_id))}. He can't score here: change the pick or add a backup.</div>` : ''}</div>
     <div class="statline">${stats.map(([v, l]) => `<div><b>${typeof v === 'number' ? fmt(v) : v}</b><small>${l}</small></div>`).join('')}</div>
     <div class="slot-foot">
-      ${bonus ? `<div class="alt-row"><span class="lbl">Burn</span><span class="dim">Only if he fights</span></div>` : `<div class="alt-row"><span class="lbl">Backup</span>${sel.alt_id ? `${thumb(sel.alt_id, 'sm')}<span>${esc(shortName(sel.alt_id))}</span><button class="link danger" data-act="clear-alt" data-slot="${s}">Remove</button>` : `<span class="dim">If he ${INFO[s].pct ? `faces under ${LEAGUE.minShots} shots` : 'sits all week'}</span><button class="link" data-act="pick" data-slot="${s}" data-which="alt">+ Add</button>`}</div>`}
+      ${bonus ? `<div class="alt-row"><span class="lbl">Burn</span><span class="dim">Only if he fights</span></div>` : `<div class="alt-row"><span class="lbl">Backup</span>${sel.alt_id ? `${thumb(sel.alt_id, 'sm')}<span>${esc(shortName(sel.alt_id))}${injTag(sel.alt_id)}</span><button class="link danger" data-act="clear-alt" data-slot="${s}">Remove</button>` : `<span class="dim">If he ${INFO[s].pct ? `faces under ${LEAGUE.minShots} shots` : 'sits all week'}</span><button class="link" data-act="pick" data-slot="${s}" data-which="alt">+ Add</button>`}</div>`}
       ${ddFoot}${actions}
     </div>
   </div>`;
@@ -684,7 +692,7 @@ function pickerRows() {
   return rows.map(({ p, games, avg, proj, why, used }) => `
     <button class="prow" data-act="choose" data-pid="${p.id}" ${why ? 'disabled' : ''}>
       ${thumb(p.id)}
-      <div><div class="nm">${esc(p.name)}</div>
+      <div><div class="nm">${esc(p.name)}${injTag(p.id)}</div>
         <div class="mt">${teamLogo(p.team) ? `<img src="${teamLogo(p.team)}" alt="">` : ''}${esc(p.team)}${p.pos ? ` · ${esc(p.pos)}` : ''} ${gchip(games)} <span>${avgLabel(avg, p)}${p.pre ? ' (preseason)' : ''}</span>${used ? ` <span class="dim">used ${used} of ${limit}</span>` : ''}${why ? ` <span class="blocked">${esc(why)}</span>` : ''}</div></div>
       ${info.bonus ? '<div></div>' : `<div class="proj"><b>${info.pct ? V(slot, Math.round(proj)) : avgText(slot, Math.round(proj))}</b><small>Proj</small></div>`}
     </button>`).join('');
@@ -2153,7 +2161,7 @@ function adminRecap() {
     return `<section class="panel">${nav}<div class="empty-state"><div class="ic">⏳</div><b>Loading the night's stats…</b></div></section>`;
   }
   if (!days[date]) {
-    return `<section class="panel">${nav}<div class="recap-status">${status}</div><div class="empty-state"><div class="ic">🏀</div><b>No box scores for this night yet.</b><p class="muted">They show here once the first game tips off.</p></div></section>`;
+    return `<section class="panel">${nav}<div class="recap-status">${status}</div><div class="empty-state"><div class="ic">${LEAGUE.emoji}</div><b>No box scores for this night yet.</b><p class="muted">They show here once the first game ${HOCKEY ? 'starts' : 'tips off'}.</p></div></section>`;
   }
   if (st.over && date === recapLatest()) { try { localStorage.setItem(recapSeenKey(), date); } catch { /* storage blocked */ } }
   const after = dayLeague(w, date), before = dayLeague(w, addDays(date, -1));
@@ -2302,9 +2310,7 @@ async function drawRecap() {
   right(`Stats from ${W_.sourceShort}`, W - PAD, fy + 34);
 }
 
-// The nightly recap needs day-by-day lines, which only the NBA data job writes so far.
-const ADMIN_TABS = [['members', 'Members', '👥'], ['recap', 'Nightly recap', '📸'], ['rules', 'Rules & settings', '⚙️'], ['decrees', 'Decrees', '📜'], ['insights', 'Insights', '📈']]
-  .filter(([k]) => k !== 'recap' || SPORT === 'nba');
+const ADMIN_TABS = [['members', 'Members', '👥'], ['recap', 'Nightly recap', '📸'], ['rules', 'Rules & settings', '⚙️'], ['decrees', 'Decrees', '📜'], ['insights', 'Insights', '📈']];
 
 // ---- League settings (Commissioner tab) ----
 

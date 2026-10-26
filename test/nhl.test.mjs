@@ -335,3 +335,60 @@ test('the NHL demo has a schedule whose days add up to its weekly totals', async
     assert.deepEqual(totalsThrough(d.days[w.week], w.end).p, d.totals[w.week].p, `week ${w.week}`);
   }
 });
+
+test('the nightly recap works for hockey: save percentage, plus-minus, fights and the hockey extras', async () => {
+  const { makeDemo } = await import('../src/demo-nhl.js');
+  const { totalsThrough } = await import('../src/calendar.js');
+  const { recapBoard, recapStats } = await import('../src/recap.js');
+  const s = makeDemo();
+  const args = { weeks: s.weeks, totals: s.totals, picks: s.picks, unburns: s.unburns, plays: s.plays, profiles: s.profiles, now: s.now, players: s.players, cardsFrom: s.cardsFrom };
+  const W = 6;
+  const run = date => computeLeague({ ...args, weeks: s.weeks.map(x => x.week === W ? { ...x, final: false } : x), totals: { ...s.totals, [W]: totalsThrough(s.days[W], date) } });
+  const dates = Object.keys(s.days[W]).sort();
+  const [prev, date] = dates;
+  const after = run(date), before = run(prev);
+  const board = recapBoard(after, before, W, 'season');
+  assert.equal(board.length, s.profiles.length);
+
+  // A night where a picked goalie, a plus-minus pick and a fighter all show up, made up on top of the demo's.
+  const pick = slot => Object.keys(after.weeks.find(w => w.week === W).results).map(id => after.weeks.find(w => w.week === W).results[id].slots[slot]).find(x => x.scorer != null)?.scorer;
+  const goalie = pick('SV'), pm = pick('PM'), pts = pick('PTS');
+  const day = structuredClone(s.days[W][date]);
+  day.p[goalie] = [1, 0, 0, 40, 40, 42, 952, 40, 42, 952, s.players[goalie].team, 42, 0, 0, 0];
+  day.p[pm] = [1, 1, 3, 0, 1, 3, 0, 1, 3, 0, s.players[pm].team, 0, 0, 0, 0];
+  day.p[pts] = [1, 4, 1, 0, 4, 1, 0, 4, 1, 0, s.players[pts].team, 0, 1, 3, 1];
+  const text = recapStats({ after, before, W, date, day, schedule: s.schedule, players: s.players, label: 'Tue' });
+  assert.match(text, /^🏒 Peakhill NHL Survivor · Week 6 · Tue/);
+  assert.match(text, /The Wall of the night: .+, \.952 SV% on 42 shots/);
+  assert.match(text, /Shutdown of the night: .+, \+3 \+\/-/);
+  assert.match(text, /Lamplighter of the night: .+, 4 PTS/);
+  assert.match(text, /🎩 Hat trick: .+, 3 goals/);
+  assert.match(text, /🥊 Gloves off: /);
+  assert.match(text, /Gordie Howe hat trick: /);
+  assert.doesNotMatch(text, /undefined|NaN/);
+
+  // A bad night in net and a minus night.
+  day.p[goalie] = [1, 0, 0, 20, 20, 26, 769, 20, 26, 769, s.players[goalie].team, 26, 0, 0, 0];
+  day.p[pm] = [1, 0, -3, 0, 0, -3, 0, 0, -3, 0, s.players[pm].team, 0, 0, 0, 0];
+  const bad = recapStats({ after, before, W, date, day, schedule: s.schedule, players: s.players, label: 'Tue' });
+  assert.match(bad, /🧀 Sieve of the night: .+, \.769 \(6 goals on 26 shots\)/);
+  assert.match(bad, /🧊 Rough night: .+, −3/);
+});
+
+test('the injury report is matched to NHL players by name, and kept when the feed is down', async () => {
+  const { parseInjuries, addInjuries } = await import('../scripts/injuries.mjs');
+  const players = {
+    1: { id: 1, name: 'Auston Matthews', team: 'TOR' },
+    2: { id: 2, name: 'Sebastian Aho', team: 'CAR' },
+    3: { id: 3, name: 'Sebastian Aho', team: 'NYI' },
+  };
+  const feed = { injuries: [
+    { displayName: 'Toronto Maple Leafs', injuries: [{ status: 'Day-To-Day', athlete: { displayName: 'Auston Matthews' }, details: { type: 'Upper Body' } }] },
+    { displayName: 'New York Islanders', injuries: [{ status: 'Injured Reserve', athlete: { displayName: 'Sebastian Aho' } }] },
+  ] };
+  assert.deepEqual(parseInjuries(feed, players), { 1: ['Day-to-day', 'Upper Body'], 3: ['IR', ''] });
+  const fresh = structuredClone(players);
+  await addInjuries({ sport: 'nhl', players: fresh, prev: { 1: { id: 1, inj: ['Out', ''] } }, getJson: async () => { throw new Error('down'); } });
+  assert.deepEqual(fresh[1].inj, ['Out', '']);
+  assert.equal(fresh[2].inj, undefined);
+});

@@ -512,6 +512,9 @@ div.own-row:has(> .tag:first-child) { display: flex; padding: 10px 12px; border-
 .gchip.g4 { background: rgba(52, 211, 153, .14); color: var(--tx-mint); }
 .gchip.g2 { background: rgba(240, 53, 90, .14); color: var(--tx-pink-2); }
 .blocked { font: 600 10.5px/1 var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--tx-pink); }
+/* Injury status after a player's name: red when he's out, gold when he might play */
+.inj { font: 600 .82em/1 var(--body); color: var(--tx-pink-3); white-space: nowrap; }
+.inj.soft { color: var(--tx-gold-3); }
 
 /* ---------- Auth ---------- */
 .auth-wrap { min-height: calc(100vh - 150px); display: grid; grid-template-columns: 1.1fr .9fr; gap: 40px; align-items: center; max-width: 1100px; margin: 0 auto; padding: 24px 8px; }
