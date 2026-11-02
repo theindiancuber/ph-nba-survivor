@@ -392,3 +392,19 @@ test('the injury report is matched to NHL players by name, and kept when the fee
   assert.deepEqual(fresh[1].inj, ['Out', '']);
   assert.equal(fresh[2].inj, undefined);
 });
+
+test('the weekly wrap-up names who lost a life and who is out, as of that week', async () => {
+  const { makeDemo } = await import('../src/demo-nhl.js');
+  const { weekBoard, weekRecapStats } = await import('../src/recap.js');
+  const s = makeDemo();
+  const L = computeLeague({ weeks: s.weeks, totals: s.totals, picks: s.picks, unburns: s.unburns, plays: s.plays, profiles: s.profiles, now: s.now, players: s.players, cardsFrom: s.cardsFrom });
+  const wk = L.weeks.find(w => w.status === 'final' && Object.values(w.results).some(r => r.lifeLost));
+  const board = weekBoard(L, wk.week, 'week');
+  const lost = board.filter(r => r.lifeLost);
+  assert.ok(lost.length);
+  const text = weekRecapStats({ league: L, W: wk.week, players: s.players });
+  assert.match(text, new RegExp(`^🏒 Peakhill NHL Survivor · Week ${wk.week} wrap-up`));
+  for (const r of lost) assert.ok(text.includes(r.out ? r.name : `${r.name} (${r.lives} left)`), r.name);
+  assert.match(text, /The Wall of the week: .+, \.\d{3} SV%/);
+  assert.doesNotMatch(text, /undefined|NaN/);
+});

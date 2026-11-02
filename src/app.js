@@ -1,6 +1,6 @@
 import { LEAGUE, SPORT, buildWeeks, defaultLockAt, MONTH_LABELS, addDays, slotValue } from './config.js';
 import { weekDays, totalsThrough, etDate, seasonThrough } from './calendar.js';
-import { nightStatus, recapNights, recapBoard, recapStats } from './recap.js';
+import { nightStatus, recapNights, recapBoard, recapStats, recapWeeks, weekBoard, weekRecapStats } from './recap.js';
 import { computeLeague, headToHead, blockedReason, projection, teamProjection, fmt, eligible, clearsBar, savePct, SWAP_SLOTS } from './league.js';
 import { TEAMS, TEAM_BY_ID, DIVISIONS, isTeamId, teamLogo, headshot } from './teams.js';
 import { SupabaseBackend, DemoBackend } from './backend.js';
@@ -2127,14 +2127,83 @@ function recapLatest() {
   return [...nights].reverse().find(d => nightStatus(S.cal.schedule, d, now()).over) || null;
 }
 const recapSeenKey = () => `phs-recap-${myId()}`;
+const weekSeenKey = () => `phs-recap-week-${myId()}`;
+// The latest week that's final, for the weekly wrap-up's "New" dot.
+const recapLatestWeek = () => [...recapWeeks(S.league)].reverse().find(W => weekObj(W).status === 'final') ?? null;
 function recapDot() {
   if (!S.isAdmin) return false;
-  const d = recapLatest();
-  if (!d) return false;
-  try { return (localStorage.getItem(recapSeenKey()) || '') < d; } catch { return false; }
+  const d = recapLatest(), W = recapLatestWeek();
+  try {
+    return (!!d && (localStorage.getItem(recapSeenKey()) || '') < d) || (W != null && +(localStorage.getItem(weekSeenKey()) || 0) < W);
+  } catch { return false; }
 }
 
+// Nightly or weekly: the switch above both.
 function adminRecap() {
+  const mode = S.recapMode === 'week' ? 'week' : 'night';
+  const seg = `<div class="seg recap-seg recap-mode" role="group" aria-label="Which recap">
+      <button data-act="recap-mode" data-mode="night" aria-pressed="${mode === 'night'}">Nightly</button>
+      <button data-act="recap-mode" data-mode="week" aria-pressed="${mode === 'week'}">Weekly</button>
+    </div>`;
+  return seg + (mode === 'week' ? adminWeekRecap() : adminNightRecap());
+}
+
+function recapPanels({ kind, W, label, text }) {
+  const canShare = typeof navigator.canShare === 'function';
+  return `<div class="split recap-split">
+      <section class="panel">
+        <div class="panel-title"><h3>Leaderboard image</h3>
+          <div class="seg recap-seg" role="group" aria-label="Which leaderboard">
+            <button data-act="recap-board" data-kind="season" aria-pressed="${kind === 'season'}">Season</button>
+            <button data-act="recap-board" data-kind="week" aria-pressed="${kind === 'week'}">Week ${W}</button>
+          </div></div>
+        <canvas id="recap-canvas" class="recap-canvas" role="img" aria-label="Leaderboard ${esc(label)}"></canvas>
+        <div class="recap-actions">
+          ${canShare ? '<button class="btn primary" data-act="recap-share">Share…</button>' : ''}
+          <button class="btn ${canShare ? '' : 'primary'}" data-act="recap-download">Download image</button>
+          <button class="btn" data-act="recap-copy-img">Copy image</button>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-title"><h3>Fun stats</h3><button class="btn small primary" data-act="recap-copy-text">Copy text</button></div>
+        <textarea class="input recap-text" readonly rows="18" aria-label="Fun stats to copy">${esc(text)}</textarea>
+        <p class="dim" style="font-size:12px;margin:8px 0 0">Everything here comes from picks that have already locked, so it's safe to share.</p>
+      </section>
+    </div>`;
+}
+
+// The weekly wrap-up: the week's standings with lives lost, and the week's fun stats.
+function adminWeekRecap() {
+  const weeks = recapWeeks(S.league);
+  if (!weeks.length) return `<section class="panel empty-state"><div class="ic">📸</div><b>No weeks to wrap up yet.</b><p class="muted">Once a week locks, its standings and fun stats show here. Lives settle the moment its last game is final.</p></section>`;
+  const latest = recapLatestWeek();
+  const W = weeks.includes(S.recapWeekNo) ? S.recapWeekNo : latest ?? weeks[weeks.length - 1];
+  const w = weekObj(W), i = weeks.indexOf(W);
+  const final = w.status === 'final';
+  if (final && W === latest) { try { localStorage.setItem(weekSeenKey(), String(W)); } catch { /* storage blocked */ } }
+  const games = w.games ?? Object.values(w.gamesByTeam || {}).reduce((a, n) => a + n, 0) / 2;
+  const left = Object.values(w.leftByTeam || {}).reduce((a, n) => a + n, 0) / 2;
+  const nav = `<div class="recap-nav">
+      <button class="btn small icon" data-act="recap-week" data-week="${weeks[i - 1] ?? ''}" ${i > 0 ? '' : 'disabled'} aria-label="Week before">‹</button>
+      <div><b>Week ${W}</b><span class="muted">${dshort(w.start)} – ${dshort(w.end)}${games ? ` · ${games} game${games === 1 ? '' : 's'}` : ''}</span></div>
+      <button class="btn small icon" data-act="recap-week" data-week="${weeks[i + 1] ?? ''}" ${i < weeks.length - 1 ? '' : 'disabled'} aria-label="Week after">›</button>
+    </div>`;
+  const status = final ? `<span class="badge open">Final · lives settled</span>`
+    : `<span class="badge live">In progress${left ? ` · ${left} game${left === 1 ? '' : 's'} to go` : ''}</span> <span class="muted">Lives settle when the week's last game is final.</span>`;
+  const kind = S.recapKind === 'season' ? 'season' : 'week';
+  const rows = weekBoard(S.league, W, kind);
+  const text = weekRecapStats({ league: S.league, W, players: S.data.players });
+  const label = final ? 'final' : 'so far';
+  S.recap = { mode: 'week', date: `week-${W}`, rows, kind, W, label, final, text };
+  return `<section class="panel">
+      <div class="panel-title"><h2>Weekly recap</h2><span class="muted">Ready when the week's last game is final</span></div>
+      ${nav}
+      <div class="recap-status">${status}</div>
+    </section>
+    ${recapPanels({ kind, W, label: `after Week ${W}`, text })}`;
+}
+
+function adminNightRecap() {
   const c = S.cal;
   if (!c?.schedule) {
     if (!DEMO && !c?.err) queueMicrotask(() => loadCalendar());
@@ -2168,33 +2237,13 @@ function adminRecap() {
   const kind = S.recapKind === 'week' ? 'week' : 'season';
   const rows = recapBoard(after, before, w.week, kind);
   const text = recapStats({ after, before, W: w.week, date, day: days[date], schedule: c.schedule, players: S.data.players, label });
-  S.recap = { date, rows, kind, W: w.week, label, final: st.over, text };
-  const canShare = typeof navigator.canShare === 'function';
+  S.recap = { mode: 'night', date, rows, kind, W: w.week, label, final: st.over, text };
   return `<section class="panel">
       <div class="panel-title"><h2>Nightly recap</h2><span class="muted">Ready after each night's last game</span></div>
       ${nav}
       <div class="recap-status">${status}</div>
     </section>
-    <div class="split recap-split">
-      <section class="panel">
-        <div class="panel-title"><h3>Leaderboard image</h3>
-          <div class="seg recap-seg" role="group" aria-label="Which leaderboard">
-            <button data-act="recap-board" data-kind="season" aria-pressed="${kind === 'season'}">Season</button>
-            <button data-act="recap-board" data-kind="week" aria-pressed="${kind === 'week'}">Week ${w.week}</button>
-          </div></div>
-        <canvas id="recap-canvas" class="recap-canvas" role="img" aria-label="Leaderboard after ${esc(label)}"></canvas>
-        <div class="recap-actions">
-          ${canShare ? '<button class="btn primary" data-act="recap-share">Share…</button>' : ''}
-          <button class="btn ${canShare ? '' : 'primary'}" data-act="recap-download">Download image</button>
-          <button class="btn" data-act="recap-copy-img">Copy image</button>
-        </div>
-      </section>
-      <section class="panel">
-        <div class="panel-title"><h3>Fun stats</h3><button class="btn small primary" data-act="recap-copy-text">Copy text</button></div>
-        <textarea class="input recap-text" readonly rows="18" aria-label="Fun stats to copy">${esc(text)}</textarea>
-        <p class="dim" style="font-size:12px;margin:8px 0 0">Everything here comes from picks that have already locked, so it's safe to share.</p>
-      </section>
-    </div>`;
+    ${recapPanels({ kind, W: w.week, label: `after ${label}`, text })}`;
 }
 
 const recapFile = () => `peakhill-${S.recap?.kind || 'season'}-${S.recap?.date || 'recap'}.png`;
@@ -2262,11 +2311,13 @@ async function drawRecap() {
   spaced(1); font('700 96px Oswald, "Arial Narrow", sans-serif', '#f5f6f8');
   c.fillText(R.kind === 'week' ? `WEEK ${R.W} STANDINGS` : 'LEADERBOARD', PAD, 236);
   spaced(0); font('500 28px Geist, sans-serif', '#d3d7df');
-  c.fillText(`Week ${R.W} · after ${R.label}`, PAD, 284);
+  c.fillText(R.mode === 'week' ? `Week ${R.W} · ${R.label}` : `Week ${R.W} · after ${R.label}`, PAD, 284);
 
   // Columns: rank, move, name, then three numbers on the right.
   const X = { rank: PAD + 6, move: PAD + 64, name: PAD + 140, a: 744, b: 870, c: W - PAD - 8 };
-  const cols = R.kind === 'week' ? ['BARS', 'TONIGHT', 'WEEK'] : ['TONIGHT', 'WEEK', 'SEASON'];
+  const weekly = R.mode === 'week';
+  const cols = weekly ? (R.kind === 'week' ? ['BARS', 'SEASON', 'WEEK'] : ['BARS', 'WEEK', 'SEASON'])
+    : R.kind === 'week' ? ['BARS', 'TONIGHT', 'WEEK'] : ['TONIGHT', 'WEEK', 'SEASON'];
   spaced(2); font('600 15px Geist, sans-serif', '#646b79');
   c.fillText('#', X.rank, TOP - 22); c.fillText('PLAYER', X.name, TOP - 22);
   right(cols[0], X.a, TOP - 22); right(cols[1], X.b, TOP - 22); right(cols[2], X.c, TOP - 22);
@@ -2286,13 +2337,25 @@ async function drawRecap() {
     c.fillText(name, X.name, mid);
     // Lives as small dots after the name (season board), or OUT.
     let lx = X.name + c.measureText(name).width + 18;
-    if (R.kind === 'season') {
-      if (r.out) { font('600 15px Geist, sans-serif', '#f0355a'); spaced(2); c.fillText('OUT', lx, mid - 3); spaced(0); }
-      else for (let k = 0; k < LEAGUE.lives; k++) { c.fillStyle = k < r.lives ? '#f0355a' : 'rgba(255,255,255,.14)'; c.beginPath(); c.arc(lx + k * 16, mid - 9, 5, 0, Math.PI * 2); c.fill(); }
+    // Weekly: a ring marks the life lost this week.
+    if (R.kind === 'season' || weekly) {
+      if (r.out) { font('600 15px Geist, sans-serif', '#f0355a'); spaced(2); c.fillText(weekly && r.lifeLost ? 'OUT THIS WEEK' : 'OUT', lx, mid - 3); spaced(0); }
+      else for (let k = 0; k < LEAGUE.lives; k++) {
+        c.beginPath(); c.arc(lx + k * 16, mid - 9, 5, 0, Math.PI * 2);
+        if (k < r.lives) { c.fillStyle = '#f0355a'; c.fill(); }
+        else if (weekly && r.lifeLost && k === r.lives) { c.strokeStyle = '#f0355a'; c.lineWidth = 2; c.stroke(); }
+        else { c.fillStyle = 'rgba(255,255,255,.14)'; c.fill(); }
+      }
     }
     const tonight = r.tonight ? signed(r.tonight) : '0';
     const tColor = r.tonight > 0 ? '#34d399' : r.tonight < 0 ? '#f0355a' : '#646b79';
-    if (R.kind === 'week') {
+    if (weekly) {
+      const ok = (r.cleared ?? 0) >= LEAGUE.barsToSurvive;
+      font('500 24px "Geist Mono", monospace', r.cleared == null ? '#646b79' : ok ? '#34d399' : '#f0355a'); right(r.cleared == null ? '–' : `${r.cleared}/${SLOTS.length}`, X.a, mid);
+      const [b, cc] = R.kind === 'week' ? [r.season, r.week] : [r.week, r.season];
+      font('500 26px Geist, sans-serif', '#d3d7df'); right(fmt(b), X.b, mid);
+      font('700 30px Geist, sans-serif', '#f5f6f8'); right(fmt(cc), X.c, mid);
+    } else if (R.kind === 'week') {
       font('500 24px "Geist Mono", monospace', '#9198a6'); right(`${r.cleared ?? 0}/${SLOTS.length}`, X.a, mid);
       font('500 24px "Geist Mono", monospace', tColor); right(tonight, X.b, mid);
       font('700 30px Geist, sans-serif', '#f5f6f8'); right(fmt(r.week), X.c, mid);
@@ -2306,11 +2369,12 @@ async function drawRecap() {
   const fy = TOP + R.rows.length * ROW + 44;
   c.fillStyle = 'rgba(255,255,255,.1)'; c.fillRect(PAD, fy - 6, W - PAD * 2, 1);
   font('500 19px Geist, sans-serif', '#646b79');
-  c.fillText(R.kind === 'week' ? 'Tonight = week points gained tonight · Bars = survival bars cleared' : 'Tonight = points gained tonight · dots = lives left', PAD, fy + 34);
+  c.fillText(weekly ? `Bars = survival bars cleared (${LEAGUE.barsToSurvive} to survive) · dots = lives left${R.final ? ' · ring = lost this week' : ''}`
+    : R.kind === 'week' ? 'Tonight = week points gained tonight · Bars = survival bars cleared' : 'Tonight = points gained tonight · dots = lives left', PAD, fy + 34);
   right(`Stats from ${W_.sourceShort}`, W - PAD, fy + 34);
 }
 
-const ADMIN_TABS = [['members', 'Members', '👥'], ['recap', 'Nightly recap', '📸'], ['rules', 'Rules & settings', '⚙️'], ['decrees', 'Decrees', '📜'], ['insights', 'Insights', '📈']];
+const ADMIN_TABS = [['members', 'Members', '👥'], ['recap', 'Recaps', '📸'], ['rules', 'Rules & settings', '⚙️'], ['decrees', 'Decrees', '📜'], ['insights', 'Insights', '📈']];
 
 // ---- League settings (Commissioner tab) ----
 
@@ -3220,6 +3284,8 @@ const ACTIONS = {
   'cal-mine': () => { S.calMine = !S.calMine; render(); },
   'recap-night': el => { S.recapDate = el.dataset.date; render(); },
   'recap-board': el => { S.recapKind = el.dataset.kind; render(); },
+  'recap-mode': el => { S.recapMode = el.dataset.mode; render(); },
+  'recap-week': el => { S.recapWeekNo = +el.dataset.week; render(); },
   'recap-download': () => recapBlob().then(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = recapFile(); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); }),
   'recap-copy-img': async () => {
     try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': recapBlob() })]); toast('Image copied. Paste it into the chat.'); } catch { toast("This browser can't copy images. Use Download instead.", true); }

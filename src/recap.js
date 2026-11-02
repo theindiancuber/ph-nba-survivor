@@ -219,3 +219,93 @@ function hockeyLines({ pickers, day, user, pname }) {
   if (gordie.length) out.push(`🎯 Gordie Howe hat trick: ${gordie.map(([pid, ids]) => `${pname(pid)} (${who([...ids])})`).join('; ')}`);
   return out;
 }
+
+// ---- Weekly wrap-up: the week's standings, who lost a life, and the week's fun stats ----
+
+// Weeks to wrap up: every week that has locked, oldest first.
+export const recapWeeks = league => league.weeks.filter(w => w.status !== 'open' && w.entrants.length).map(w => w.week);
+
+// Leaderboard rows after week W. kind 'week': the week's entrants, by week points.
+// kind 'season': everyone with points, by season points through W, with movement since the week before.
+export function weekBoard(L, W, kind = 'week') {
+  const A = weekOf(L, W);
+  const ids = kind === 'week' ? A.entrants
+    : Object.values(L.users).filter(u => A.entrants.includes(u.id) || Object.values(u.weekly).some(v => v)).map(u => u.id);
+  const week = id => A.results[id]?.score || 0;
+  const season = id => seasonThrough(L, L.users[id], W);
+  const now = rankBy(ids, kind === 'week' ? week : season);
+  const first = L.weeks[0]?.week ?? W;
+  const then = kind === 'season' && W > first ? rankBy(ids, id => seasonThrough(L, L.users[id], W - 1)) : null;
+  return now.order.map(id => {
+    const lives = L.users[id].livesAfter?.[W] ?? L.users[id].lives;
+    return {
+      id, name: L.users[id].name, rank: now.rank[id], move: then ? then.rank[id] - now.rank[id] : null,
+      week: week(id), season: season(id), cleared: A.results[id]?.cleared ?? null,
+      lives, out: lives <= 0, lifeLost: !!A.results[id]?.lifeLost,
+    };
+  });
+}
+
+// The week's fun stats, ready to paste into a group chat.
+export function weekRecapStats({ league: L, W, players }) {
+  const A = weekOf(L, W);
+  const user = id => L.users[id]?.name || 'Someone';
+  const pname = pid => TEAM_BY_ID[pid] ? `${TEAMS[TEAM_BY_ID[pid]].city} ${TEAMS[TEAM_BY_ID[pid]].name}` : players[pid]?.name || `Player #${pid}`;
+  const final = A.status === 'final';
+  const out = [`${LEAGUE.emoji} ${LEAGUE.name} · Week ${W} ${final ? 'wrap-up' : 'so far'}`, ''];
+  const lines = [];
+  const board = weekBoard(L, W, 'week');
+
+  // The week's podium.
+  const medals = ['🥇', '🥈', '🥉'];
+  for (const [i, m] of medals.entries()) {
+    const at = board.filter(r => r.rank === i + 1);
+    if (at.length) lines.push(`${m} ${names(at.map(r => r.name))}, ${fmt(at[0].week)} pts`);
+  }
+
+  // Best pick of the week in each slot, and who had him.
+  for (const s of SLOTS) {
+    let best = null;
+    for (const id of A.entrants) {
+      const x = A.results[id].slots[s];
+      if (x.missing || x.copy || x.scorer == null) continue;
+      if (!best || x.value > best.v) best = { pid: x.scorer, v: x.value, who: [id] };
+      else if (x.value === best.v && x.scorer === best.pid) best.who.push(id);
+    }
+    if (best && !(INFO[s].signed && best.v <= 0)) lines.push(`${INFO[s].emoji} ${INFO[s].name} of the week: ${pname(best.pid)}, ${s === 'WIN' ? `${best.v} win${best.v === 1 ? '' : 's'}` : `${slotValue(s, best.v)} ${INFO[s].short}`} (${names(best.who.map(user))})`);
+  }
+
+  // The week's awards (Galaxy Brain, Heater, The Fumble, Ice Cold, Chalk Merchant).
+  const awards = A.awards || [];
+  for (const a of awards.filter(x => x.key !== 'fumble')) lines.push(`${a.icon} ${a.title}: ${user(a.user)}${a.pid != null ? ` (${pname(a.pid)})` : ''}, ${a.text}`);
+  const fumbles = awards.filter(x => x.key === 'fumble');
+  if (fumbles.length) lines.push(`${fumbles[0].icon} ${fumbles[0].title} (never took the ${LEAGUE.words.surface}): ${fumbles.map(a => `${pname(a.pid)} (${user(a.user)})`).join('; ')}`);
+
+  // Survival.
+  const bars = SLOTS.map(s => `${INFO[s].emoji} ${A.entrants.filter(id => !A.results[id].slots[s].missing && clearsBar(s, A.results[id].slots[s])).length}`);
+  lines.push(`📊 Bars cleared: ${bars.join(' · ')} (of ${A.entrants.length})`);
+  if (final) {
+    const lost = board.filter(r => r.lifeLost);
+    const gone = lost.filter(r => r.out);
+    const hurt = lost.filter(r => !r.out);
+    if (hurt.length) lines.push(`💔 Lost a life: ${hurt.map(r => `${r.name} (${r.lives} left)`).join(', ')}`);
+    if (gone.length) lines.push(`☠️ Eliminated: ${gone.map(r => r.name).join(', ')}`);
+    if (!lost.length) lines.push('🛡️ Everyone survived the week');
+    const alive = Object.values(L.users).filter(u => A.entrants.includes(u.id) || Object.values(u.weekly).some(v => v)).filter(u => (u.livesAfter?.[W] ?? u.lives) > 0).length;
+    lines.push(`❤️ Still alive: ${alive}`);
+  } else {
+    const shaky = board.filter(r => r.cleared != null && r.cleared < LEAGUE.barsToSurvive && !r.out);
+    if (shaky.length) lines.push(`😬 Below ${LEAGUE.barsToSurvive} bars right now: ${names(shaky.map(r => r.name))}`);
+  }
+
+  // The season table after the week.
+  const season = weekBoard(L, W, 'season');
+  const up = season.filter(r => r.move > 0).sort((a, b) => b.move - a.move)[0];
+  if (up) lines.push(`🚀 Biggest climb: ${up.name}, up ${up.move} to ${ord(up.rank)}`);
+  const down = season.filter(r => r.move < 0).sort((a, b) => a.move - b.move)[0];
+  if (down) lines.push(`📉 Biggest slide: ${down.name}, down ${-down.move} to ${ord(down.rank)}`);
+  const leaders = season.filter(r => r.rank === 1);
+  if (leaders.length) lines.push(`👑 Top of the table: ${names(leaders.map(r => r.name))}, ${fmt(leaders[0].season)} pts`);
+
+  return out.concat(lines).join('\n');
+}

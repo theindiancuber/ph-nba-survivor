@@ -95,3 +95,15 @@ test('games are "active" from 75 minutes before a tip until the game is final (o
   assert.equal(gamesActive([g('a', at(-6 * 60))], {}, now), false, 'stale: tipped over 5 hours ago');
   assert.equal(gamesActive([{ id: 'a', tipUtc: null }], {}, now), false);
 });
+
+test('a week is over the moment its last game is final, or by 6am ET on the Tuesday after', async () => {
+  const { weekOver } = await import('../src/config.js');
+  const end = '2026-11-01'; // a Sunday
+  const at = iso => Date.parse(iso);
+  assert.equal(weekOver({ end, games: 10, done: 10, now: at('2026-11-02T04:30:00Z') }), true, 'Sunday night, every game final');
+  assert.equal(weekOver({ end, games: 10, done: 9, now: at('2026-11-02T04:30:00Z') }), false, 'a game still on');
+  assert.equal(weekOver({ end, games: 10, done: 10, now: at('2026-10-31T23:00:00Z') }), false, 'before the last day: games may be missing from the schedule');
+  assert.equal(weekOver({ end, games: 10, done: 9, now: at('2026-11-03T10:59:00Z') }), false);
+  assert.equal(weekOver({ end, games: 10, done: 9, now: at('2026-11-03T11:00:00Z') }), true, 'a postponed game holds it until Tuesday 6am ET');
+  assert.equal(weekOver({ end, games: 0, done: 0, now: at('2026-12-01T00:00:00Z') }), false, 'no games, no week');
+});

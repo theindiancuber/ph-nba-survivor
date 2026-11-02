@@ -170,6 +170,17 @@ try {
         const snag = await page.$('.view-error');
         if (snag) fail(`demo #admin ${tab} hit a snag: ${(await appText(page)).slice(0, 200)}`);
         else if (report(page, `#admin ${tab}`)) pass(`#admin ${tab} renders`);
+        // The recap has a weekly wrap-up beside the nightly one.
+        if (tab === 'recap') {
+          const weekly = await page.$('[data-act="recap-mode"][data-mode="week"]');
+          if (!weekly) { fail('demo #admin recap has no weekly view'); continue; }
+          await weekly.click();
+          await page.waitForTimeout(300);
+          if (await page.$('.view-error')) fail(`demo #admin weekly recap hit a snag: ${(await appText(page)).slice(0, 200)}`);
+          else if (!(await page.$('#recap-canvas'))) fail('demo #admin weekly recap shows no leaderboard');
+          else if (report(page, '#admin weekly recap')) pass('#admin weekly recap renders');
+          await page.click('[data-act="recap-mode"][data-mode="night"]');
+        }
       }
     }
     report(page, 'end');

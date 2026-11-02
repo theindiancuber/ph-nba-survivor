@@ -11,7 +11,7 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SPORT, LEAGUE, buildWeeks, defaultLockAt } from '../src/config.js';
+import { SPORT, LEAGUE, buildWeeks, defaultLockAt, weekOver } from '../src/config.js';
 import { TEAMS } from '../src/teams.js';
 import { addHockeyLine, totalsThrough } from '../src/calendar.js';
 import { syncSupabase, gamesActive } from './update-data.mjs';
@@ -90,13 +90,11 @@ export function buildData({ schedule, boxes, rosters = {}, now = Date.now() }) {
       }
       if (g.tipUtc && (!first || g.tipUtc < first.tipUtc)) first = g;
     }
-    const allDone = games.length > 0 && games.every(done);
-    const endPassed = now > Date.parse(w.end + 'T12:00:00Z') + 24 * 3600e3;
     return {
       ...w,
       lockAt: first ? new Date(first.tipUtc).toISOString() : defaultLockAt(w),
       firstGame: first ? { id: first.id, away: first.away, home: first.home, etDate: first.etDate, tipUtc: first.tipUtc } : null,
-      games: games.length, final: allDone && endPassed, gamesByTeam, leftByTeam,
+      games: games.length, final: weekOver({ end: w.end, games: games.length, done: games.filter(done).length, now }), gamesByTeam, leftByTeam,
     };
   });
 
