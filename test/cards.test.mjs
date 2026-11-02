@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeLeague, blockedReason, swapMoves } from '../src/league.js';
+import { computeLeague, blockedReason, swapMoves, previewPlay, standingAt } from '../src/league.js';
 import { dealPack, CARDS, DECK, packOdds, tierFor, standingOdds, standingFor } from '../src/cards.js';
 import { LEAGUE } from '../src/config.js';
 
@@ -212,6 +212,28 @@ test("the Switcheroo form's moves are what the engine plays (Dub never moves)", 
   const L = computeLeague({ weeks: [wk(1)], totals, picks, plays, profiles, now: NOW, cardsFrom: 1, dealer: () => ['switcheroo'] });
   assert.equal(L.weeks[0].cards.plays[0].outcome, 'played');
   assert.equal(L.weeks[0].results.a.slots.PTS.scorer, 4);
+});
+
+test('the play preview shows the standings a hindsight card would leave, the same as playing it', () => {
+  const { totals, picks } = basicWeek();
+  const args = { weeks: [wk(1)], totals, picks, plays: [], profiles, now: NOW, cardsFrom: 1, dealer: () => ['garbage', 'switcheroo', 'clown'] };
+  const L = computeLeague(args);
+  const row = { week: 1, card: 'garbage', card_uid: 'w1:starter', slot: 'PTS' };
+  const p = previewPlay(args, row, 'a', Date.parse(after(1)));
+  assert.equal(p.rec.outcome, 'played');
+  const before = standingAt(L, 1, 'a');
+  // Garbage Time swaps a's worst PTS game (20) for his best (40): +20 points in the slot.
+  assert.equal(computeLeague(args).weeks[0].results.a.slots.PTS.value, 90);
+  const played = computeLeague({ ...args, plays: [{ ...row, id: 'x', user_id: 'a', target_id: null, player_id: null, params: {}, created_at: after(1) }] });
+  assert.deepEqual(p.after, standingAt(played, 1, 'a'), 'the preview is what playing it does');
+  assert.ok(p.after.week >= before.week);
+  assert.deepEqual(Object.keys(before), ['week', 'weekRank', 'of', 'season', 'rank', 'lives']);
+  assert.equal(before.of, 3);
+
+  // A play that wouldn't work says so.
+  const bad = previewPlay({ ...args, dealer: () => ['switcheroo', 'garbage', 'clown'] }, { week: 1, card: 'switcheroo', card_uid: 'w1:starter', params: { map: { PTS: 'WIN', WIN: 'PTS' } } }, 'a', Date.parse(after(1)));
+  assert.equal(bad.rec.outcome, 'fizzled');
+  assert.equal(bad.rec.why, 'bad-swap');
 });
 
 test('switcheroo onto a burned slot fizzles and refunds', () => {

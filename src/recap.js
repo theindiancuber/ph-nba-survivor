@@ -71,7 +71,7 @@ export function recapBoard(after, before, W, kind = 'season') {
 }
 
 const names = list => list.length <= 3 ? list.join(', ') : `${list.slice(0, 3).join(', ')} +${list.length - 3} more`;
-const ord = n => { const v = n % 100; return n + (['th', 'st', 'nd', 'rd'][(v - 20) % 10] || ['th', 'st', 'nd', 'rd'][v] || 'th'); };
+export const ord = n => { const v = n % 100; return n + (['th', 'st', 'nd', 'rd'][(v - 20) % 10] || ['th', 'st', 'nd', 'rd'][v] || 'th'); };
 
 // The fun stats, as plain lines with emoji, ready to paste into a group chat.
 // day: that night's lines { p: { pid: line }, t: { TRI: [games, wins] } } (lines as in calendar.js).

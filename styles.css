@@ -1536,3 +1536,11 @@ html[data-theme="light"] .nick { color: #be185d; }
 html[data-theme="light"] .decree p { color: var(--soft); }
 html[data-theme="light"] .decree-head small { color: var(--tx-gold-4); }
 html[data-theme="light"] .versus .rec { background-image: linear-gradient(180deg, var(--text), var(--muted)); }
+
+/* What a hindsight card would do to your standings (play form) */
+.preview { display: grid; gap: 6px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line-2); background: rgba(var(--fg), .03); font-size: 14px; }
+.preview .kicker { margin: 0 0 2px; }
+.preview-row { display: grid; grid-template-columns: 76px auto auto 1fr; gap: 10px; align-items: baseline; }
+.preview-row > span:last-child { text-align: right; }
+.preview .up { color: var(--tx-mint); }
+.preview .down { color: var(--tx-pink-3); }
