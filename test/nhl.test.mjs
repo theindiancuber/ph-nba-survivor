@@ -408,3 +408,10 @@ test('the weekly wrap-up names who lost a life and who is out, as of that week',
   assert.match(text, /The Wall of the week: .+, \.\d{3} SV%/);
   assert.doesNotMatch(text, /undefined|NaN/);
 });
+
+test("Line Change's form swaps Lamplighter and Shutdown only", async () => {
+  const { swapMoves } = await import('../src/league.js');
+  assert.deepEqual(swapMoves({ PTS: 'PM', PM: 'PTS' }), { moved: { PTS: 'PM', PM: 'PTS' } });
+  assert.match(swapMoves({ PTS: 'PM', PM: 'PM' }).error, /Swap both players/);
+  assert.match(swapMoves({ PTS: 'SV', SV: 'PTS' }).error, /Move at least one|Swap both/);
+});

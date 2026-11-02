@@ -1,7 +1,7 @@
 import { LEAGUE, SPORT, buildWeeks, defaultLockAt, MONTH_LABELS, addDays, slotValue } from './config.js';
 import { weekDays, totalsThrough, etDate, seasonThrough } from './calendar.js';
 import { nightStatus, recapNights, recapBoard, recapStats, recapWeeks, weekBoard, weekRecapStats } from './recap.js';
-import { computeLeague, headToHead, blockedReason, projection, teamProjection, fmt, eligible, clearsBar, savePct, SWAP_SLOTS } from './league.js';
+import { computeLeague, headToHead, blockedReason, projection, teamProjection, fmt, eligible, clearsBar, savePct, SWAP_SLOTS, swapMoves } from './league.js';
 import { TEAMS, TEAM_BY_ID, DIVISIONS, isTeamId, teamLogo, headshot } from './teams.js';
 import { SupabaseBackend, DemoBackend } from './backend.js';
 import { downloadCertificate } from './certificate.js';
@@ -1250,7 +1250,7 @@ async function practicePack() {
 function openPlay(uid) {
   const inst = meU()?.cards.hand.find(h => h.uid === uid);
   if (!inst) return;
-  S.play = { uid, card: inst.card, inst, mode: 'play', target: '', slot: '', player: null, q: '', nick: '', taunt: '', map: Object.fromEntries(LEAGUE.playerSlots.map(s => [s, s])), giftTo: '' };
+  S.play = { uid, card: inst.card, inst, mode: 'play', target: '', slot: '', player: null, q: '', nick: '', taunt: '', map: Object.fromEntries(SWAP_SLOTS.map(s => [s, s])), giftTo: '' };
   renderPlay();
 }
 
@@ -1402,10 +1402,9 @@ async function submitPlay(btn) {
     if (P.card === 'nickname') row.params.nick = +P.nick;
     if (P.taunt !== '') row.params.taunt = +P.taunt;
     if (P.card === 'switcheroo') {
-      const moved = Object.fromEntries(SLOTS.filter(s => P.map[s] !== s).map(s => [s, P.map[s]]));
-      const to = Object.values(moved);
-      if (!to.length) return err('Move at least one player.');
-      if (new Set(to).size !== to.length || !to.every(t => t in moved)) return err('Each slot needs exactly one player. Swap them in pairs or rotate all three.');
+      // Only the swappable slots: Dub (and an NHL goalie) never move.
+      const { moved, error } = swapMoves(P.map);
+      if (error) return err(error);
       row.params.map = moved;
     }
     msg = isTrap(P.card) ? `${d.name} is armed. Nobody can see it.`
