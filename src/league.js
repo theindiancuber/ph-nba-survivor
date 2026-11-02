@@ -530,6 +530,18 @@ function playValueCards({ cw, W, status, totals, results, entrants, users, hits,
   if (status !== 'final') for (const rec of cw.plays) if (rec.ok && rec.outcome === 'played' && ['sixth', 'duel', 'leech'].includes(rec.card)) rec.live = true;
 }
 
+// A Switcheroo's moves from the form ({ slot: new slot } for every swappable slot): only the slots
+// that change, or an error. The same rule the engine applies below.
+export function swapMoves(map) {
+  const moved = Object.fromEntries(SWAP_SLOTS.filter(s => map[s] && map[s] !== s).map(s => [s, map[s]]));
+  const to = Object.values(moved);
+  if (!to.length) return { error: 'Move at least one player.' };
+  if (to.some(t => !SWAP_SLOTS.includes(t)) || new Set(to).size !== to.length || !to.every(t => t in moved)) {
+    return { error: SWAP_SLOTS.length > 2 ? 'Each slot needs exactly one player. Swap them in pairs or rotate all three.' : 'Swap both players.' };
+  }
+  return { moved };
+}
+
 function switcheroo(rec, r, u, cw, line) {
   const map = rec.params?.map || {};
   const from = Object.keys(map);

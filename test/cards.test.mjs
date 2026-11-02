@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeLeague, blockedReason } from '../src/league.js';
+import { computeLeague, blockedReason, swapMoves } from '../src/league.js';
 import { dealPack, CARDS, DECK, packOdds, tierFor, standingOdds, standingFor } from '../src/cards.js';
 import { LEAGUE } from '../src/config.js';
 
@@ -195,6 +195,23 @@ test('switcheroo moves players between slots and the burns follow them', () => {
   assert.equal(L.users.a.burns.PTS.has(4), true);
   assert.equal(L.users.a.burns.PTS.has(1), false);
   assert.equal(L.users.a.burns.AST.has(1), true);
+});
+
+test("the Switcheroo form's moves are what the engine plays (Dub never moves)", () => {
+  // The form keeps every player slot; it once also counted Dub as "moved" and refused every swap.
+  const pair = swapMoves({ PTS: 'REB', REB: 'PTS', AST: 'AST' });
+  assert.deepEqual(pair, { moved: { PTS: 'REB', REB: 'PTS' } });
+  assert.deepEqual(swapMoves({ PTS: 'REB', REB: 'AST', AST: 'PTS' }), { moved: { PTS: 'REB', REB: 'AST', AST: 'PTS' } });
+  assert.match(swapMoves({ PTS: 'PTS', REB: 'REB', AST: 'AST' }).error, /Move at least one/);
+  assert.match(swapMoves({ PTS: 'REB', REB: 'REB', AST: 'AST' }).error, /exactly one player/);
+  assert.match(swapMoves({ PTS: 'REB', REB: 'AST', AST: 'AST' }).error, /exactly one player/);
+  assert.match(swapMoves({ PTS: 'WIN', WIN: 'PTS' }).error, /exactly one player/);
+
+  const { totals, picks } = basicWeek();
+  const plays = [play('a', 1, 'switcheroo', { params: { map: swapMoves({ PTS: 'AST', REB: 'REB', AST: 'PTS' }).moved }, created_at: after(1) })];
+  const L = computeLeague({ weeks: [wk(1)], totals, picks, plays, profiles, now: NOW, cardsFrom: 1, dealer: () => ['switcheroo'] });
+  assert.equal(L.weeks[0].cards.plays[0].outcome, 'played');
+  assert.equal(L.weeks[0].results.a.slots.PTS.scorer, 4);
 });
 
 test('switcheroo onto a burned slot fizzles and refunds', () => {
