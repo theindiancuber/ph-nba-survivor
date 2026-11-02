@@ -530,6 +530,26 @@ function playValueCards({ cw, W, status, totals, results, entrants, users, hits,
   if (status !== 'final') for (const rec of cw.plays) if (rec.ok && rec.outcome === 'played' && ['sixth', 'duel', 'leech'].includes(rec.card)) rec.live = true;
 }
 
+// Where someone stands after week W: week points and place among that week's entrants,
+// season points (after drops) and place, and lives.
+export function standingAt(L, W, id) {
+  const w = L.weeks.find(x => x.week === W), score = u => w?.results[u]?.score || 0;
+  const mine = score(id);
+  return {
+    week: mine, weekRank: 1 + (w?.entrants || []).filter(u => score(u) > mine).length, of: w?.entrants.length || 0,
+    season: L.users[id].counted, rank: L.users[id].rank, lives: L.users[id].lives,
+  };
+}
+
+// A card played now, worked out against the league as it stands: the play's record (did it land or
+// fizzle, and why) and the player's standing after it. args: what computeLeague was given.
+export function previewPlay(args, row, id, at) {
+  const fake = { params: {}, target_id: null, slot: null, player_id: null, ...row, id: 'preview', user_id: id, created_at: new Date(at).toISOString() };
+  const L = computeLeague({ ...args, plays: [...(args.plays || []), fake] });
+  const rec = L.weeks.find(w => w.week === row.week)?.cards.plays.find(p => p.id === 'preview') || null;
+  return { rec, after: standingAt(L, row.week, id) };
+}
+
 // A Switcheroo's moves from the form ({ slot: new slot } for every swappable slot): only the slots
 // that change, or an error. The same rule the engine applies below.
 export function swapMoves(map) {

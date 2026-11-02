@@ -1,7 +1,7 @@
 import { LEAGUE, SPORT, buildWeeks, defaultLockAt, MONTH_LABELS, addDays, slotValue } from './config.js';
 import { weekDays, totalsThrough, etDate, seasonThrough } from './calendar.js';
-import { nightStatus, recapNights, recapBoard, recapStats, recapWeeks, weekBoard, weekRecapStats } from './recap.js';
-import { computeLeague, headToHead, blockedReason, projection, teamProjection, fmt, eligible, clearsBar, savePct, SWAP_SLOTS, swapMoves } from './league.js';
+import { nightStatus, recapNights, recapBoard, recapStats, recapWeeks, weekBoard, weekRecapStats, ord } from './recap.js';
+import { computeLeague, headToHead, blockedReason, projection, teamProjection, fmt, eligible, clearsBar, savePct, SWAP_SLOTS, swapMoves, previewPlay, standingAt } from './league.js';
 import { TEAMS, TEAM_BY_ID, DIVISIONS, isTeamId, teamLogo, headshot } from './teams.js';
 import { SupabaseBackend, DemoBackend } from './backend.js';
 import { downloadCertificate } from './certificate.js';
@@ -1320,6 +1320,14 @@ function playForm(use) {
     f.push(`<label class="field">Taunt (optional, shown at the reveal)<select class="input" data-change="play-taunt"><option value="">No taunt</option>${TAUNTS.map((t, i) => `<option value="${i}" ${P.taunt === String(i) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`);
   }
   if (P.card === 'embargo') f.push(`<p class="note" style="margin:0">Everyone sees ${HOCKEY ? 'a Sin Bin' : 'an Embargo'} the moment you play it, so they can change their picks.</p>`);
+  // Hindsight cards rewrite a finished week, so show what they'd do. Other cards are played before
+  // the games, so their effect is only known once the week is over.
+  if (isHindsight(P.card)) {
+    const built = playRow(P, use);
+    f.push(built.row ? playPreview(built.row) : `<p class="note" style="margin:0">${esc(built.error)} The new standings show here.</p>`);
+  } else if (!['clown', 'nickname', 'scout', 'charge', 'reverse'].includes(P.card)) {
+    f.push(`<p class="note" style="margin:0">Played before the games, so what it does to the standings is known once Week ${use.week} is over. It shows on the Results tab.</p>`);
+  }
   const verb = isTrap(P.card) ? 'Arm' : 'Play';
   f.push(`<button class="btn primary" data-act="play-submit">${verb} ${esc(d.name)}</button>`);
   return f.join('');
@@ -1335,7 +1343,8 @@ function swapForm(week) {
     const line = S.data.totals[week]?.p?.[x.scorer] || [];
     const opts = SWAP_SLOTS.map(t => {
       const burned = t !== s && (u.burns[t].get(x.scorer) ?? Infinity) < week;
-      return `<option value="${t}" ${P.map[s] === t ? 'selected' : ''} ${burned ? 'disabled' : ''}>${INFO[t].name}: ${V(t, line[STAT_IDX[t] + 1] ?? 0)} ${INFO[t].short}${burned ? ' (burned)' : ''}</option>`;
+      const embargoed = t !== s && !!cw(week)?.embargo[t]?.has(x.scorer);
+      return `<option value="${t}" ${P.map[s] === t ? 'selected' : ''} ${burned || embargoed ? 'disabled' : ''}>${INFO[t].name}: ${V(t, line[STAT_IDX[t] + 1] ?? 0)} ${INFO[t].short}${burned ? ' (burned)' : embargoed ? ` (${HOCKEY ? 'sin bin' : 'embargoed'})` : ''}</option>`;
     }).join('');
     return `<div class="swap-row"><span>${slotName(s)}: <b>${esc(shortName(x.scorer))}</b> <span class="dim">${V(s, x.value)} ${INFO[s].short}</span></span><select class="input" style="width:auto" data-change="play-swap" data-from="${s}">${opts}</select></div>`;
   }).join('');
@@ -1379,7 +1388,54 @@ function playPlayerRows() {
       }
       return `<button class="prow" data-act="play-player" data-pid="${p.id}" ${why ? 'disabled' : ''}>${thumb(p.id)}<div><div class="nm">${esc(p.name)}</div><div class="mt">${esc(p.team)} · ${LEAGUE.playerSlots.map(s => `${fmt(p.avg?.[STAT_IDX[s]] || 0)} ${INFO[s].short}`).join(' / ')}${why ? ` <span class="blocked">${esc(why)}</span>` : ''}</div></div><div></div></button>`;
     });
-  return [...rows, ...(q ? teamRows : [])].join('') || '<div class="empty-state">No players match.</div>';
+  // A Jinx can name a team: list them under the players (searching narrows both).
+  return [...rows, ...(q || P.card === 'jinx' ? teamRows : [])].join('') || '<div class="empty-state">No players match.</div>';
+}
+
+// The row a play saves, or what's still missing. Shared by the play button and the preview.
+function playRow(P, use) {
+  const d = CARDS[P.card];
+  if (use.why) return { error: use.why };
+  if (d.needs.includes('target') && !P.target) return { error: 'Choose a colleague.' };
+  if (d.needs.includes('slot') && !P.slot) return { error: 'Choose a category.' };
+  if (d.needs.includes('player') && P.player == null) return { error: 'Choose a player.' };
+  if (d.needs.includes('nickname') && P.nick === '') return { error: 'Choose a nickname.' };
+  const row = { week: use.week, card: P.card, card_uid: P.uid, target_id: P.target || null, slot: P.slot || null, player_id: P.player ?? null, params: {} };
+  if (P.card === 'nickname') row.params.nick = +P.nick;
+  if (P.taunt !== '') row.params.taunt = +P.taunt;
+  if (P.card === 'switcheroo') {
+    // Only the swappable slots: Dub (and an NHL goalie) never move.
+    const { moved, error } = swapMoves(P.map);
+    if (error) return { error };
+    row.params.map = moved;
+  }
+  return { row };
+}
+
+// Why a card fizzled, in words.
+const FIZZLE = {
+  'bad-swap': 'the swap doesn\'t line up', burned: 'a player is burned (or embargoed) in his new slot', 'one-game': 'that pick played only one game',
+  'no-picks': 'you had no picks that week', 'already-picked': 'he was already one of your picks', 'not-above': 'they weren\'t above you', 'you-lead': 'you lead', cap: 'they had already taken the most attacks',
+};
+
+// A hindsight card rewrites a final week, so its effect is known now: the league worked out again
+// with it played, against the league as it stands.
+function playPreview(row) {
+  const W = row.week;
+  let p;
+  try { p = previewPlay(S.leagueArgs, row, myId(), now()); } catch (e) { console.warn(e); return ''; }
+  if (!p.rec?.ok || p.rec.outcome === 'fizzled') {
+    return `<div class="callout"><span class="ic">⚠️</span><div class="txt">This would fizzle${FIZZLE[p.rec?.why] ? `: ${FIZZLE[p.rec.why]}` : ''}. The card comes back to your hand.</div></div>`;
+  }
+  const b = standingAt(S.league, W, myId()), x = p.after;
+  const n = v => `${v > 0 ? '+' : v < 0 ? '−' : '±'}${fmt(Math.abs(v))}`;
+  const line = (label, from, to, rf, rt, of) => `<div class="preview-row"><span>${label}</span><b>${fmt(from)} → ${fmt(to)}</b><span class="${to > from ? 'up' : to < from ? 'down' : 'dim'}">${n(to - from)}</span><span class="dim">${ord(rf)} → <b class="${rt < rf ? 'up' : rt > rf ? 'down' : ''}">${ord(rt)}</b>${of ? ` of ${of}` : ''}</span></div>`;
+  const same = x.week === b.week && x.rank === b.rank;
+  return `<div class="preview"><div class="kicker">If you play it</div>
+    ${line(`Week ${W}`, b.week, x.week, b.weekRank, x.weekRank, x.of)}
+    ${line('Season', b.season, x.season, b.rank, x.rank)}
+    ${x.lives !== b.lives ? `<p class="note" style="margin:4px 0 0">Lives: ${b.lives} → ${x.lives}</p>` : ''}
+    ${same ? '<p class="note" style="margin:4px 0 0">No change to your points or place. Hold onto it?</p>' : ''}</div>`;
 }
 
 async function submitPlay(btn) {
@@ -1393,20 +1449,9 @@ async function submitPlay(btn) {
     msg = `${d.name} is on its way to ${userName(P.giftTo)}. It arrives next week.`;
   } else {
     const use = cardUse(P.inst);
-    if (use.why) return err(use.why);
-    if (d.needs.includes('target') && !P.target) return err('Choose a colleague.');
-    if (d.needs.includes('slot') && !P.slot) return err('Choose a category.');
-    if (d.needs.includes('player') && P.player == null) return err('Choose a player.');
-    if (d.needs.includes('nickname') && P.nick === '') return err('Choose a nickname.');
-    row = { week: use.week, card: P.card, card_uid: P.uid, target_id: P.target || null, slot: P.slot || null, player_id: P.player ?? null, params: {} };
-    if (P.card === 'nickname') row.params.nick = +P.nick;
-    if (P.taunt !== '') row.params.taunt = +P.taunt;
-    if (P.card === 'switcheroo') {
-      // Only the swappable slots: Dub (and an NHL goalie) never move.
-      const { moved, error } = swapMoves(P.map);
-      if (error) return err(error);
-      row.params.map = moved;
-    }
+    const built = playRow(P, use);
+    if (built.error) return err(built.error);
+    row = built.row;
     msg = isTrap(P.card) ? `${d.name} is armed. Nobody can see it.`
       : P.card === 'embargo' ? `${CN('embargo')} is live. Everyone can see it now.`
       : P.card === 'duel' ? `${HOCKEY ? 'Faceoff' : 'Challenge'} sent to ${userName(P.target)}.`
@@ -3482,7 +3527,7 @@ document.addEventListener('change', async e => {
     if (k === 'play-nick') S.play.nick = el.value;
     if (k === 'play-taunt') S.play.taunt = el.value;
     if (k === 'play-gift') S.play.giftTo = el.value;
-    if (k === 'play-swap') { S.play.map[el.dataset.from] = el.value; }
+    if (k === 'play-swap') { S.play.map[el.dataset.from] = el.value; renderPlay(); }
   }
   if (el.dataset.change === 'rival') {
     try { await S.backend.updateProfile({ rival_id: el.value || null }); toast(el.value ? `Rivalry on: ${userName(el.value)}` : 'Rival cleared.'); } catch (err) { toast(err.message, true); }
