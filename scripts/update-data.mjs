@@ -10,7 +10,7 @@ import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LEAGUE, buildWeeks, defaultLockAt } from '../src/config.js';
+import { LEAGUE, buildWeeks, defaultLockAt, weekOver } from '../src/config.js';
 import { computeLeague, autopilotPicks } from '../src/league.js';
 import { resolveDecrees, decreeCodes } from '../src/decrees.js';
 import { seededDealer } from '../src/cards.js';
@@ -91,14 +91,13 @@ export function buildData({ schedule, boxes, now = Date.now() }) {
       }
       if (g.tipUtc && (!first || g.tipUtc < first.tipUtc)) first = g;
     }
-    const allDone = games.length > 0 && games.every(g => (boxes[g.id]?.status ?? g.status) === 3);
-    const endPassed = now > Date.parse(w.end + 'T12:00:00Z') + 24 * 3600e3;
+    const done = games.filter(g => (boxes[g.id]?.status ?? g.status) === 3).length;
     return {
       ...w,
       lockAt: first ? new Date(first.tipUtc).toISOString() : defaultLockAt(w),
       firstGame: first ? { id: first.id, away: first.away, home: first.home, etDate: first.etDate, tipUtc: first.tipUtc } : null,
       games: games.length,
-      final: allDone && endPassed,
+      final: weekOver({ end: w.end, games: games.length, done, now }),
       gamesByTeam, leftByTeam,
     };
   });

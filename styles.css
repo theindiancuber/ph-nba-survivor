@@ -1352,6 +1352,7 @@ thead .cal-team { font: 500 11px/1 var(--body); letter-spacing: .1em; text-trans
 .recap-status { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; font-size: 13px; text-align: center; }
 .recap-split { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
 .recap-seg { margin: 0; min-width: 190px; }
+.recap-mode { justify-self: start; }
 .recap-seg button { padding: 6px 10px; font-size: 12.5px; }
 .recap-canvas { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); background: var(--inset); }
 .recap-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }

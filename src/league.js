@@ -107,7 +107,7 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
   for (const pr of profiles) {
     users[pr.id] = {
       id: pr.id, name: pr.display_name, rival: pr.rival_id || null, team: pr.fav_team || null, joined: pr.created_at || null,
-      weekly: {}, total: 0, counted: 0, dropped: [], lives: LEAGUE.lives, eliminatedWeek: null,
+      weekly: {}, total: 0, counted: 0, dropped: [], lives: LEAGUE.lives, livesAfter: {}, eliminatedWeek: null,
       raw: { weekly: {}, total: 0, counted: 0, dropped: [], rank: null },
       burns: newBurns(), uses: newBurns(), reserved: newBurns(), doubleDownWeek: null, plannedDoubleDown: null,
       unburn: unburnByUser[pr.id] || null, monthly: {},
@@ -289,6 +289,8 @@ export function computeLeague({ weeks, totals, picks, unburns = [], plays = [], 
       if (u.lives > 0) u.eliminatedWeek = null;
       else if (u.eliminatedWeek == null) u.eliminatedWeek = W;
     }
+    // Lives as they stood after each week, for the weekly recap.
+    for (const u of Object.values(users)) u.livesAfter[W] = u.lives;
 
     // Burn Notice lands after the week's own burns, so it bites from next week.
     for (const h of hits) {

@@ -51,3 +51,36 @@ test('the recap board and fun stats come from the league before and after a nigh
   assert.match(text, /Bucket of the night: .+ \d+ PTS/);
   assert.match(text, /👑 Top of the table: /);
 });
+
+test('the weekly wrap-up: week standings with lives lost, and the week in fun stats', async () => {
+  const { weekBoard, weekRecapStats, recapWeeks } = await import('../src/recap.js');
+  const s = makeDemo();
+  const L = computeLeague({ weeks: s.weeks, totals: s.totals, picks: s.picks, unburns: s.unburns, plays: s.plays, profiles: s.profiles, now: s.now, players: s.players, cardsFrom: s.cardsFrom });
+  assert.deepEqual(recapWeeks(L), [1, 2, 3, 4, 5, 6], 'every locked week, the live one too');
+
+  // Lives as they stood after each week, whatever came later.
+  for (const W of [1, 3, 5]) {
+    const board = weekBoard(L, W, 'week');
+    for (let i = 1; i < board.length; i++) assert.ok(board[i - 1].week >= board[i].week, 'sorted by week points');
+    for (const r of board) {
+      const lost = L.weeks.filter(w => w.week <= W && w.results[r.id]?.lifeLost).length;
+      assert.equal(r.lives, 3 - lost, `${r.name} after week ${W}`);
+      assert.equal(r.lifeLost, !!L.weeks.find(w => w.week === W).results[r.id].lifeLost);
+    }
+  }
+  const season = weekBoard(L, 5, 'season');
+  assert.equal(new Set(season.map(r => r.rank + r.move)).has(1), true, 'movement since the week before');
+  assert.ok(weekBoard(L, 1, 'season').every(r => r.move === null), 'nothing to move from in week 1');
+
+  const text = weekRecapStats({ league: L, W: 5, players: s.players });
+  assert.match(text, /^🏀 Peakhill NBA Survivor · Week 5 wrap-up/);
+  assert.match(text, /🥇 .+ pts/);
+  assert.match(text, /Bucket of the week: .+ \d+ PTS/);
+  assert.match(text, /💔 Lost a life: |☠️ Eliminated: |🛡️ Everyone survived the week/);
+  assert.match(text, /❤️ Still alive: \d+/);
+  assert.doesNotMatch(text, /undefined|NaN/);
+
+  const live = weekRecapStats({ league: L, W: 6, players: s.players });
+  assert.match(live, /Week 6 so far/);
+  assert.doesNotMatch(live, /Lost a life|Still alive/, 'lives settle only when the week is final');
+});

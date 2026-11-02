@@ -168,6 +168,15 @@ export function easternToUtc(isoDate, hh = 19, mm = 0) {
   return new Date(guess + 5 * 3600e3).toISOString();
 }
 
+// A week is over, and its lives and burns settle, as soon as every one of its games is final
+// (on or after its last day, so a schedule still missing games can't close it early). A game that
+// never finishes (postponed) holds the week open until 6am ET on the Tuesday after, at most.
+export function weekOver({ end, games, done, now }) {
+  if (!games) return false;
+  if (now >= Date.parse(easternToUtc(addDays(end, 2), 6, 0))) return true;
+  return done >= games && now >= Date.parse(easternToUtc(end, 0, 0));
+}
+
 // Fallback lock: 7pm ET on the first day of the week. The data script
 // replaces it with the real first tip-off once the schedule is loaded.
 export function defaultLockAt(week) {
