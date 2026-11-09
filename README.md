@@ -148,7 +148,7 @@ The app is static files on GitHub Pages plus Supabase, and both are very reliabl
   - Once loaded, a dropped connection keeps the last data on screen and retries in the background.
   - A bug in one page shows "This page hit a snag" on that page only. The other tabs, and saving picks, keep working.
 - **No CDN:** the Supabase client is served from this repo (`vendor/`), so a CDN outage can't take the league down. The CSP no longer allows any outside scripts.
-- **Supabase free tier** pauses a project after a week with no requests. The data job talks to it many times a day, which keeps it awake, so leave that workflow on.
+- **Supabase free tier** pauses a project after a week with no activity. The data job talks to it many times a day, and a separate **keep-alive** (`.github/workflows/keepalive.yml`, `scripts/keepalive.mjs`) runs one small read per league twice a day even when the data job is failing or off. If Supabase doesn't answer, it opens a **🚨 supabase-down** issue (GitHub emails you) and closes it when Supabase is back. If the project does get paused, restore it from the Supabase dashboard.
 
 ### Updating the vendored Supabase client
 
