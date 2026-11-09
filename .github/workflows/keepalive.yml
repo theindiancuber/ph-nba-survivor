@@ -1,0 +1,60 @@
+name: Supabase keep-alive
+
+# The Supabase free tier pauses a project after about a week with no activity. The data job
+# normally keeps it awake, but only while the NBA/NHL feeds and tests work. This runs one small
+# read per league twice a day, whatever else is happening (scripts/keepalive.mjs).
+# If Supabase doesn't answer, an issue labelled "supabase-down" is opened so GitHub emails you;
+# it is closed when Supabase answers again.
+on:
+  schedule:
+    - cron: '41 4,16 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Query both leagues
+        id: ping
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -o pipefail
+          node scripts/keepalive.mjs 2>&1 | tee ping.log
+      - name: Open or close the supabase-down issue
+        uses: actions/github-script@v7
+        env:
+          OUTCOME: ${{ steps.ping.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            const log = fs.existsSync('ping.log') ? fs.readFileSync('ping.log', 'utf8').slice(-4000) : '(no log)';
+            const { owner, repo } = context.repo;
+            const open = (await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: 'supabase-down' })).data;
+            const run = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            if (process.env.OUTCOME === 'success') {
+              for (const i of open) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: i.number, body: `✅ Supabase is answering again. ${run}` });
+                await github.rest.issues.update({ owner, repo, issue_number: i.number, state: 'closed' });
+              }
+              return;
+            }
+            const body = `The keep-alive couldn't reach Supabase. If the project is paused, restore it from the Supabase dashboard. ${run}\n\n\`\`\`\n${log}\n\`\`\``;
+            if (open.length) await github.rest.issues.createComment({ owner, repo, issue_number: open[0].number, body: `Still not answering. ${run}` });
+            else await github.rest.issues.create({ owner, repo, title: '🚨 Supabase is not answering (paused?)', labels: ['supabase-down'], body });
+            core.setFailed('Supabase did not answer');
